@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>新建线路</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Noto+Sans+SC:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#0f7b45}a:hover{color:#0a5c33}
+</style>
+</helmet>
+<div style="display:flex; flex-wrap:wrap; min-height:100vh; background:#f4f5f7; font-family:Inter,'Noto Sans SC',system-ui,sans-serif; color:#1f2225; font-size:14px">
+  <div style="flex:1 1 220px; background:#fff; border-right:1px solid #e4e6ea">
+    <dc-import name="Sidebar" active="routes" hint-size="100%,900px"></dc-import>
+  </div>
+  <main style="flex:999 1 560px; min-width:0; display:flex; flex-direction:column">
+    <header style="display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:12px 28px; background:#fff; border-bottom:1px solid #e4e6ea">
+      <nav aria-label="面包屑" style="font-size:13px; color:#5f6368"><a href="Routes.dc.html" style="text-decoration:none">线路</a> /</nav>
+      <h1 style="margin:0; font-size:20px; font-weight:600">新建线路</h1>
+    </header>
+
+    <div style="padding:24px 28px 48px; display:flex; flex-direction:column; gap:20px; max-width:1040px; width:100%; box-sizing:border-box">
+      <ol aria-label="步骤" style="list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:8px">
+        <sc-for list="{{steps}}" as="s" hint-placeholder-count="5">
+          <li aria-current="{{s.current}}" style="flex:1 1 150px; display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:6px; background:{{s.bg}}; border:1px solid {{s.border}}">
+            <span style="flex:none; width:24px; height:24px; border-radius:12px; display:inline-flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; background:{{s.dotBg}}; color:{{s.dotFg}}">{{s.mark}}</span>
+            <span style="font-size:13px; font-weight:{{s.fw}}; color:{{s.fg}}">{{s.label}}</span>
+          </li>
+        </sc-for>
+      </ol>
+
+      <section style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:22px 24px; display:flex; flex-direction:column; gap:16px; min-height:420px; box-sizing:border-box">
+
+        <sc-if value="{{is1}}" hint-placeholder-val="{{true}}">
+          <h2 style="margin:0; font-size:16px; font-weight:600">选择入口机</h2>
+          <p style="margin:0; font-size:13px; color:#5f6368">客户端会连接这台机器的 Reality 端口。新线路只在它的 Reality 入站里新增一个 UUID，不会新开端口。</p>
+          <div role="radiogroup" aria-label="入口机" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:12px">
+            <sc-for list="{{entries}}" as="e" hint-placeholder-count="4">
+              <button type="button" role="radio" aria-checked="{{e.checked}}" disabled="{{e.disabled}}" onClick="{{e.pick}}" style="text-align:left; padding:14px 16px; border-radius:6px; border:{{e.border}}; background:{{e.bg}}; font:inherit; color:#1f2225; cursor:{{e.cursor}}; display:flex; flex-direction:column; gap:6px; opacity:{{e.opacity}}">
+                <span style="display:flex; align-items:center; gap:8px"><span style="font-weight:600; font-family:'JetBrains Mono',monospace">{{e.name}}</span><span style="font-size:12px; color:#5f6368">{{e.region}}</span></span>
+                <span style="font-size:12px; color:#5f6368">回程 <span style="font-family:'JetBrains Mono',monospace; color:{{e.latFg}}">{{e.lat}}</span> · 已有 {{e.count}} 条线路</span>
+                <span style="font-size:12px; color:{{e.noteFg}}">{{e.note}}</span>
+              </button>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{is2}}" hint-placeholder-val="{{false}}">
+          <h2 style="margin:0; font-size:16px; font-weight:600">线路类型</h2>
+          <div role="radiogroup" aria-label="线路类型" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px">
+            <button type="button" role="radio" aria-checked="{{directChecked}}" onClick="{{pickDirect}}" style="text-align:left; padding:16px 18px; border-radius:6px; border:{{directBorder}}; background:{{directBg}}; font:inherit; color:#1f2225; cursor:pointer; display:flex; flex-direction:column; gap:6px">
+              <span style="font-weight:600">直连</span>
+              <span style="font-size:13px; color:#5f6368; line-height:1.6">客户端 → {{entryName}}（Reality）→ 直接出网。出口 IP 是入口机的 IP。</span>
+              <sc-if value="{{directExists}}" hint-placeholder-val="{{false}}"><span style="font-size:12px; color:#94520a">{{entryName}} 已有直连线路，再建一条通常没有必要。</span></sc-if>
+            </button>
+            <button type="button" role="radio" aria-checked="{{chainChecked}}" onClick="{{pickChain}}" style="text-align:left; padding:16px 18px; border-radius:6px; border:{{chainBorder}}; background:{{chainBg}}; font:inherit; color:#1f2225; cursor:pointer; display:flex; flex-direction:column; gap:6px">
+              <span style="font-weight:600">经落地（链式）</span>
+              <span style="font-size:13px; color:#5f6368; line-height:1.6">客户端 → {{entryName}}（Reality）→ SS2022 → 落地机 → 出网。出口 IP 是落地机的 IP。</span>
+            </button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{is3}}" hint-placeholder-val="{{false}}">
+          <h2 style="margin:0; font-size:16px; font-weight:600">{{step3Title}}</h2>
+          <sc-if value="{{isChain}}" hint-placeholder-val="{{true}}">
+            <div style="display:flex; flex-wrap:wrap; gap:12px">
+              <div style="flex:1 1 300px; padding:14px 16px; border-radius:6px; border:2px solid #0f7b45; background:#f1f9f4; display:flex; flex-direction:column; gap:6px">
+                <span style="display:flex; align-items:center; gap:8px"><span style="font-weight:600; font-family:'JetBrains Mono',monospace">US-01</span><span style="font-size:12px; color:#5f6368">洛杉矶 · 唯一的落地机</span></span>
+                <span style="font-size:13px; color:#3d4248">{{entryName}} → US-01 线路段 <span style="font-family:'JetBrains Mono',monospace; font-weight:600">{{segment}}</span>（最近 1 小时均值，丢包 0%）</span>
+                <span style="font-size:12px; color:#5f6368">落地上已有 from-{{entryLower}} 用户，本次直接复用。</span>
+              </div>
+              <div style="flex:1 1 300px; padding:14px 16px; border-radius:6px; border:1px dashed #c9cdd2; background:#fafbfc; display:flex; flex-direction:column; gap:6px">
+                <span style="font-weight:600; color:#4a4f55">备用落地</span>
+                <span style="font-size:13px; color:#5f6368; line-height:1.6">目前只有 1 台落地机，暂不可用。以后添加第二台落地后，可在这里设置自动切换。</span>
+              </div>
+            </div>
+          </sc-if>
+          <label style="display:flex; flex-direction:column; gap:6px; font-size:13px; color:#3d4248; max-width:460px">线路名称（显示在客户端里）
+            <input type="text" value="{{routeName}}" style="height:40px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; color:#1f2225">
+          </label>
+          <span style="font-size:12px; color:#5f6368">按订阅设置里的命名模板自动生成，可以修改。</span>
+          <label style="display:flex; align-items:center; gap:8px; font-size:13px; min-height:36px">
+            <input type="checkbox" checked="{{true}}" style="width:16px; height:16px; accent-color:#0f7b45">创建后加入所有设备订阅
+          </label>
+        </sc-if>
+
+        <sc-if value="{{is4}}" hint-placeholder-val="{{false}}">
+          <h2 style="margin:0; font-size:16px; font-weight:600">预览变更</h2>
+          <p style="margin:0; font-size:13px; color:#5f6368">确认后才会下发。每台机器下发前都会先用 xray run -test 校验配置。</p>
+          <sc-for list="{{changes}}" as="g" hint-placeholder-count="2">
+            <div style="border:1px solid #eceef1; border-radius:6px; overflow:hidden">
+              <div style="padding:10px 14px; background:#fafbfc; font-weight:600; font-family:'JetBrains Mono',monospace; font-size:13px">{{g.server}}</div>
+              <sc-for list="{{g.items}}" as="c" hint-placeholder-count="2">
+                <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; padding:10px 14px; border-top:1px solid #f0f1f3; font-size:13px">
+                  <span style="font-family:'JetBrains Mono',monospace; font-weight:700; color:{{c.signFg}}; width:12px">{{c.sign}}</span>
+                  <span style="flex:1 1 300px">{{c.text}}</span>
+                  <span style="padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:{{c.bg}}; color:{{c.fg}}">{{c.how}}</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-for>
+          <div style="display:flex; gap:8px; padding:10px 12px; border-radius:6px; background:#e7effb; color:#173f7a; font-size:12px; line-height:1.6">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="flex:none; margin-top:2px"><path d="M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18 M12 11v6 M12 7.5v.5"></path></svg>
+            <span>路由规则优先通过 Xray 的路由 API 热添加；当前 Xray 版本不支持时，会改为重启 Xray（约 1 秒断流），这里会提前标出。</span>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{is5}}" hint-placeholder-val="{{false}}">
+          <h2 style="margin:0; font-size:16px; font-weight:600">自检</h2>
+          <ol style="list-style:none; margin:0; padding:0; display:flex; flex-direction:column">
+            <sc-for list="{{checks}}" as="c" hint-placeholder-count="5">
+              <li style="display:flex; align-items:center; gap:12px; padding:12px 0; border-top:1px solid #f0f1f3">
+                <span style="flex:none; width:22px; height:22px; border-radius:11px; background:#0f7b45; color:#fff; display:inline-flex; align-items:center; justify-content:center; font-size:12px; font-weight:700" aria-hidden="true">✓</span>
+                <span style="flex:1">{{c.label}}</span>
+                <span style="font-size:12px; color:#5f6368">{{c.detail}}</span>
+                <span style="width:64px; text-align:right; font-family:'JetBrains Mono',monospace; font-size:12px">{{c.ms}}</span>
+              </li>
+            </sc-for>
+          </ol>
+          <div style="display:flex; align-items:center; gap:10px; padding:12px 14px; border-radius:6px; background:#e6f4ec; color:#0a5c33">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l4 4 10-10"></path></svg>
+            <span style="flex:1">线路「{{routeName}}」已可用。客户端更新订阅后即可看到。</span>
+            <button type="button" style="height:36px; padding:0 12px; border-radius:4px; border:1px solid #9cd3b5; background:#fff; color:#0a5c33; font:inherit; font-size:13px; cursor:pointer">复制分享链接</button>
+          </div>
+        </sc-if>
+      </section>
+
+      <div style="display:flex; flex-wrap:wrap; gap:10px; justify-content:flex-end">
+        <a href="Routes.dc.html" style="display:inline-flex; align-items:center; height:40px; padding:0 16px; border-radius:4px; color:#3d4248; text-decoration:none">取消</a>
+        <sc-if value="{{canBack}}" hint-placeholder-val="{{false}}">
+          <button type="button" onClick="{{back}}" style="height:40px; padding:0 16px; border-radius:4px; border:1px solid #d5d8dd; background:#fff; color:#1f2225; font:inherit; cursor:pointer">上一步</button>
+        </sc-if>
+        <sc-if value="{{canNext}}" hint-placeholder-val="{{true}}">
+          <button type="button" onClick="{{next}}" style="height:40px; padding:0 18px; border:none; border-radius:4px; background:#0f7b45; color:#fff; font:inherit; font-weight:500; cursor:pointer">{{nextLabel}}</button>
+        </sc-if>
+        <sc-if value="{{is5}}" hint-placeholder-val="{{false}}">
+          <a href="Routes.dc.html" style="display:inline-flex; align-items:center; height:40px; padding:0 18px; border-radius:4px; background:#0f7b45; color:#fff; text-decoration:none; font-weight:500">完成，返回线路</a>
+        </sc-if>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  state = { step: 1, entry: 'HK-02', type: 'chain' };
+  renderVals() {
+    const { step, entry, type } = this.state;
+    const isChain = type === 'chain';
+    const E = {
+      'HK-01': { region: '香港', lat: '44 ms', count: 2, seg: '142 ms', direct: true },
+      'HK-02': { region: '香港', lat: '48 ms', count: 1, seg: '151 ms', direct: true },
+      'JP-01': { region: '东京', lat: '65 ms', count: 2, seg: '108 ms', direct: true },
+      'SG-01': { region: '新加坡', lat: '不可达', count: 2, seg: '175 ms', blocked: true }
+    };
+    const entries = Object.keys(E).map((name) => {
+      const e = E[name], on = name === entry, dis = !!e.blocked;
+      return {
+        name, region: e.region, lat: e.lat, count: e.count,
+        latFg: dis ? '#b4233a' : '#1f2225',
+        note: dis ? '疑似 IP 被封，暂不可选' : (on ? '已选择' : 'Reality :443'),
+        noteFg: dis ? '#b4233a' : (on ? '#0f7b45' : '#5f6368'),
+        checked: on ? 'true' : 'false', disabled: dis,
+        border: on ? '2px solid #0f7b45' : '1px solid #d5d8dd', bg: on ? '#f1f9f4' : (dis ? '#fafbfc' : '#fff'),
+        cursor: dis ? 'not-allowed' : 'pointer', opacity: dis ? '0.75' : '1',
+        pick: () => { if (!dis) this.setState({ entry: name }); }
+      };
+    });
+    const labels = ['选择入口', '线路类型', isChain ? '落地与名称' : '名称', '预览变更', '自检'];
+    const steps = labels.map((label, i) => {
+      const n = i + 1, done = n < step, cur = n === step;
+      return {
+        label, current: cur ? 'step' : 'false',
+        mark: done ? '✓' : String(n),
+        bg: cur ? '#fff' : 'transparent', border: cur ? '#0f7b45' : 'transparent',
+        dotBg: done || cur ? '#0f7b45' : '#e4e6ea', dotFg: done || cur ? '#fff' : '#4a4f55',
+        fg: cur ? '#1f2225' : (done ? '#0f7b45' : '#5f6368'), fw: cur ? '600' : '500'
+      };
+    });
+    const sel = (on) => ({ border: on ? '2px solid #0f7b45' : '1px solid #d5d8dd', bg: on ? '#f1f9f4' : '#fff' });
+    const d = sel(!isChain), c = sel(isChain);
+    const routeName = isChain ? entry + ' → US-01' : entry + ' 直连';
+    const lower = entry.toLowerCase().replace('-', '');
+    const HOW = { 热更新: ['#e6f4ec', '#0f7b45'], 复用: ['#eef0f2', '#4a4f55'], 已同步: ['#eef0f2', '#4a4f55'] };
+    const mk = (sign, text, how) => ({ sign, text, how, bg: HOW[how][0], fg: HOW[how][1], signFg: sign === '+' ? '#0f7b45' : '#5f6368' });
+    const changes = isChain ? [
+      { server: entry, items: [
+        mk('+', 'Reality 入站新增用户 r-9（UUID 自动生成，flow: xtls-rprx-vision）', '热更新'),
+        mk('=', '出站 to-us01（SS2022 → US-01）已存在', '复用'),
+        mk('+', '路由规则：user r-9 → to-us01', '热更新')
+      ] },
+      { server: 'US-01', items: [
+        mk('=', 'SS 用户 from-' + lower + ' 已存在', '复用'),
+        mk('=', '防火墙白名单已包含 ' + entry + ' 的 IP', '已同步')
+      ] }
+    ] : [
+      { server: entry, items: [
+        mk('+', 'Reality 入站新增用户 r-9（UUID 自动生成）', '热更新'),
+        mk('+', '路由规则：user r-9 → direct', '热更新')
+      ] }
+    ];
+    const checks = (isChain ? [
+      ['配置校验', 'xray run -test 通过', '0.3 s'],
+      ['下发到 ' + entry, '热添加用户和路由规则', '0.2 s'],
+      [entry + ' → US-01 TCP 连通', '线路段 ' + E[entry].seg, '0.2 s'],
+      ['经线路访问 generate_204', '出口 IP 为 US-01', '0.6 s'],
+      ['加入订阅', '3 个设备订阅已更新', '0.1 s']
+    ] : [
+      ['配置校验', 'xray run -test 通过', '0.3 s'],
+      ['下发到 ' + entry, '热添加用户和路由规则', '0.2 s'],
+      ['经线路访问 generate_204', '出口 IP 为 ' + entry, '0.3 s'],
+      ['加入订阅', '3 个设备订阅已更新', '0.1 s']
+    ]).map(([label, detail, ms]) => ({ label, detail, ms }));
+    return {
+      steps, entries,
+      is1: step === 1, is2: step === 2, is3: step === 3, is4: step === 4, is5: step === 5,
+      isChain, entryName: entry, entryLower: lower, segment: E[entry].seg,
+      directExists: !!E[entry].direct && !isChain,
+      directChecked: isChain ? 'false' : 'true', chainChecked: isChain ? 'true' : 'false',
+      directBorder: d.border, directBg: d.bg, chainBorder: c.border, chainBg: c.bg,
+      pickDirect: () => this.setState({ type: 'direct' }),
+      pickChain: () => this.setState({ type: 'chain' }),
+      step3Title: isChain ? '落地与名称' : '名称',
+      routeName, changes, checks,
+      canBack: step > 1 && step < 5, canNext: step < 5,
+      nextLabel: step === 4 ? '确认下发' : '下一步',
+      back: () => this.setState({ step: step - 1 }),
+      next: () => this.setState({ step: step + 1 })
+    };
+  }
+}
+</script>
+</body>
+</html>

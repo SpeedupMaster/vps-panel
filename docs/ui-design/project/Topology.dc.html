@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>拓扑</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Noto+Sans+SC:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#0f7b45}a:hover{color:#0a5c33}
+</style>
+</helmet>
+<div style="display:flex; flex-wrap:wrap; min-height:100vh; background:#f4f5f7; font-family:Inter,'Noto Sans SC',system-ui,sans-serif; color:#1f2225; font-size:14px">
+  <div style="flex:1 1 220px; background:#fff; border-right:1px solid #e4e6ea">
+    <dc-import name="Sidebar" active="topology" hint-size="100%,900px"></dc-import>
+  </div>
+  <main style="flex:999 1 560px; min-width:0; display:flex; flex-direction:column">
+    <header style="display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:12px 28px; background:#fff; border-bottom:1px solid #e4e6ea">
+      <h1 style="margin:0; font-size:20px; font-weight:600">拓扑</h1>
+      <span style="font-size:13px; color:#5f6368">4 个入口 · 1 个落地 · 8 条线路</span>
+      <span style="flex:1"></span>
+      <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:#5f6368">连线标注
+        <select style="height:36px; padding:0 8px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; color:#1f2225; background:#fff"><option>线路段延迟</option><option>今日流量</option><option>不标注</option></select>
+      </label>
+      <button type="button" style="height:40px; padding:0 14px; border-radius:4px; border:1px solid #d5d8dd; background:#fff; color:#1f2225; font:inherit; cursor:pointer">重置布局</button>
+    </header>
+
+    <div style="padding:24px 28px 48px; display:flex; flex-direction:column; gap:16px; max-width:1400px; width:100%; box-sizing:border-box">
+      <section style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:20px; overflow-x:auto">
+        <div style="position:relative; width:1104px; height:640px">
+          <svg width="50" height="8" viewBox="0 0 50 8" preserveAspectRatio="none" style="position:absolute; left:164px; top:332px; width:50px; height:8px; overflow:visible; fill:none; stroke:#8a9097; stroke-width:2; stroke-linecap:round; stroke-linejoin:round"><path d="M 0 4 L 50 4"></path></svg>
+          <svg width="8" height="432" viewBox="0 0 8 432" preserveAspectRatio="none" style="position:absolute; left:210px; top:120px; width:8px; height:432px; overflow:visible; fill:none; stroke:#8a9097; stroke-width:2; stroke-linecap:round; stroke-linejoin:round"><path d="M 4 0 L 4 432"></path></svg>
+
+          <svg width="49" height="8" viewBox="0 0 49 8" preserveAspectRatio="none" style="position:absolute; left:214px; top:116px; width:49px; height:8px; overflow:visible; fill:none; stroke:#8a9097; stroke-width:2; stroke-linecap:round; stroke-linejoin:round"><defs><marker id="dc-arrow-head-filled-1" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8a9097" stroke="none" style="stroke: none; fill: #8a9097; fill: context-stroke"/></marker></defs><path d="M 0 4 L 45 4" marker-end="url(#dc-arrow-head-filled-1)"></path></svg>
+          <svg width="49" height="8" viewBox="0 0 49 8" preserveAspectRatio="none" style="position:absolute; left:214px; top:260px; width:49px; height:8px; overflow:visible; fill:none; stroke:#8a9097; stroke-width:2; stroke-linecap:round; stroke-linejoin:round"><defs><marker id="dc-arrow-head-filled-2" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8a9097" stroke="none" style="stroke: none; fill: #8a9097; fill: context-stroke"/></marker></defs><path d="M 0 4 L 45 4" marker-end="url(#dc-arrow-head-filled-2)"></path></svg>
+          <svg width="49" height="8" viewBox="0 0 49 8" preserveAspectRatio="none" style="position:absolute; left:214px; top:404px; width:49px; height:8px; overflow:visible; fill:none; stroke:#8a9097; stroke-width:2; stroke-linecap:round; stroke-linejoin:round"><defs><marker id="dc-arrow-head-filled-3" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8a9097" stroke="none" style="stroke: none; fill: #8a9097; fill: context-stroke"/></marker></defs><path d="M 0 4 L 45 4" marker-end="url(#dc-arrow-head-filled-3)"></path></svg>
+          <svg width="49" height="8" viewBox="0 0 49 8" preserveAspectRatio="none" style="position:absolute; left:214px; top:548px; width:49px; height:8px; overflow:visible; fill:none; stroke:#b4233a; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; stroke-dasharray:6 6"><defs><marker id="dc-arrow-head-filled-4" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#b4233a" stroke="none" style="stroke: none; fill: #b4233a; fill: context-stroke"/></marker></defs><path d="M 0 4 L 45 4" marker-end="url(#dc-arrow-head-filled-4)"></path></svg>
+
+          <svg width="225" height="8" viewBox="0 0 225 8" preserveAspectRatio="none" style="position:absolute; left:494px; top:92px; width:225px; height:8px; overflow:visible; fill:none; stroke:#5b3aa8; stroke-width:2; stroke-linecap:round; stroke-linejoin:round"><defs><marker id="dc-arrow-head-filled-5" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#5b3aa8" stroke="none" style="stroke: none; fill: #5b3aa8; fill: context-stroke"/></marker></defs><path d="M 0 4 L 221 4" marker-end="url(#dc-arrow-head-filled-5)"></path></svg>
+          <svg width="225" height="8" viewBox="0 0 225 8" preserveAspectRatio="none" style="position:absolute; left:494px; top:236px; width:225px; height:8px; overflow:visible; fill:none; stroke:#5b3aa8; stroke-width:2; stroke-linecap:round; stroke-linejoin:round"><defs><marker id="dc-arrow-head-filled-6" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#5b3aa8" stroke="none" style="stroke: none; fill: #5b3aa8; fill: context-stroke"/></marker></defs><path d="M 0 4 L 221 4" marker-end="url(#dc-arrow-head-filled-6)"></path></svg>
+          <svg width="225" height="8" viewBox="0 0 225 8" preserveAspectRatio="none" style="position:absolute; left:494px; top:380px; width:225px; height:8px; overflow:visible; fill:none; stroke:#5b3aa8; stroke-width:2; stroke-linecap:round; stroke-linejoin:round"><defs><marker id="dc-arrow-head-filled-7" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#5b3aa8" stroke="none" style="stroke: none; fill: #5b3aa8; fill: context-stroke"/></marker></defs><path d="M 0 4 L 221 4" marker-end="url(#dc-arrow-head-filled-7)"></path></svg>
+          <svg width="225" height="8" viewBox="0 0 225 8" preserveAspectRatio="none" style="position:absolute; left:494px; top:524px; width:225px; height:8px; overflow:visible; fill:none; stroke:#b4233a; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; stroke-dasharray:6 6"><defs><marker id="dc-arrow-head-filled-8" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#b4233a" stroke="none" style="stroke: none; fill: #b4233a; fill: context-stroke"/></marker></defs><path d="M 0 4 L 221 4" marker-end="url(#dc-arrow-head-filled-8)"></path></svg>
+
+          <svg width="45" height="8" viewBox="0 0 45 8" preserveAspectRatio="none" style="position:absolute; left:494px; top:136px; width:45px; height:8px; overflow:visible; fill:none; stroke:#8a9097; stroke-width:2; stroke-linecap:round; stroke-linejoin:round"><defs><marker id="dc-arrow-head-filled-9" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8a9097" stroke="none" style="stroke: none; fill: #8a9097; fill: context-stroke"/></marker></defs><path d="M 0 4 L 41 4" marker-end="url(#dc-arrow-head-filled-9)"></path></svg>
+          <svg width="45" height="8" viewBox="0 0 45 8" preserveAspectRatio="none" style="position:absolute; left:494px; top:280px; width:45px; height:8px; overflow:visible; fill:none; stroke:#8a9097; stroke-width:2; stroke-linecap:round; stroke-linejoin:round"><defs><marker id="dc-arrow-head-filled-10" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8a9097" stroke="none" style="stroke: none; fill: #8a9097; fill: context-stroke"/></marker></defs><path d="M 0 4 L 41 4" marker-end="url(#dc-arrow-head-filled-10)"></path></svg>
+          <svg width="45" height="8" viewBox="0 0 45 8" preserveAspectRatio="none" style="position:absolute; left:494px; top:424px; width:45px; height:8px; overflow:visible; fill:none; stroke:#8a9097; stroke-width:2; stroke-linecap:round; stroke-linejoin:round"><defs><marker id="dc-arrow-head-filled-11" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8a9097" stroke="none" style="stroke: none; fill: #8a9097; fill: context-stroke"/></marker></defs><path d="M 0 4 L 41 4" marker-end="url(#dc-arrow-head-filled-11)"></path></svg>
+          <svg width="45" height="8" viewBox="0 0 45 8" preserveAspectRatio="none" style="position:absolute; left:494px; top:568px; width:45px; height:8px; overflow:visible; fill:none; stroke:#b4233a; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; stroke-dasharray:6 6"><defs><marker id="dc-arrow-head-filled-12" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#b4233a" stroke="none" style="stroke: none; fill: #b4233a; fill: context-stroke"/></marker></defs><path d="M 0 4 L 41 4" marker-end="url(#dc-arrow-head-filled-12)"></path></svg>
+
+          <svg width="59" height="8" viewBox="0 0 59 8" preserveAspectRatio="none" style="position:absolute; left:890px; top:332px; width:59px; height:8px; overflow:visible; fill:none; stroke:#8a9097; stroke-width:2; stroke-linecap:round; stroke-linejoin:round"><defs><marker id="dc-arrow-head-filled-13" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8a9097" stroke="none" style="stroke: none; fill: #8a9097; fill: context-stroke"/></marker></defs><path d="M 0 4 L 55 4" marker-end="url(#dc-arrow-head-filled-13)"></path></svg>
+
+          <div style="position:absolute; left:24px; top:16px; font-size:12px; font-weight:600; color:#5f6368">客户端</div>
+          <div style="position:absolute; left:264px; top:16px; font-size:12px; font-weight:600; color:#5f6368">入口 · Reality :443</div>
+          <div style="position:absolute; left:540px; top:16px; font-size:12px; font-weight:600; color:#5f6368">直连出口</div>
+          <div style="position:absolute; left:720px; top:16px; font-size:12px; font-weight:600; color:#5f6368">落地 · SS2022</div>
+          <div style="position:absolute; left:950px; top:16px; font-size:12px; font-weight:600; color:#5f6368">目标网站</div>
+
+          <div style="position:absolute; left:24px; top:276px; width:140px; height:120px; box-sizing:border-box; padding:10px; display:flex; align-items:center; justify-content:center; text-align:center; background:#f4f5f7; border:1px solid #d5d8dd; border-radius:8px; font-size:13px; line-height:1.6"><span><b style="font-size:14px">客户端</b><br>mihomo<br>3 台设备</span></div>
+
+          <div style="position:absolute; left:264px; top:72px; width:230px; height:96px; box-sizing:border-box; padding:10px 14px; display:flex; align-items:center; background:#fff; border:1px solid #c9cdd2; border-radius:8px; font-size:12px; line-height:1.7; color:#3d4248"><span><b style="font-size:14px; color:#1f2225">HK-01</b> 香港 · 在线<br>回程 44 ms · 今日 18.0 GB<br>2 条线路</span></div>
+          <div style="position:absolute; left:264px; top:216px; width:230px; height:96px; box-sizing:border-box; padding:10px 14px; display:flex; align-items:center; background:#fff; border:1px solid #e3b56c; border-radius:8px; font-size:12px; line-height:1.7; color:#3d4248"><span><b style="font-size:14px; color:#1f2225">HK-02</b> 香港 · <span style="color:#94520a">CPU steal 告警</span><br>回程 48 ms · 今日 11.9 GB<br>2 条线路</span></div>
+          <div style="position:absolute; left:264px; top:360px; width:230px; height:96px; box-sizing:border-box; padding:10px 14px; display:flex; align-items:center; background:#fff; border:1px solid #c9cdd2; border-radius:8px; font-size:12px; line-height:1.7; color:#3d4248"><span><b style="font-size:14px; color:#1f2225">JP-01</b> 东京 · 在线<br>回程 65 ms · 今日 7.0 GB<br>2 条线路</span></div>
+          <div style="position:absolute; left:264px; top:504px; width:230px; height:96px; box-sizing:border-box; padding:10px 14px; display:flex; align-items:center; background:#fff5f6; border:2px solid #b4233a; border-radius:8px; font-size:12px; line-height:1.7; color:#3d4248"><span><b style="font-size:14px; color:#1f2225">SG-01</b> 新加坡 · <span style="color:#b4233a; font-weight:600">疑似被封</span><br>回程 不可达 · 今日 0 GB<br>2 条线路已移出订阅</span></div>
+
+          <div style="position:absolute; left:540px; top:120px; width:104px; height:40px; box-sizing:border-box; display:flex; align-items:center; justify-content:center; background:#f4f5f7; border:1px solid #d5d8dd; border-radius:20px; font-size:12px; color:#3d4248">直连出网</div>
+          <div style="position:absolute; left:540px; top:264px; width:104px; height:40px; box-sizing:border-box; display:flex; align-items:center; justify-content:center; background:#f4f5f7; border:1px solid #d5d8dd; border-radius:20px; font-size:12px; color:#3d4248">直连出网</div>
+          <div style="position:absolute; left:540px; top:408px; width:104px; height:40px; box-sizing:border-box; display:flex; align-items:center; justify-content:center; background:#f4f5f7; border:1px solid #d5d8dd; border-radius:20px; font-size:12px; color:#3d4248">直连出网</div>
+          <div style="position:absolute; left:540px; top:552px; width:104px; height:40px; box-sizing:border-box; display:flex; align-items:center; justify-content:center; background:#fff5f6; border:1px dashed #b4233a; border-radius:20px; font-size:12px; color:#b4233a">直连出网</div>
+
+          <div style="position:absolute; left:720px; top:72px; width:170px; height:528px; box-sizing:border-box; padding:14px; display:flex; align-items:center; justify-content:center; text-align:center; background:#f6f2fd; border:1px solid #c9b8ef; border-radius:8px; font-size:12px; line-height:1.8; color:#3d4248"><span><b style="font-size:15px; color:#1f2225">US-01</b><br>洛杉矶 · 落地 · 在线<br>SS2022 :23456<br>4 个入口用户<br>白名单已同步<br>今日 26.3 GB</span></div>
+
+          <div style="position:absolute; left:950px; top:296px; width:130px; height:80px; box-sizing:border-box; padding:8px; display:flex; align-items:center; justify-content:center; text-align:center; background:#f4f5f7; border:1px solid #d5d8dd; border-radius:8px; font-size:13px; line-height:1.6"><span><b>互联网</b><br>出口 IP：US-01</span></div>
+
+          <div style="position:absolute; left:574px; top:68px; width:64px; text-align:center; font-size:13px; line-height:16px; color:#5b3aa8; font-family:'JetBrains Mono',monospace">142 ms</div>
+          <div style="position:absolute; left:574px; top:212px; width:64px; text-align:center; font-size:13px; line-height:16px; color:#5b3aa8; font-family:'JetBrains Mono',monospace">151 ms</div>
+          <div style="position:absolute; left:574px; top:356px; width:64px; text-align:center; font-size:13px; line-height:16px; color:#5b3aa8; font-family:'JetBrains Mono',monospace">108 ms</div>
+          <div style="position:absolute; left:574px; top:500px; width:64px; text-align:center; font-size:13px; line-height:16px; color:#b4233a; font-family:'JetBrains Mono',monospace">175 ms</div>
+        </div>
+      </section>
+
+      <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px 24px; font-size:13px; color:#3d4248">
+        <span style="display:inline-flex; align-items:center; gap:8px"><span style="width:24px; height:2px; background:#5b3aa8"></span>链式（SS2022），数字为线路段延迟</span>
+        <span style="display:inline-flex; align-items:center; gap:8px"><span style="width:24px; height:2px; background:#8a9097"></span>直连 / 客户端连接</span>
+        <span style="display:inline-flex; align-items:center; gap:8px"><span style="width:24px; border-top:2px dashed #b4233a"></span>不可用（疑似被封 / 中断）</span>
+        <span style="flex:1"></span>
+        <span style="color:#5f6368">点击机器打开详情 · 拖动可调整位置</span>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

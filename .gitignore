@@ -1,0 +1,12 @@
+/bin/
+/dist/
+/data/
+*.db
+*.db-shm
+*.db-wal
+web/node_modules/
+web/dist/
+internal/panel/webui/dist/*
+!internal/panel/webui/dist/.keep
+.artifact-server.*
+.DS_Store

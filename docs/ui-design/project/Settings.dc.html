@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>设置</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Noto+Sans+SC:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#0f7b45}a:hover{color:#0a5c33}
+</style>
+</helmet>
+<div style="display:flex; flex-wrap:wrap; min-height:100vh; background:#f4f5f7; font-family:Inter,'Noto Sans SC',system-ui,sans-serif; color:#1f2225; font-size:14px">
+  <div style="flex:1 1 220px; background:#fff; border-right:1px solid #e4e6ea">
+    <dc-import name="Sidebar" active="settings" hint-size="100%,900px"></dc-import>
+  </div>
+  <main style="flex:999 1 560px; min-width:0; display:flex; flex-direction:column">
+    <header style="background:#fff; border-bottom:1px solid #e4e6ea; padding:14px 28px; display:flex; align-items:center; gap:12px">
+      <h1 style="margin:0; font-size:20px; font-weight:600">设置</h1>
+    </header>
+
+    <div style="padding:24px 28px 48px; display:flex; flex-wrap:wrap; gap:24px; align-items:flex-start; max-width:1400px; width:100%; box-sizing:border-box">
+      <nav aria-label="设置分区" style="flex:1 1 160px; max-width:200px; display:flex; flex-direction:column; gap:2px; position:sticky; top:16px">
+        <sc-for list="{{anchors}}" as="a" hint-placeholder-count="6">
+          <a href="{{a.href}}" style="display:flex; align-items:center; height:40px; padding:0 12px; border-radius:4px; font-size:13px; text-decoration:none; color:#3d4248">{{a.label}}</a>
+        </sc-for>
+      </nav>
+
+      <div style="flex:999 1 560px; min-width:0; display:flex; flex-direction:column; gap:20px">
+
+        <section id="sec-account" style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:20px 22px; display:flex; flex-direction:column; gap:16px">
+          <h2 style="margin:0; font-size:16px; font-weight:600">账号与安全</h2>
+          <div style="display:flex; flex-wrap:wrap; gap:12px">
+            <div style="flex:1 1 260px; border:1px solid #e4e6ea; border-radius:6px; padding:14px 16px; display:flex; flex-direction:column; gap:8px">
+              <span style="font-size:13px; color:#5f6368">登录密码</span>
+              <span style="font-size:13px">上次修改：2026-09-02</span>
+              <button type="button" style="align-self:flex-start; height:36px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; background:#fff; color:#1f2225; font:inherit; font-size:13px; cursor:pointer">修改密码</button>
+            </div>
+            <div style="flex:1 1 260px; border:1px solid #e4e6ea; border-radius:6px; padding:14px 16px; display:flex; flex-direction:column; gap:8px">
+              <span style="font-size:13px; color:#5f6368">两步验证（TOTP）</span>
+              <span style="font-size:13px; display:flex; align-items:center; gap:8px"><span style="padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:#e6f4ec; color:#0f7b45">已开启</span>剩余恢复码 8 个</span>
+              <div style="display:flex; gap:8px">
+                <button type="button" style="height:36px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; background:#fff; color:#1f2225; font:inherit; font-size:13px; cursor:pointer">重新生成恢复码</button>
+                <button type="button" style="height:36px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; background:#fff; color:#b4233a; font:inherit; font-size:13px; cursor:pointer">关闭</button>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:8px">
+            <span style="font-size:13px; font-weight:600">登录会话</span>
+            <div role="table" aria-label="登录会话" style="font-size:13px; border:1px solid #e4e6ea; border-radius:6px; overflow:hidden">
+              <div role="row" style="display:grid; grid-template-columns:1.6fr 1.2fr 1fr 1fr; background:#fafbfc; color:#5f6368; font-size:12px">
+                <span role="columnheader" style="padding:8px 14px">设备</span><span role="columnheader" style="padding:8px 0">IP</span><span role="columnheader" style="padding:8px 0">最近活动</span><span role="columnheader" style="padding:8px 14px; text-align:right">操作</span>
+              </div>
+              <sc-for list="{{sessions}}" as="s" hint-placeholder-count="3">
+                <div role="row" style="display:grid; grid-template-columns:1.6fr 1.2fr 1fr 1fr; align-items:center; border-top:1px solid #f0f1f3">
+                  <span role="cell" style="padding:10px 14px">{{s.dev}}</span>
+                  <span role="cell" style="font-family:'JetBrains Mono',monospace; font-size:12px">{{s.ip}}</span>
+                  <span role="cell" style="font-size:12px; color:#5f6368">{{s.last}}</span>
+                  <span role="cell" style="padding:6px 14px; display:flex; justify-content:flex-end">
+                    <sc-if value="{{s.current}}" hint-placeholder-val="{{false}}"><span style="font-size:12px; color:#0f7b45">当前会话</span></sc-if>
+                    <sc-if value="{{s.other}}" hint-placeholder-val="{{true}}"><button type="button" style="height:32px; padding:0 10px; border:1px solid #d5d8dd; border-radius:4px; background:#fff; color:#b4233a; font:inherit; font-size:12px; cursor:pointer">踢下线</button></sc-if>
+                  </span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <label style="display:flex; flex-direction:column; gap:6px; font-size:13px">允许访问的 IP（每行一个，支持 CIDR；留空表示不限制）
+            <textarea rows="3" style="padding:10px 12px; border:1px solid #d5d8dd; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:12px; resize:vertical">0.0.0.0/0</textarea>
+            <span style="font-size:12px; color:#5f6368">家宽 IP 会变，建议保持不限制并依靠 2FA；登录失败 5 次锁定该 IP 15 分钟。</span>
+          </label>
+        </section>
+
+        <section id="sec-panel" style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:20px 22px; display:flex; flex-direction:column; gap:14px">
+          <h2 style="margin:0; font-size:16px; font-weight:600">面板</h2>
+          <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:14px">
+            <label style="display:flex; flex-direction:column; gap:6px; font-size:13px">面板地址
+              <input type="text" value="https://panel.example.com" style="height:40px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; font-family:'JetBrains Mono',monospace; font-size:13px">
+            </label>
+            <label style="display:flex; flex-direction:column; gap:6px; font-size:13px">备用地址（Agent 按顺序重连）
+              <input type="text" value="https://203.0.113.10:8443" style="height:40px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; font-family:'JetBrains Mono',monospace; font-size:13px">
+            </label>
+            <label style="display:flex; flex-direction:column; gap:6px; font-size:13px">订阅域名
+              <input type="text" value="https://sub.example.com" style="height:40px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; font-family:'JetBrains Mono',monospace; font-size:13px">
+            </label>
+            <label style="display:flex; flex-direction:column; gap:6px; font-size:13px">后台路径
+              <input type="text" value="/x7k2q" style="height:40px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; font-family:'JetBrains Mono',monospace; font-size:13px">
+            </label>
+          </div>
+          <span style="font-size:12px; color:#5f6368">示例地址仅作占位。修改面板地址后，面板会先把新地址推送给所有在线 Agent，确认收到后才生效。</span>
+        </section>
+
+        <section id="sec-agent" style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:20px 22px; display:flex; flex-direction:column; gap:14px">
+          <h2 style="margin:0; font-size:16px; font-weight:600">Agent</h2>
+          <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:14px">
+            <label style="display:flex; flex-direction:column; gap:6px; font-size:13px">上报间隔
+              <select style="height:40px; padding:0 8px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; background:#fff"><option>2 秒</option><option selected="{{true}}">5 秒</option><option>10 秒</option></select>
+            </label>
+            <label style="display:flex; flex-direction:column; gap:6px; font-size:13px">回程探测间隔
+              <select style="height:40px; padding:0 8px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; background:#fff"><option>30 秒</option><option selected="{{true}}">60 秒</option><option>120 秒</option></select>
+            </label>
+            <label style="display:flex; flex-direction:column; gap:6px; font-size:13px">离线判定
+              <select style="height:40px; padding:0 8px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; background:#fff"><option>60 秒</option><option selected="{{true}}">90 秒</option><option>180 秒</option></select>
+            </label>
+          </div>
+          <div style="display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding-top:4px; border-top:1px solid #f0f1f3; font-size:13px">
+            <span style="flex:1 1 300px">安装令牌：一次性，24 小时有效；已用 6 个，未使用 0 个。</span>
+            <button type="button" style="height:36px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; background:#fff; color:#1f2225; font:inherit; font-size:13px; cursor:pointer">轮换 Agent 通信证书</button>
+          </div>
+        </section>
+
+        <section id="sec-retention" style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:20px 22px; display:flex; flex-direction:column; gap:12px">
+          <h2 style="margin:0; font-size:16px; font-weight:600">数据保留</h2>
+          <div role="table" aria-label="数据保留" style="font-size:13px">
+            <sc-for list="{{retention}}" as="r" hint-placeholder-count="4">
+              <div role="row" style="display:grid; grid-template-columns:1.4fr 1fr 1fr; align-items:center; padding:8px 0; border-top:1px solid #f0f1f3">
+                <span role="cell">{{r.name}}</span>
+                <span role="cell" style="color:#3d4248">{{r.keep}}</span>
+                <span role="cell" style="font-size:12px; color:#5f6368; text-align:right">{{r.size}}</span>
+              </div>
+            </sc-for>
+          </div>
+          <span style="font-size:12px; color:#5f6368">数据库共 186 MB。超过保留期的明细会先降采样成小时 / 天粒度再删除。</span>
+        </section>
+
+        <section id="sec-backup" style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:20px 22px; display:flex; flex-direction:column; gap:14px">
+          <div style="display:flex; flex-wrap:wrap; align-items:center; gap:12px">
+            <h2 style="margin:0; font-size:16px; font-weight:600; flex:1">备份</h2>
+            <button type="button" style="height:40px; padding:0 16px; border:none; border-radius:4px; background:#0f7b45; color:#fff; font:inherit; font-weight:500; cursor:pointer">立即备份</button>
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:14px">
+            <label style="display:flex; align-items:center; gap:10px; font-size:13px; min-height:40px">
+              <input type="checkbox" checked="{{true}}" style="width:18px; height:18px; accent-color:#0f7b45">每天 04:00 自动备份
+            </label>
+            <label style="display:flex; flex-direction:column; gap:6px; font-size:13px">本地保留份数
+              <input type="number" value="14" style="height:40px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; font:inherit">
+            </label>
+            <label style="display:flex; flex-direction:column; gap:6px; font-size:13px">上传到
+              <select style="height:40px; padding:0 8px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; background:#fff"><option>不上传</option><option selected="{{true}}">S3 兼容存储</option><option>WebDAV</option><option>Telegram 私聊</option></select>
+            </label>
+          </div>
+          <span style="font-size:12px; color:#5f6368">备份包含数据库与证书，用面板密码派生的密钥加密；时序明细不在其中。</span>
+          <div role="table" aria-label="备份列表" style="font-size:13px; border:1px solid #e4e6ea; border-radius:6px; overflow:hidden">
+            <div role="row" style="display:grid; grid-template-columns:1.2fr 0.8fr 1fr 1.4fr; background:#fafbfc; color:#5f6368; font-size:12px">
+              <span role="columnheader" style="padding:8px 14px">时间</span><span role="columnheader" style="padding:8px 0">大小</span><span role="columnheader" style="padding:8px 0">位置</span><span role="columnheader" style="padding:8px 14px; text-align:right">操作</span>
+            </div>
+            <sc-for list="{{backups}}" as="b" hint-placeholder-count="3">
+              <div role="row" style="display:grid; grid-template-columns:1.2fr 0.8fr 1fr 1.4fr; align-items:center; border-top:1px solid #f0f1f3">
+                <span role="cell" style="padding:10px 14px">{{b.time}}</span>
+                <span role="cell" style="font-family:'JetBrains Mono',monospace; font-size:12px">{{b.size}}</span>
+                <span role="cell" style="color:#3d4248">{{b.where}}</span>
+                <span role="cell" style="padding:6px 14px; display:flex; justify-content:flex-end; gap:6px">
+                  <button type="button" style="height:32px; padding:0 10px; border:1px solid #d5d8dd; border-radius:4px; background:#fff; color:#1f2225; font:inherit; font-size:12px; cursor:pointer">下载</button>
+                  <button type="button" onClick="{{b.restore}}" style="height:32px; padding:0 10px; border:1px solid #d5d8dd; border-radius:4px; background:#fff; color:#b4233a; font:inherit; font-size:12px; cursor:pointer">恢复</button>
+                </span>
+              </div>
+            </sc-for>
+          </div>
+          <sc-if value="{{restoring}}" hint-placeholder-val="{{false}}">
+            <div role="alertdialog" aria-label="确认恢复" style="border:1px solid #e9a3ae; background:#fdf5f6; border-radius:6px; padding:16px; display:flex; flex-direction:column; gap:10px">
+              <span style="font-weight:600; color:#8a1a2c">从 {{restoreTime}} 的备份恢复？</span>
+              <span style="font-size:13px; color:#3d4248; line-height:1.6">当前数据会先自动备份一份，然后被替换。恢复后面板会重启，Agent 约 30 秒内重新连上。</span>
+              <div style="display:flex; flex-wrap:wrap; align-items:flex-end; gap:8px">
+                <label style="display:flex; flex-direction:column; gap:6px; font-size:13px">输入 TOTP 验证码
+                  <input type="text" inputmode="numeric" placeholder="6 位数字" style="height:40px; width:160px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; font-family:'JetBrains Mono',monospace; letter-spacing:2px">
+                </label>
+                <button type="button" style="height:40px; padding:0 16px; border:none; border-radius:4px; background:#b4233a; color:#fff; font:inherit; font-weight:500; cursor:pointer">确认恢复</button>
+                <button type="button" onClick="{{cancelRestore}}" style="height:40px; padding:0 16px; border:1px solid #d5d8dd; border-radius:4px; background:#fff; color:#1f2225; font:inherit; cursor:pointer">取消</button>
+              </div>
+            </div>
+          </sc-if>
+          <button type="button" style="align-self:flex-start; height:36px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; background:#fff; color:#1f2225; font:inherit; font-size:13px; cursor:pointer">上传备份文件并恢复</button>
+        </section>
+
+        <section id="sec-audit" style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:20px 22px; display:flex; flex-direction:column; gap:12px">
+          <div style="display:flex; flex-wrap:wrap; align-items:center; gap:12px">
+            <h2 style="margin:0; font-size:16px; font-weight:600; flex:1">审计日志</h2>
+            <button type="button" style="height:36px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; background:#fff; color:#1f2225; font:inherit; font-size:13px; cursor:pointer">导出 CSV</button>
+          </div>
+          <div role="radiogroup" aria-label="按类型筛选" style="display:flex; flex-wrap:wrap; gap:8px">
+            <sc-for list="{{auditTypes}}" as="t" hint-placeholder-count="6">
+              <button type="button" role="radio" aria-checked="{{t.sel}}" onClick="{{t.pick}}" style="height:36px; padding:0 12px; border-radius:18px; border:1px solid {{t.bd}}; background:{{t.bg}}; color:{{t.fg}}; font:inherit; font-size:13px; cursor:pointer">{{t.label}}</button>
+            </sc-for>
+          </div>
+          <div style="overflow-x:auto">
+            <div role="table" aria-label="审计日志" style="min-width:760px; font-size:13px">
+              <div role="row" style="display:grid; grid-template-columns:130px 90px 2.4fr 1fr; color:#5f6368; font-size:12px; background:#fafbfc">
+                <span role="columnheader" style="padding:8px 14px">时间</span><span role="columnheader" style="padding:8px 0">类型</span><span role="columnheader" style="padding:8px 0">操作</span><span role="columnheader" style="padding:8px 14px 8px 0">来源 IP</span>
+              </div>
+              <sc-for list="{{audit}}" as="l" hint-placeholder-count="8">
+                <div role="row" style="display:grid; grid-template-columns:130px 90px 2.4fr 1fr; align-items:center; border-top:1px solid #f0f1f3">
+                  <span role="cell" style="padding:9px 14px; font-size:12px; color:#5f6368">{{l.time}}</span>
+                  <span role="cell"><span style="padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:#eef0f2; color:#3d4248">{{l.type}}</span></span>
+                  <span role="cell" style="padding-right:12px">{{l.text}}</span>
+                  <span role="cell" style="font-family:'JetBrains Mono',monospace; font-size:12px">{{l.ip}}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1700}}'>
+class Component extends DCLogic {
+  state = { audit: 'all', restore: null };
+  renderVals() {
+    const anchors = [['#sec-account', '账号与安全'], ['#sec-panel', '面板'], ['#sec-agent', 'Agent'], ['#sec-retention', '数据保留'], ['#sec-backup', '备份'], ['#sec-audit', '审计日志']].map(([href, label]) => ({ href, label }));
+    const sessions = [
+      ['Windows · Chrome 131', '112.**.**.45', '刚刚', true],
+      ['iPhone · Safari', '223.**.**.18', '3 小时前', false],
+      ['macOS · Firefox', '58.**.**.201', '5 天前', false]
+    ].map(([dev, ip, last, current]) => ({ dev, ip, last, current, other: !current }));
+    const retention = [
+      ['资源指标（CPU、内存、网络）', '明细 7 天，小时粒度 90 天', '92 MB'],
+      ['回程延迟', '明细 14 天，小时粒度 180 天', '61 MB'],
+      ['流量统计', '天粒度永久保留', '4 MB'],
+      ['告警事件与审计日志', '365 天', '9 MB']
+    ].map(([name, keep, size]) => ({ name, keep, size }));
+    const backups = [
+      ['今天 04:00', '3.8 MB', '本地 + S3'],
+      ['昨天 04:00', '3.8 MB', '本地 + S3'],
+      ['11-14 04:00', '3.7 MB', '本地 + S3']
+    ].map(([time, size, where]) => ({ time, size, where, restore: () => this.setState({ restore: time }) }));
+    const types = [['all', '全部'], ['login', '登录'], ['server', '服务器'], ['route', '线路'], ['sub', '订阅'], ['system', '系统']];
+    const cur = this.state.audit;
+    const auditTypes = types.map(([id, label]) => {
+      const on = id === cur;
+      return { label, sel: on ? 'true' : 'false', bd: on ? '#0f7b45' : '#d5d8dd', bg: on ? '#e6f4ec' : '#fff', fg: on ? '#0f7b45' : '#3d4248', pick: () => this.setState({ audit: id }) };
+    });
+    const LOG = [
+      ['今天 16:04', 'server', '在 SG-01 运行一键诊断', '112.**.**.45'],
+      ['今天 15:52', 'route', '把线路 SG-01 直连 移出订阅', '112.**.**.45'],
+      ['今天 15:40', 'sub', '重置设备「iPad」的订阅令牌', '112.**.**.45'],
+      ['今天 09:12', 'login', '登录成功（TOTP）', '112.**.**.45'],
+      ['昨天 23:41', 'login', '登录失败 3 次，来自未知 IP', '45.**.**.9'],
+      ['11-12 21:42', 'system', 'HK-02 Xray 26.4.1 更新失败，自动回滚到 26.3.0', '—'],
+      ['11-12 21:30', 'system', '批量更新 Xray 到 26.4.1（灰度：HK-02 先行）', '112.**.**.45'],
+      ['11-10 20:05', 'server', '添加服务器 PANEL（仅探针）', '112.**.**.45'],
+      ['11-10 19:58', 'route', '新建线路 JP-01 → US-01', '112.**.**.45']
+    ];
+    const NAMES = Object.fromEntries(types);
+    const audit = LOG.filter(r => cur === 'all' || r[1] === cur).map(([time, t, text, ip]) => ({ time, type: NAMES[t], text, ip }));
+    return {
+      anchors, sessions, retention, backups, auditTypes, audit,
+      restoring: !!this.state.restore, restoreTime: this.state.restore || '',
+      cancelRestore: () => this.setState({ restore: null })
+    };
+  }
+}
+</script>
+</body>
+</html>

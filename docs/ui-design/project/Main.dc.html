@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>总览</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Noto+Sans+SC:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#0f7b45}a:hover{color:#0a5c33}
+</style>
+</helmet>
+<div style="display:flex; flex-wrap:wrap; min-height:100vh; background:#f4f5f7; font-family:Inter,'Noto Sans SC',system-ui,sans-serif; color:#1f2225; font-size:14px">
+  <div style="flex:1 1 220px; background:#fff; border-right:1px solid #e4e6ea">
+    <dc-import name="Sidebar" active="overview" hint-size="100%,900px"></dc-import>
+  </div>
+  <main style="flex:999 1 560px; min-width:0; display:flex; flex-direction:column">
+    <header style="display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:12px 28px; background:#fff; border-bottom:1px solid #e4e6ea">
+      <h1 style="margin:0; font-size:20px; font-weight:600; flex:1 1 auto">总览</h1>
+      <label style="display:flex; align-items:center; gap:8px; height:40px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; background:#fff; color:#5f6368; flex:0 1 300px; box-sizing:border-box">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M10 4a6 6 0 1 0 0 12a6 6 0 1 0 0-12 M20 20l-5.6-5.6"></path></svg>
+        <span style="position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0)">搜索</span>
+        <input type="search" placeholder="搜索服务器 / 线路 / IP" style="border:none; outline:none; font:inherit; flex:1; min-width:0; background:transparent; color:#1f2225">
+      </label>
+      <a href="Alerts.dc.html" aria-label="告警，3 条未处理" style="position:relative; width:40px; height:40px; box-sizing:border-box; display:inline-flex; align-items:center; justify-content:center; border-radius:4px; border:1px solid #d5d8dd; color:#3d4248">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z M10 20a2 2 0 0 0 4 0"></path></svg>
+        <span style="position:absolute; top:-6px; right:-6px; min-width:18px; height:18px; padding:0 5px; box-sizing:border-box; border-radius:9px; background:#b4233a; color:#fff; font-size:11px; font-weight:600; display:inline-flex; align-items:center; justify-content:center">3</span>
+      </a>
+      <a href="AddServer.dc.html" style="display:inline-flex; align-items:center; gap:6px; height:40px; padding:0 16px; border-radius:4px; background:#0f7b45; color:#fff; text-decoration:none; font-weight:500">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14 M5 12h14"></path></svg>
+        添加服务器
+      </a>
+    </header>
+
+    <div style="padding:24px 28px 48px; display:flex; flex-direction:column; gap:20px; max-width:1400px; width:100%; box-sizing:border-box">
+
+      <section aria-label="统计" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:16px">
+        <div style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:16px 18px; display:flex; flex-direction:column; gap:6px">
+          <span style="font-size:13px; color:#5f6368">在线</span>
+          <span style="font-size:26px; font-weight:600; font-family:'JetBrains Mono',ui-monospace,monospace">6<span style="font-size:16px; color:#5f6368"> / 7</span></span>
+          <span style="font-size:12px; color:#5f6368">FR-01 离线 2 小时</span>
+        </div>
+        <div style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:16px 18px; display:flex; flex-direction:column; gap:6px">
+          <span style="font-size:13px; color:#5f6368">本月流量（网卡合计）</span>
+          <span style="font-size:26px; font-weight:600; font-family:'JetBrains Mono',ui-monospace,monospace">1.69<span style="font-size:16px; color:#5f6368"> TB</span></span>
+          <span style="font-size:12px; color:#5f6368">较上月同期 +12%</span>
+        </div>
+        <div style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:16px 18px; display:flex; flex-direction:column; gap:6px">
+          <span style="font-size:13px; color:#5f6368">本月花费（折合）</span>
+          <span style="font-size:26px; font-weight:600; font-family:'JetBrains Mono',ui-monospace,monospace">¥286</span>
+          <span style="font-size:12px; color:#5f6368">7 台 · 按汇率每日更新</span>
+        </div>
+        <a href="Alerts.dc.html" style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:16px 18px; display:flex; flex-direction:column; gap:6px; text-decoration:none; color:#1f2225">
+          <span style="font-size:13px; color:#5f6368">未处理告警</span>
+          <span style="font-size:26px; font-weight:600; font-family:'JetBrains Mono',ui-monospace,monospace; color:#b4233a">3</span>
+          <span style="font-size:12px; color:#5f6368">1 严重 · 2 警告</span>
+        </a>
+        <div style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:16px 18px; display:flex; flex-direction:column; gap:6px">
+          <span style="font-size:13px; color:#5f6368">7 天内到期</span>
+          <span style="font-size:26px; font-weight:600; font-family:'JetBrains Mono',ui-monospace,monospace; color:#94520a">2</span>
+          <span style="font-size:12px; color:#5f6368">US-01 2 天 · HK-02 5 天</span>
+        </div>
+      </section>
+
+      <div style="display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:12px 16px; border-radius:6px; background:#fbe7ea; border:1px solid #f2c4cc; color:#7d1526">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l10 18H2z M12 10v5 M12 18v.5"></path></svg>
+        <div style="flex:1 1 420px; line-height:1.6"><strong>SG-01 疑似 IP 被封</strong>：对国内 12 个目标连续 5 轮不可达，同时段其他 VPS 正常。已从订阅中剔除 2 条线路。</div>
+        <a href="Tools.dc.html" style="display:inline-flex; align-items:center; height:36px; padding:0 14px; border-radius:4px; background:#b4233a; color:#fff; text-decoration:none; font-weight:500">查看诊断</a>
+        <button type="button" style="height:36px; padding:0 14px; border-radius:4px; border:1px solid #e3a3ae; background:#fff; color:#7d1526; font:inherit; cursor:pointer">忽略 1 小时</button>
+      </div>
+
+      <div style="display:flex; flex-wrap:wrap; align-items:center; gap:12px">
+        <div role="group" aria-label="按角色筛选" style="display:inline-flex; gap:2px; padding:3px; border-radius:6px; background:#e9ebee">
+          <sc-for list="{{tabs}}" as="t" hint-placeholder-count="4">
+            <button type="button" aria-pressed="{{t.pressed}}" onClick="{{t.pick}}" style="height:34px; padding:0 14px; border:none; border-radius:4px; font:inherit; cursor:pointer; background:{{t.bg}}; color:{{t.fg}}; font-weight:{{t.fw}}; box-shadow:{{t.shadow}}">{{t.label}} <span style="font-family:'JetBrains Mono',monospace; font-size:12px">{{t.n}}</span></button>
+          </sc-for>
+        </div>
+        <span style="flex:1"></span>
+        <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:#5f6368">分组
+          <select style="height:36px; padding:0 8px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; color:#1f2225; background:#fff">
+            <option>全部分组</option><option>亚洲入口</option><option>美国</option><option>欧洲</option>
+          </select>
+        </label>
+        <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:#5f6368">排序
+          <select style="height:36px; padding:0 8px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; color:#1f2225; background:#fff">
+            <option>状态优先</option><option>名称</option><option>本月流量</option><option>到期时间</option>
+          </select>
+        </label>
+      </div>
+
+      <section aria-label="服务器" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:16px">
+        <sc-for list="{{servers}}" as="s" hint-placeholder-count="7">
+          <article style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:16px 18px; display:flex; flex-direction:column; gap:12px; opacity:{{s.opacity}}">
+            <div style="display:flex; align-items:center; gap:8px">
+              <span style="font-size:11px; font-weight:600; padding:2px 6px; border-radius:4px; background:#eef0f2; color:#3d4248; font-family:'JetBrains Mono',monospace">{{s.cc}}</span>
+              <a href="ServerDetail.dc.html" style="font-size:16px; font-weight:600; color:#1f2225; text-decoration:none">{{s.name}}</a>
+              <span style="font-size:13px; color:#5f6368">{{s.region}}</span>
+              <span style="margin-left:auto; display:inline-flex; align-items:center; gap:6px; padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:{{s.stBg}}; color:{{s.stFg}}"><span style="width:6px; height:6px; border-radius:3px; background:{{s.stFg}}"></span>{{s.stText}}</span>
+            </div>
+            <div style="display:flex; flex-wrap:wrap; align-items:center; gap:6px">
+              <sc-for list="{{s.roles}}" as="r" hint-placeholder-count="1">
+                <span style="padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:{{r.bg}}; color:{{r.fg}}">{{r.label}}</span>
+              </sc-for>
+              <span style="margin-left:auto; font-family:'JetBrains Mono',monospace; font-size:12px; color:#5f6368">{{s.ip}}</span>
+            </div>
+
+            <sc-if value="{{s.offline}}" hint-placeholder-val="{{false}}">
+              <div style="padding:14px; border-radius:6px; background:#f4f5f7; color:#4a4f55; font-size:13px; line-height:1.7; white-space:pre-line">{{s.offlineText}}</div>
+            </sc-if>
+
+            <sc-if value="{{s.online}}" hint-placeholder-val="{{true}}">
+              <div style="display:flex; flex-direction:column; gap:7px">
+                <sc-for list="{{s.meters}}" as="m" hint-placeholder-count="3">
+                  <div style="display:flex; align-items:center; gap:10px; font-size:12px">
+                    <span style="width:30px; color:#5f6368">{{m.label}}</span>
+                    <span style="flex:1; height:6px; border-radius:3px; background:#eceef1; overflow:hidden"><span style="display:block; height:100%; border-radius:3px; width:{{m.w}}; background:{{m.c}}"></span></span>
+                    <span style="width:36px; text-align:right; font-family:'JetBrains Mono',monospace">{{m.v}}</span>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="display:flex; gap:16px; font-size:12px; color:#5f6368">
+                <span>上行 <span style="font-family:'JetBrains Mono',monospace; color:#2f6fd0">{{s.up}}</span></span>
+                <span>下行 <span style="font-family:'JetBrains Mono',monospace; color:#b8650a">{{s.down}}</span></span>
+              </div>
+            </sc-if>
+
+            <div style="display:flex; flex-direction:column; gap:6px; padding-top:10px; border-top:1px solid #eef0f2">
+              <div style="display:flex; justify-content:space-between; font-size:12px; color:#5f6368">
+                <span>本周期流量 · 每月 {{s.reset}} 日重置</span>
+                <span style="font-family:'JetBrains Mono',monospace; color:#1f2225">{{s.usedText}}</span>
+              </div>
+              <span style="height:6px; border-radius:3px; background:#eceef1; overflow:hidden"><span style="display:block; height:100%; border-radius:3px; width:{{s.tW}}; background:{{s.tC}}"></span></span>
+            </div>
+
+            <sc-if value="{{s.isNode}}" hint-placeholder-val="{{true}}">
+              <div style="display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; font-size:12px; color:#5f6368">
+                <span>回程</span>
+                <sc-for list="{{s.lat}}" as="l" hint-placeholder-count="3">
+                  <span>{{l.k}} <span style="font-family:'JetBrains Mono',monospace; color:{{l.c}}">{{l.v}}</span></span>
+                </sc-for>
+                <span style="margin-left:auto">Xray <span style="font-family:'JetBrains Mono',monospace; color:#1f2225">{{s.xray}}</span></span>
+              </div>
+            </sc-if>
+
+            <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:{{s.expC}}">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16v14H4z M4 10h16 M8 3v4 M16 3v4"></path></svg>
+              <span>{{s.expText}}</span>
+            </div>
+          </article>
+        </sc-for>
+      </section>
+
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(380px, 1fr)); gap:16px">
+        <section style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:18px 20px; display:flex; flex-direction:column; gap:12px">
+          <div style="display:flex; align-items:center">
+            <h2 style="margin:0; font-size:15px; font-weight:600; flex:1">最近告警</h2>
+            <a href="Alerts.dc.html" style="font-size:13px">全部告警</a>
+          </div>
+          <sc-for list="{{alerts}}" as="a" hint-placeholder-count="5">
+            <div style="display:flex; align-items:center; gap:10px; padding:8px 0; border-top:1px solid #f0f1f3; font-size:13px">
+              <span style="flex:none; padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:{{a.bg}}; color:{{a.fg}}">{{a.sev}}</span>
+              <span style="font-weight:600; font-family:'JetBrains Mono',monospace; font-size:12px">{{a.server}}</span>
+              <span style="flex:1; min-width:0">{{a.text}}</span>
+              <span style="color:#5f6368; font-size:12px; white-space:nowrap">{{a.time}}</span>
+            </div>
+          </sc-for>
+        </section>
+        <section style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:18px 20px; display:flex; flex-direction:column; gap:12px">
+          <div style="display:flex; align-items:center">
+            <h2 style="margin:0; font-size:15px; font-weight:600; flex:1">本周期流量占比</h2>
+            <span style="font-size:12px; color:#5f6368">按各自计费口径</span>
+          </div>
+          <sc-for list="{{ranking}}" as="t" hint-placeholder-count="7">
+            <div style="display:flex; align-items:center; gap:10px; font-size:13px">
+              <span style="width:64px; font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:600">{{t.name}}</span>
+              <span style="flex:1; height:8px; border-radius:4px; background:#eceef1; overflow:hidden"><span style="display:block; height:100%; border-radius:4px; width:{{t.w}}; background:{{t.c}}"></span></span>
+              <span style="width:132px; text-align:right; font-family:'JetBrains Mono',monospace; font-size:12px">{{t.text}}</span>
+            </div>
+          </sc-for>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1750}}'>
+class Component extends DCLogic {
+  state = { filter: 'all' };
+  renderVals() {
+    const f = this.state.filter;
+    const ROLE = {
+      entry: { label: '入口 · Reality', bg: '#e7effb', fg: '#1d5fbf' },
+      landing: { label: '落地 · SS2022', bg: '#f0eafb', fg: '#5b3aa8' },
+      probe: { label: '仅探针', bg: '#eef0f2', fg: '#4a4f55' },
+      panel: { label: '面板所在', bg: '#eef0f2', fg: '#4a4f55' }
+    };
+    const ST = {
+      ok: ['在线', '#e6f4ec', '#0f7b45'],
+      warn: ['告警', '#fdf1dc', '#94520a'],
+      blocked: ['疑似被封', '#fbe7ea', '#b4233a'],
+      off: ['离线', '#eef0f2', '#4a4f55']
+    };
+    const lv = (p) => p >= 90 ? '#c42b42' : p >= 70 ? '#d97a0b' : '#2f6fd0';
+    const raw = [
+      { name: 'HK-01', cc: 'HK', region: '香港', kind: 'entry', roles: ['entry'], st: 'ok', ip: '103.**.**.21', cpu: 23, mem: 41, disk: 28, up: '2.4 MB/s', down: '18.1 MB/s', used: 312, quota: 1024, q: '1 TB', reset: 15, lat: [['电信', '38 ms'], ['联通', '41 ms'], ['移动', '52 ms']], xray: '26.3.10', exp: 23 },
+      { name: 'HK-02', cc: 'HK', region: '香港', kind: 'entry', roles: ['entry'], st: 'warn', ip: '45.**.**.137', cpu: 67, mem: 52, disk: 35, up: '1.1 MB/s', down: '9.6 MB/s', used: 418, quota: 500, q: '500 GB', reset: 1, lat: [['电信', '45 ms'], ['联通', '39 ms'], ['移动', '61 ms']], xray: '26.3.10', exp: 5 },
+      { name: 'JP-01', cc: 'JP', region: '东京', kind: 'entry', roles: ['entry'], st: 'ok', ip: '154.**.**.9', cpu: 12, mem: 33, disk: 22, up: '0.8 MB/s', down: '6.2 MB/s', used: 205, quota: 2048, q: '2 TB', reset: 8, lat: [['电信', '62 ms'], ['联通', '58 ms'], ['移动', '74 ms']], xray: '26.4.1', exp: 87 },
+      { name: 'SG-01', cc: 'SG', region: '新加坡', kind: 'entry', roles: ['entry'], st: 'blocked', ip: '139.**.**.66', cpu: 3, mem: 30, disk: 19, up: '0.0 MB/s', down: '0.1 MB/s', used: 96, quota: 1024, q: '1 TB', reset: 20, lat: [['三网', '全部不可达']], latBad: true, xray: '26.3.10', exp: 41 },
+      { name: 'US-01', cc: 'US', region: '洛杉矶', kind: 'landing', roles: ['landing'], st: 'ok', ip: '23.**.**.140', cpu: 31, mem: 46, disk: 30, up: '9.8 MB/s', down: '10.4 MB/s', used: 644, quota: 2048, q: '2 TB', reset: 1, lat: [['电信', '158 ms'], ['联通', '162 ms'], ['移动', '171 ms']], xray: '26.3.10', exp: 2 },
+      { name: 'PANEL', cc: 'DE', region: '法兰克福', kind: 'probe', roles: ['probe', 'panel'], st: 'ok', ip: '91.**.**.4', cpu: 8, mem: 58, disk: 44, up: '0.1 MB/s', down: '0.2 MB/s', used: 41, quota: 1024, q: '1 TB', reset: 3, exp: 120 },
+      { name: 'FR-01', cc: 'FR', region: '巴黎', kind: 'probe', roles: ['probe'], st: 'off', ip: '51.**.**.77', used: 12, quota: 1024, q: '1 TB', reset: 10, exp: 64 }
+    ];
+    const servers = raw.filter((s) => f === 'all' || s.kind === f).map((s) => {
+      const st = ST[s.st];
+      const pct = Math.round((s.used / s.quota) * 100);
+      return {
+        name: s.name, cc: s.cc, region: s.region, ip: s.ip,
+        roles: s.roles.map((r) => ROLE[r]),
+        stText: st[0], stBg: st[1], stFg: st[2],
+        opacity: s.st === 'off' ? '0.72' : '1',
+        offline: s.st === 'off', online: s.st !== 'off',
+        offlineText: '离线 2 小时 12 分\n最后在线：今天 14:02\n恢复连接后会推送通知。',
+        meters: s.st === 'off' ? [] : [
+          { label: 'CPU', v: s.cpu + '%', w: s.cpu + '%', c: lv(s.cpu) },
+          { label: '内存', v: s.mem + '%', w: s.mem + '%', c: lv(s.mem) },
+          { label: '磁盘', v: s.disk + '%', w: s.disk + '%', c: lv(s.disk) }
+        ],
+        up: s.up, down: s.down, reset: s.reset,
+        usedText: s.used + ' GB / ' + s.q + ' · ' + pct + '%',
+        tW: Math.max(pct, 1) + '%', tC: lv(pct),
+        isNode: s.kind !== 'probe',
+        lat: (s.lat || []).map(([k, v]) => ({ k, v, c: s.latBad ? '#b4233a' : '#1f2225' })),
+        xray: s.xray,
+        expText: s.exp + ' 天后到期',
+        expC: s.exp <= 3 ? '#b4233a' : s.exp <= 7 ? '#94520a' : '#5f6368'
+      };
+    });
+    const tabs = [['all', '全部', 7], ['entry', '入口', 4], ['landing', '落地', 1], ['probe', '仅探针', 2]].map(([id, label, n]) => {
+      const on = f === id;
+      return {
+        label, n, pressed: on ? 'true' : 'false',
+        bg: on ? '#fff' : 'transparent', fg: on ? '#0f7b45' : '#3d4248', fw: on ? '600' : '500',
+        shadow: on ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
+        pick: () => this.setState({ filter: id })
+      };
+    });
+    const SEV = { 严重: ['#fbe7ea', '#b4233a'], 警告: ['#fdf1dc', '#94520a'], 提醒: ['#e7effb', '#1d5fbf'], 已恢复: ['#e6f4ec', '#0f7b45'] };
+    const alerts = [
+      ['严重', 'SG-01', '疑似 IP 被封，国内 12 个目标不可达', '18 分钟前'],
+      ['警告', 'HK-02', 'CPU steal 18%，已持续 10 分钟', '42 分钟前'],
+      ['警告', 'FR-01', '离线', '2 小时前'],
+      ['提醒', 'US-01', '2 天后到期', '今天 09:00'],
+      ['已恢复', 'JP-01', '回程丢包 6%，持续 12 分钟', '昨天 22:14']
+    ].map(([sev, server, text, time]) => ({ sev, server, text, time, bg: SEV[sev][0], fg: SEV[sev][1] }));
+    const ranking = [
+      ['HK-02', 418, 500, '500 GB'], ['US-01', 644, 2048, '2 TB'], ['HK-01', 312, 1024, '1 TB'],
+      ['SG-01', 96, 1024, '1 TB'], ['JP-01', 205, 2048, '2 TB'], ['PANEL', 41, 1024, '1 TB'], ['FR-01', 12, 1024, '1 TB']
+    ].map(([name, used, quota, q]) => {
+      const pct = Math.round((used / quota) * 100);
+      return { name, w: Math.max(pct, 1) + '%', c: lv(pct), text: used + ' GB / ' + q };
+    });
+    return { servers, tabs, alerts, ranking };
+  }
+}
+</script>
+</body>
+</html>

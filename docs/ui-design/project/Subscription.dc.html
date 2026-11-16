@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>订阅</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Noto+Sans+SC:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#0f7b45}a:hover{color:#0a5c33}
+</style>
+</helmet>
+<div style="display:flex; flex-wrap:wrap; min-height:100vh; background:#f4f5f7; font-family:Inter,'Noto Sans SC',system-ui,sans-serif; color:#1f2225; font-size:14px">
+  <div style="flex:1 1 220px; background:#fff; border-right:1px solid #e4e6ea">
+    <dc-import name="Sidebar" active="subscription" hint-size="100%,900px"></dc-import>
+  </div>
+  <main style="flex:999 1 560px; min-width:0; display:flex; flex-direction:column">
+    <header style="display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:12px 28px; background:#fff; border-bottom:1px solid #e4e6ea">
+      <h1 style="margin:0; font-size:20px; font-weight:600">订阅</h1>
+      <span style="font-size:13px; color:#5f6368">6 条线路在订阅中 · 2 条因疑似被封已自动移出</span>
+      <span style="flex:1"></span>
+      <button type="button" style="height:40px; padding:0 14px; border-radius:4px; border:1px solid #d5d8dd; background:#fff; color:#1f2225; font:inherit; cursor:pointer">一键轮换</button>
+      <button type="button" style="display:inline-flex; align-items:center; gap:6px; height:40px; padding:0 16px; border:none; border-radius:4px; background:#0f7b45; color:#fff; font:inherit; font-weight:500; cursor:pointer">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14 M5 12h14"></path></svg>
+        新建设备订阅
+      </button>
+    </header>
+
+    <div style="padding:24px 28px 48px; display:flex; flex-direction:column; gap:20px; max-width:1400px; width:100%; box-sizing:border-box">
+
+      <section style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:18px 20px; display:flex; flex-direction:column; gap:10px">
+        <h2 style="margin:0; font-size:15px; font-weight:600">设备订阅</h2>
+        <p style="margin:0; font-size:12px; color:#5f6368">每台设备一个独立链接，可单独重置或停用。所有设备看到的线路相同。</p>
+        <div style="overflow-x:auto">
+          <div role="table" aria-label="设备订阅" style="min-width:900px; font-size:13px">
+            <div role="row" style="display:grid; grid-template-columns:1fr 1.7fr 0.9fr 1.6fr 0.8fr 0.7fr 1.4fr; color:#5f6368; font-size:12px">
+              <span role="columnheader" style="padding:8px 0">设备</span><span role="columnheader" style="padding:8px 0">订阅链接</span><span role="columnheader" style="padding:8px 0">格式</span><span role="columnheader" style="padding:8px 0">最后拉取</span><span role="columnheader" style="padding:8px 0">7 天次数</span><span role="columnheader" style="padding:8px 0">状态</span><span role="columnheader" style="padding:8px 0; text-align:right">操作</span>
+            </div>
+            <sc-for list="{{devices}}" as="d" hint-placeholder-count="3">
+              <div role="row" style="display:grid; grid-template-columns:1fr 1.7fr 0.9fr 1.6fr 0.8fr 0.7fr 1.4fr; align-items:center; border-top:1px solid #f0f1f3; opacity:{{d.opacity}}">
+                <span role="cell" style="padding:12px 0; font-weight:600">{{d.name}}</span>
+                <span role="cell" style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#3d4248">{{d.url}}</span>
+                <span role="cell">{{d.format}}</span>
+                <span role="cell" style="display:flex; flex-direction:column; gap:2px"><span>{{d.last}}</span><span style="font-size:12px; color:#5f6368">{{d.from}}</span></span>
+                <span role="cell" style="font-family:'JetBrains Mono',monospace">{{d.count}}</span>
+                <span role="cell"><span style="padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:{{d.stBg}}; color:{{d.stFg}}">{{d.st}}</span></span>
+                <span role="cell" style="display:flex; justify-content:flex-end; gap:4px">
+                  <button type="button" style="height:32px; padding:0 10px; border-radius:4px; border:1px solid #d5d8dd; background:#fff; color:#1f2225; font:inherit; font-size:12px; cursor:pointer">复制</button>
+                  <button type="button" style="height:32px; padding:0 10px; border-radius:4px; border:1px solid #d5d8dd; background:#fff; color:#1f2225; font:inherit; font-size:12px; cursor:pointer">二维码</button>
+                  <button type="button" style="height:32px; padding:0 10px; border-radius:4px; border:1px solid #d5d8dd; background:#fff; color:#1f2225; font:inherit; font-size:12px; cursor:pointer">重置</button>
+                  <button type="button" style="height:32px; padding:0 10px; border-radius:4px; border:1px solid #d5d8dd; background:#fff; color:#1f2225; font:inherit; font-size:12px; cursor:pointer">{{d.toggle}}</button>
+                </span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </section>
+
+      <div style="display:flex; flex-wrap:wrap; gap:20px; align-items:flex-start">
+        <section style="flex:3 1 520px; min-width:0; background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:18px 20px; display:flex; flex-direction:column; gap:12px">
+          <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px">
+            <h2 style="margin:0; font-size:15px; font-weight:600; flex:1">内容预览</h2>
+            <div role="tablist" aria-label="订阅格式" style="display:inline-flex; gap:2px; padding:3px; border-radius:6px; background:#e9ebee">
+              <sc-for list="{{formats}}" as="f" hint-placeholder-count="3">
+                <button type="button" role="tab" aria-selected="{{f.sel}}" onClick="{{f.pick}}" style="height:32px; padding:0 12px; border:none; border-radius:4px; font:inherit; font-size:13px; cursor:pointer; background:{{f.bg}}; color:{{f.fg}}; font-weight:{{f.fw}}">{{f.label}}</button>
+              </sc-for>
+            </div>
+          </div>
+          <p style="margin:0; font-size:12px; color:#5f6368">{{formatHint}}</p>
+          <pre style="margin:0; padding:14px 16px; border-radius:6px; background:#1f2328; color:#e8eaed; font-family:'JetBrains Mono',monospace; font-size:12px; line-height:1.65; overflow:auto; max-height:460px; white-space:pre">{{code}}</pre>
+        </section>
+
+        <section style="flex:2 1 360px; min-width:0; background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:18px 20px; display:flex; flex-direction:column; gap:16px">
+          <h2 style="margin:0; font-size:15px; font-weight:600">订阅设置</h2>
+          <label style="display:flex; flex-direction:column; gap:6px; font-size:13px; color:#3d4248">节点命名模板
+            <input type="text" value="{region} {entry}{chain}" style="height:40px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:13px; color:#1f2225">
+          </label>
+          <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:-8px">
+            <span style="padding:2px 8px; border-radius:4px; background:#eef0f2; font-family:'JetBrains Mono',monospace; font-size:12px; color:#3d4248">{region}</span>
+            <span style="padding:2px 8px; border-radius:4px; background:#eef0f2; font-family:'JetBrains Mono',monospace; font-size:12px; color:#3d4248">{entry}</span>
+            <span style="padding:2px 8px; border-radius:4px; background:#eef0f2; font-family:'JetBrains Mono',monospace; font-size:12px; color:#3d4248">{landing}</span>
+            <span style="padding:2px 8px; border-radius:4px; background:#eef0f2; font-family:'JetBrains Mono',monospace; font-size:12px; color:#3d4248">{chain}</span>
+            <span style="padding:2px 8px; border-radius:4px; background:#eef0f2; font-family:'JetBrains Mono',monospace; font-size:12px; color:#3d4248">{flag}</span>
+          </div>
+          <span style="font-size:12px; color:#5f6368; margin-top:-8px">示例：香港 HK-01 · 香港 HK-01 → US-01</span>
+
+          <div style="display:flex; flex-direction:column; gap:2px">
+            <label style="display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:44px; font-size:13px; cursor:pointer">
+              <span style="display:flex; flex-direction:column; gap:2px"><span>自动移出异常线路</span><span style="font-size:12px; color:#5f6368">离线或疑似被封时移出，恢复后自动加回</span></span>
+              <input type="checkbox" checked="{{true}}" style="width:18px; height:18px; accent-color:#0f7b45">
+            </label>
+            <label style="display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:44px; font-size:13px; cursor:pointer">
+              <span style="display:flex; flex-direction:column; gap:2px"><span>陌生 IP 拉取时告警</span><span style="font-size:12px; color:#5f6368">与该设备最近 30 天的 IP 归属地都不同</span></span>
+              <input type="checkbox" checked="{{true}}" style="width:18px; height:18px; accent-color:#0f7b45">
+            </label>
+          </div>
+
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px">
+            <label style="display:flex; flex-direction:column; gap:6px; font-size:13px; color:#3d4248">客户端更新间隔
+              <select style="height:40px; padding:0 8px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; color:#1f2225; background:#fff"><option>12 小时</option><option>6 小时</option><option>24 小时</option></select>
+            </label>
+            <label style="display:flex; flex-direction:column; gap:6px; font-size:13px; color:#3d4248">流量信息来源
+              <select style="height:40px; padding:0 8px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; color:#1f2225; background:#fff"><option>US-01（落地）</option><option>所有服务器合计</option><option>不显示</option></select>
+            </label>
+            <label style="display:flex; flex-direction:column; gap:6px; font-size:13px; color:#3d4248; grid-column:1 / -1">分流规则模板（mihomo / sing-box）
+              <select style="height:40px; padding:0 8px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; color:#1f2225; background:#fff"><option>内置：国内直连 + AI / 流媒体分组</option><option>内置：全局代理</option><option>自定义：上传模板…</option></select>
+            </label>
+          </div>
+        </section>
+      </div>
+
+      <div style="display:flex; flex-wrap:wrap; gap:20px; align-items:flex-start">
+        <section style="flex:1 1 400px; min-width:0; background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:18px 20px; display:flex; flex-direction:column; gap:8px">
+          <div style="display:flex; align-items:center"><h2 style="margin:0; font-size:15px; font-weight:600; flex:1">代理组（mihomo）</h2><button type="button" style="height:32px; padding:0 10px; border-radius:4px; border:1px solid #d5d8dd; background:#fff; color:#1f2225; font:inherit; font-size:12px; cursor:pointer">编辑</button></div>
+          <sc-for list="{{groups}}" as="g" hint-placeholder-count="4">
+            <div style="display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; padding:10px 0; border-top:1px solid #f0f1f3; font-size:13px">
+              <span style="font-weight:600; width:84px">{{g.name}}</span>
+              <span style="padding:0 6px; border-radius:4px; background:#eef0f2; font-family:'JetBrains Mono',monospace; font-size:11px; line-height:18px; color:#3d4248">{{g.type}}</span>
+              <span style="flex:1 1 200px; color:#3d4248">{{g.members}}</span>
+            </div>
+          </sc-for>
+        </section>
+
+        <section style="flex:1 1 520px; min-width:0; background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:18px 20px; display:flex; flex-direction:column; gap:8px">
+          <div style="display:flex; align-items:center"><h2 style="margin:0; font-size:15px; font-weight:600; flex:1">访问日志</h2><span style="font-size:12px; color:#5f6368">保留 30 天</span></div>
+          <div style="overflow-x:auto">
+            <div role="table" aria-label="订阅访问日志" style="min-width:560px; font-size:13px">
+              <sc-for list="{{logs}}" as="l" hint-placeholder-count="6">
+                <div role="row" style="display:grid; grid-template-columns:0.9fr 0.7fr 1.3fr 1.2fr 0.8fr; align-items:center; gap:8px; padding:9px 6px; border-top:1px solid #f0f1f3; background:{{l.bg}}">
+                  <span role="cell" style="font-size:12px; color:#5f6368">{{l.time}}</span>
+                  <span role="cell">{{l.device}}</span>
+                  <span role="cell" style="display:flex; flex-direction:column"><span style="font-family:'JetBrains Mono',monospace; font-size:12px">{{l.ip}}</span><span style="font-size:11px; color:#5f6368">{{l.geo}}</span></span>
+                  <span role="cell" style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#3d4248">{{l.ua}}</span>
+                  <span role="cell" style="font-size:12px; color:{{l.fg}}; font-weight:{{l.fw}}">{{l.result}}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1750}}'>
+class Component extends DCLogic {
+  state = { format: 'mihomo' };
+  renderVals() {
+    const fmt = this.state.format;
+    const devices = [
+      ['手机', 'https://sub.example.com/s/••••••3fa1', '自动识别', '8 分钟前', '上海 · 电信 · mihomo', '42', '正常', true],
+      ['笔记本', 'https://sub.example.com/s/••••••9c07', 'mihomo', '2 小时前', '上海 · 电信 · Clash Verge Rev', '18', '正常', true],
+      ['平板', 'https://sub.example.com/s/••••••51de', 'sing-box', '23 天前', '上海 · 移动', '0', '已停用', false]
+    ].map(([name, url, format, last, from, count, st, on]) => ({
+      name, url, format, last, from, count, st,
+      stBg: on ? '#e6f4ec' : '#eef0f2', stFg: on ? '#0f7b45' : '#4a4f55',
+      toggle: on ? '停用' : '启用', opacity: on ? '1' : '0.7'
+    }));
+    const formats = [['mihomo', 'mihomo'], ['singbox', 'sing-box'], ['base64', 'Base64']].map(([id, label]) => {
+      const on = id === fmt;
+      return { label, sel: on ? 'true' : 'false', bg: on ? '#fff' : 'transparent', fg: on ? '#0f7b45' : '#3d4248', fw: on ? '600' : '500', pick: () => this.setState({ format: id }) };
+    });
+    const CODE = {
+      mihomo: [
+        'proxies:',
+        '  - name: "香港 HK-01"',
+        '    type: vless',
+        '    server: 103.x.x.21',
+        '    port: 443',
+        '    uuid: 2b1f…c9e0',
+        '    network: tcp',
+        '    udp: true',
+        '    tls: true',
+        '    flow: xtls-rprx-vision',
+        '    servername: [目标站域名]',
+        '    client-fingerprint: chrome',
+        '    reality-opts:',
+        '      public-key: Zt3x…Q8mA',
+        '      short-id: 6ba8…',
+        '  - name: "香港 HK-01 → US-01"',
+        '    type: vless',
+        '    server: 103.x.x.21',
+        '    port: 443',
+        '    uuid: 7d40…11ab        # 同一端口，不同 UUID',
+        '    # …其余字段同上',
+        '',
+        'proxy-groups:',
+        '  - name: 节点选择',
+        '    type: select',
+        '    proxies: [自动选择, 美国落地, 直连线路]',
+        '  - name: 自动选择',
+        '    type: url-test',
+        '    url: https://www.gstatic.com/generate_204',
+        '    interval: 300',
+        '    proxies: [香港 HK-01, 香港 HK-02, 日本 JP-01, …]',
+        '',
+        'rules:',
+        '  # 来自规则模板：国内直连 + AI / 流媒体分组'
+      ].join('\n'),
+      singbox: [
+        '{',
+        '  "outbounds": [',
+        '    {',
+        '      "type": "vless",',
+        '      "tag": "香港 HK-01",',
+        '      "server": "103.x.x.21",',
+        '      "server_port": 443,',
+        '      "uuid": "2b1f…c9e0",',
+        '      "flow": "xtls-rprx-vision",',
+        '      "tls": {',
+        '        "enabled": true,',
+        '        "server_name": "[目标站域名]",',
+        '        "utls": { "enabled": true, "fingerprint": "chrome" },',
+        '        "reality": { "enabled": true, "public_key": "Zt3x…Q8mA", "short_id": "6ba8…" }',
+        '      }',
+        '    },',
+        '    { "type": "urltest", "tag": "自动选择", "outbounds": ["香港 HK-01", "…"] }',
+        '  ],',
+        '  "route": { "rule_set": ["…来自规则模板"] }',
+        '}'
+      ].join('\n'),
+      base64: [
+        '# 实际返回整段 Base64；这里显示解码后的内容',
+        'vless://2b1f…c9e0@103.x.x.21:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=[目标站域名]&fp=chrome&pbk=Zt3x…Q8mA&sid=6ba8…&type=tcp#香港%20HK-01',
+        'vless://7d40…11ab@103.x.x.21:443?…#香港%20HK-01%20→%20US-01',
+        'vless://…@45.x.x.137:443?…#香港%20HK-02',
+        'vless://…@45.x.x.137:443?…#香港%20HK-02%20→%20US-01',
+        'vless://…@154.x.x.9:443?…#日本%20JP-01',
+        'vless://…@154.x.x.9:443?…#日本%20JP-01%20→%20US-01'
+      ].join('\n')
+    };
+    const HINT = {
+      mihomo: 'Clash Verge Rev、FlClash 等使用。User-Agent 含 mihomo / clash 时自动返回此格式。',
+      singbox: 'sing-box 官方客户端使用。User-Agent 含 sing-box 时自动返回此格式。',
+      base64: 'v2rayN、Shadowrocket 等使用。无法识别 User-Agent 时默认返回此格式。'
+    };
+    const groups = [
+      ['节点选择', 'select', '自动选择、美国落地、直连线路，及全部 6 条线路'],
+      ['自动选择', 'url-test', '全部线路，每 300 秒测速，容差 50 ms'],
+      ['美国落地', 'fallback', 'HK-01 → US-01、JP-01 → US-01、HK-02 → US-01'],
+      ['直连线路', 'url-test', 'HK-01、HK-02、JP-01']
+    ].map(([name, type, members]) => ({ name, type, members }));
+    const logs = [
+      ['今天 15:52', '手机', '116.x.x.42', '上海 电信', 'mihomo/1.x', '200', false],
+      ['今天 13:40', '笔记本', '116.x.x.42', '上海 电信', 'clash-verge/v2.x', '200', false],
+      ['今天 09:12', '手机', '223.x.x.17', '上海 移动（4G）', 'mihomo/1.x', '200', false],
+      ['昨天 23:05', '笔记本', '38.x.x.201', '美国 · 数据中心', 'curl/8.x', '200 · 陌生 IP 已告警', true],
+      ['昨天 21:47', '手机', '116.x.x.42', '上海 电信', 'mihomo/1.x', '200', false],
+      ['11-14 10:02', '平板', '116.x.x.42', '上海 电信', 'sing-box/1.x', '403 · 已停用', false]
+    ].map(([time, device, ip, geo, ua, result, warn]) => ({
+      time, device, ip, geo, ua, result,
+      bg: warn ? '#fff5f6' : 'transparent', fg: warn ? '#b4233a' : (result.startsWith('403') ? '#5f6368' : '#0f7b45'), fw: warn ? '600' : '500'
+    }));
+    return { devices, formats, code: CODE[fmt], formatHint: HINT[fmt], groups, logs };
+  }
+}
+</script>
+</body>
+</html>

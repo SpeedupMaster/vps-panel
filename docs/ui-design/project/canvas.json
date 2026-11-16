@@ -1,0 +1,48 @@
+{
+  "v": 3,
+  "createdOnFiles": { "v": 1, "at": "2026-11-16T10:00:00Z" },
+  "title": "VPS 面板 UI 设计",
+  "launch": { "view": "canvas" },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": { "x": 0, "y": 0, "w": 1440, "h": 1750, "title": "总览", "expand": "fill", "is_interactive": true },
+    "Login.dc.html": { "x": 2240, "y": 0, "w": 1440, "h": 900, "title": "登录", "expand": "fill", "is_interactive": true },
+    "AddServer.dc.html": { "x": 0, "y": 1870, "w": 1440, "h": 1000, "title": "添加服务器", "expand": "fill", "is_interactive": true },
+    "ServerDetail.dc.html": { "x": 2240, "y": 1870, "w": 1440, "h": 2200, "title": "服务器详情", "expand": "fill", "is_interactive": true },
+    "Routes.dc.html": { "x": 0, "y": 4190, "w": 1440, "h": 1250, "title": "线路", "expand": "fill", "is_interactive": true },
+    "RouteWizard.dc.html": { "x": 2240, "y": 4190, "w": 1440, "h": 1000, "title": "新建线路", "expand": "fill", "is_interactive": true },
+    "Topology.dc.html": { "x": 0, "y": 5560, "w": 1440, "h": 1000, "title": "拓扑", "expand": "fill", "is_interactive": true },
+    "Latency.dc.html": { "x": 2240, "y": 5560, "w": 1440, "h": 1700, "title": "延迟", "expand": "fill", "is_interactive": true },
+    "Subscription.dc.html": { "x": 0, "y": 7380, "w": 1440, "h": 1750, "title": "订阅", "expand": "fill", "is_interactive": true },
+    "Updates.dc.html": { "x": 2240, "y": 7380, "w": 1440, "h": 1600, "title": "更新中心", "expand": "fill", "is_interactive": true },
+    "Alerts.dc.html": { "x": 0, "y": 9250, "w": 1440, "h": 1300, "title": "告警", "expand": "fill", "is_interactive": true },
+    "Tools.dc.html": { "x": 2240, "y": 9250, "w": 1440, "h": 1500, "title": "工具", "expand": "fill", "is_interactive": true },
+    "Settings.dc.html": { "x": 0, "y": 10870, "w": 1440, "h": 1700, "title": "设置", "expand": "fill", "is_interactive": true },
+    "Sidebar.dc.html": { "x": 2240, "y": 10870, "w": 220, "h": 900, "title": "侧边栏组件", "is_interactive": true }
+  },
+  "order": [
+    "Main.dc.html", "Login.dc.html", "AddServer.dc.html", "ServerDetail.dc.html",
+    "Routes.dc.html", "RouteWizard.dc.html", "Topology.dc.html", "Latency.dc.html",
+    "Subscription.dc.html", "Updates.dc.html", "Alerts.dc.html", "Tools.dc.html",
+    "Settings.dc.html", "Sidebar.dc.html"
+  ],
+  "notes": {
+    "title": { "x": 0, "y": -340, "text": "VPS Panel · 页面与交互设计", "kind": "title1", "maxW": 4320 },
+    "spec": { "x": 4440, "y": 0, "w": 520, "size": "s", "fill": "gray", "text": "视觉规范\n· 基于 Naive UI 默认浅色主题，用 themeOverrides 把主色加深为 #0F7B45（白字对比度 5.3:1；默认 #18A058 不达标）。\n· 语义色：成功 #0F7B45 / 警告 #94520A / 错误 #B4233A / 信息 #1D5FBF，各配浅色底。\n· 图表：上行蓝 #2F6FD0、下行橙 #D97A0B；三网用蓝 / 橙 / 灰，并配图例文字。\n· 用量条：<70% 蓝，≥70% 橙，≥90% 红，旁边始终显示数值。\n· 字体：Inter + Noto Sans SC；数字、IP、版本号用 JetBrains Mono。\n· 背景 #F4F5F7；卡片白底、1px #E4E6EA 边框、6px 圆角。\n· 按钮高 40px；所有状态都有文字，不只靠颜色区分。\n· 画布里的服务器、IP、版本号、流量等全是示例数据。" },
+    "n-main": { "x": 1520, "y": 0, "w": 560, "size": "s", "fill": "blue", "text": "总览 Main.dc.html\n· 顶部 5 个统计卡：在线数、本月总流量（所有网卡合计）、本月花费、未处理告警、7 天内到期。点击卡片跳到对应筛选或页面。\n· 严重事件横幅：疑似被封、落地中断时出现，可「查看诊断」或「忽略 1 小时」。\n· 筛选：角色分段（全部 / 入口 / 落地 / 仅探针，原型可点）、分组、排序。\n· 服务器卡片：状态、角色、打码 IP、CPU / 内存 / 磁盘、实时速率、计费周期流量、到期天数。节点机额外显示三网回程延迟和 Xray 版本；仅探针机不显示 Xray 相关内容。\n· 离线卡片置灰，显示离线时长和最后在线时间。\n· 数据通过 WebSocket 每 10 秒推送更新，不整页刷新。\n· 点击卡片上的服务器名进入详情。" },
+    "n-login": { "x": 3760, "y": 0, "w": 560, "size": "s", "fill": "blue", "text": "登录 Login.dc.html\n· 两步：账号密码 → 6 位 TOTP（开启 2FA 后）。原型中点「登录」进入第二步。\n· 同一 IP 连续失败 5 次锁定 15 分钟，按钮下显示剩余时间。\n· 新 IP 登录成功后推送 Telegram 通知。\n· 后台路径可在设置里改成随机路径；路径不对时返回 404，不暴露面板存在。\n· 「记住此设备 30 天」只跳过 TOTP，不跳过密码。\n· 没有注册入口：管理员账号在首次安装时由命令行生成。" },
+    "n-add": { "x": 1520, "y": 1870, "w": 560, "size": "s", "fill": "blue", "text": "添加服务器 AddServer.dc.html\n· 右侧抽屉，从总览「添加服务器」打开。\n· 安装模式：仅探针 / 节点；节点再勾选 Reality（直连 / 入口）和 SS 落地，可同时勾选。原型中切换会实时改变安装命令。\n· 安装命令带一次性 Token：30 分钟内有效、只能用一次，可「重新生成」。\n· 另一种方式：SSH 一键安装，填主机、端口、用户、密码或私钥；凭据只用于本次安装，不保存。\n· 底部实时进度：等待连接 → 已注册 → 安装 Xray（节点模式）→ 完成；失败时显示安装日志最后 20 行。\n· 完成后可「为它新建线路」或「返回总览」。" },
+    "n-detail": { "x": 3760, "y": 1870, "w": 560, "size": "s", "fill": "blue", "text": "服务器详情 ServerDetail.dc.html（以入口机 HK-01 为例）\n· 顶部操作：重启 Xray、一键诊断、更多（重启 Agent、降为仅探针、删除）。危险操作需要二次确认。\n· 标签栏是页内锚点：概览 / Xray / 流量 / 资产 / 配置历史。\n· 时间范围 1h / 6h / 24h / 7d / 30d 统一控制所有图表，悬停显示具体数值。\n· 右栏：系统信息（IP 默认打码，点眼睛图标查看）、本周期流量和预测、BBR 状态、版本。\n· Xray 区：Reality 入站参数、目标站检测、轮换密钥；本机关联的线路。\n· 配置历史：每次下发一个版本，标明「热更新」或「重启」，可查看差异和回滚。\n· 落地机：Xray 区换成 SS2022 入站、各入口的用户和防火墙白名单。\n· 仅探针机：隐藏 Xray 区和线路，保留监控、流量、资产。" },
+    "n-routes": { "x": 1520, "y": 4190, "w": 560, "size": "s", "fill": "blue", "text": "线路 Routes.dc.html\n· 一条线路 = 入口机 Reality 入站里的一个 UUID；直连从入口机直接出网，链式经 SS2022 转到落地。\n· 列：名称、类型、入口、落地、估算延迟（悬停看「回程 + 线路段」拆分）、今日 / 本月流量、状态、是否进订阅、操作。\n· 状态：正常 / 线路段中断 / 疑似被封 / 已停用。疑似被封时自动从订阅剔除（可在订阅设置里关闭）。\n· 操作：复制分享链接、二维码、编辑、停用、删除。\n· 下方：落地机 US-01 的 SS 用户（每个入口一个），显示流量和防火墙白名单同步状态。\n· 「一键轮换密钥」：重新生成所有 UUID、Reality 密钥和 SS 密钥并下发，完成后提示更新订阅。需要输入 TOTP 确认。" },
+    "n-wizard": { "x": 3760, "y": 4190, "w": 560, "size": "s", "fill": "blue", "text": "新建线路 RouteWizard.dc.html（原型可逐步点击）\n1 选入口：疑似被封的入口不可选，并显示原因。\n2 选类型：直连 / 经落地。\n3 选落地：显示所选入口到各落地的实测延迟；备用落地在只有 1 台落地时置灰并说明；名称按模板自动生成，可修改。\n4 预览：列出入口机、落地机将发生的变化，逐项标明「热更新」或「需重启 Xray（约 1 秒断流）」。\n5 自检：配置校验 → 下发 → 入口到落地 TCP → 经线路访问 generate_204 → 加入订阅，每步显示耗时；任一步失败可「回滚本次变更」。" },
+    "n-topo": { "x": 1520, "y": 5560, "w": 560, "size": "s", "fill": "blue", "text": "拓扑 Topology.dc.html\n· 三列：客户端 → 入口机 → 落地 / 直接出网。\n· 入口卡片显示回程延迟和今日流量；入口到落地的连线标注线路段延迟。\n· 被封入口整块标红，连线改为虚线；落地中断时相关连线标红。\n· 点击节点打开服务器详情。\n· 布局按角色自动排列，可拖动微调，位置会保存。" },
+    "n-latency": { "x": 3760, "y": 5560, "w": 560, "size": "s", "fill": "blue", "text": "延迟 Latency.dc.html\n· 顶部常驻说明：没有国内探测点，数据是 VPS → 国内的回程视角，测不出封端口和协议干扰。\n· 时间范围 6h / 24h / 7d。\n· 回程图：SmokePing 风格，浅色带为最小 ~ 最大，实线为中位数，下方色条为丢包率。\n· 汇总表：每台 × 电信 / 联通 / 移动，平均延迟和丢包，超阈值着色并带数值。\n· 线路段：各入口到 US-01 的延迟和存活（来自 Xray Observatory）。\n· VPS 互测矩阵：颜色越深延迟越高，用来挑选入口和落地的搭配。\n· 拨测目标可在「管理目标」里增删（按运营商、地区分组）。" },
+    "n-sub": { "x": 1520, "y": 7380, "w": 560, "size": "s", "fill": "blue", "text": "订阅 Subscription.dc.html\n· 设备订阅：每台设备一个 Token，可分别查看拉取记录、重置、停用；所有设备共用同一套线路。\n· 订阅链接默认打码，点击复制；二维码方便手机扫码导入。\n· 格式预览：mihomo（主力）/ sing-box / Base64，原型可切换。\n· 设置：节点命名模板、包含哪些线路、自动剔除离线和疑似被封线路、更新间隔、流量信息来源。\n· 代理组：为 mihomo 生成「节点选择 / 自动选择 / 美国落地 / 直连线路」，可调整。\n· 访问日志：时间、设备、IP、UA；陌生 IP 拉取会告警并标红。" },
+    "n-updates": { "x": 3760, "y": 7380, "w": 560, "size": "s", "fill": "blue", "text": "更新中心 Updates.dc.html\n· 四个组件卡：Agent、Xray、规则文件、面板，显示最新版本和待更新数量。\n· Xray 版本列表：正式版 / 预发布切换，可展开更新日志；可对单台机器锁定版本。\n· 批量更新：选机器和目标版本；默认策略「先更新 1 台，观察 10 分钟无异常再更新其余」。\n· 每台的执行步骤：下载 → 校验 → 用新版测试现有配置 → 替换重启 → 健康检查；失败自动回滚并通知。\n· 离线机器的任务排队，上线后执行；24 小时后过期。\n· 仅探针机只出现在 Agent 更新里。" },
+    "n-alerts": { "x": 1520, "y": 9250, "w": 560, "size": "s", "fill": "blue", "text": "告警 Alerts.dc.html（原型可切换三个标签）\n· 告警事件：进行中 / 已恢复，严重度、服务器、内容、持续时长；可确认、静默 1 小时。\n· 规则：条件 + 持续时长 + 冷却时间 + 范围 + 渠道，开关即时生效。\n· 通知渠道：Telegram（主）、Bark、企业微信、飞书、邮件、Webhook，每个都可「发送测试」。\n· 全局：静默时段（如 23:00–08:00 只推严重告警），多台同时离线合并成一条。\n· Telegram Bot 只响应已绑定的 chat_id，支持 /status /vps /traffic /routes /sub。" },
+    "n-tools": { "x": 3760, "y": 9250, "w": 560, "size": "s", "fill": "blue", "text": "工具 Tools.dc.html\n· 先选服务器，再选工具；工具卡标明适用范围（仅节点机 / 所有机器）。\n· 一键诊断（我连不上了）：依次检查 Agent、Xray、端口监听、海外连通、国内回程、其他 VPS 对照，最后给出结论和建议。\n· BBR 与网络优化：显示当前状态和改动预览（sysctl 差异），可一键还原；OpenVZ / LXC 置灰并说明原因。\n· WebSSH、批量脚本需要在 VPS 本地开启 allow_remote_exec，未开启时显示锁定状态和开启方法。\n· 检测类（解锁、IP 质量、回程路由、测速）保存历史结果，可对比。" },
+    "n-settings": { "x": 1520, "y": 10870, "w": 560, "size": "s", "fill": "blue", "text": "设置 Settings.dc.html\n· 左侧锚点：账号与安全 / 面板 / Agent / 数据保留 / 备份 / 审计日志。\n· 账号与安全：改密码、2FA、登录会话（可踢下线）、允许访问的 IP。\n· 面板：面板地址和备用地址（Agent 按顺序重连）、订阅域名、后台路径。\n· 备份：每日自动备份、本地保留份数、可选上传目标；可立即备份、下载、从备份恢复（需要 TOTP）。\n· 审计日志：所有修改操作，可按类型筛选、导出。" },
+    "n-sidebar": { "x": 2540, "y": 10870, "w": 480, "size": "s", "fill": "blue", "text": "侧边栏组件 Sidebar.dc.html\n· 所有页面共用，属性 active 决定高亮项。\n· 窄屏（手机）时导航变成两列网格，放在页面顶部。\n· 「告警」项显示未处理数量。" }
+  },
+  "designSystems": []
+}

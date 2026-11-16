@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>添加服务器</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Noto+Sans+SC:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#0f7b45}a:hover{color:#0a5c33}
+</style>
+</helmet>
+<div style="display:flex; flex-wrap:wrap; min-height:100vh; background:#4b5058; font-family:Inter,'Noto Sans SC',system-ui,sans-serif; color:#1f2225; font-size:14px">
+  <a href="Main.dc.html" aria-label="关闭抽屉，返回总览" style="flex:1 1 300px; min-height:120px; display:block; background:#4b5058"></a>
+
+  <aside aria-label="添加服务器" style="flex:0 1 640px; min-width:0; background:#fff; display:flex; flex-direction:column; box-shadow:-8px 0 24px rgba(0,0,0,0.18)">
+    <div style="display:flex; align-items:center; gap:12px; padding:18px 24px; border-bottom:1px solid #e4e6ea">
+      <h1 style="margin:0; font-size:18px; font-weight:600; flex:1">添加服务器</h1>
+      <a href="Main.dc.html" aria-label="关闭" style="width:40px; height:40px; display:inline-flex; align-items:center; justify-content:center; border-radius:4px; color:#3d4248">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12 M18 6L6 18"></path></svg>
+      </a>
+    </div>
+
+    <div style="flex:1; padding:20px 24px 28px; display:flex; flex-direction:column; gap:24px">
+
+      <section style="display:flex; flex-direction:column; gap:12px">
+        <h2 style="margin:0; font-size:14px; font-weight:600">1 · 基本信息</h2>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:12px">
+          <label style="display:flex; flex-direction:column; gap:6px; font-size:13px; color:#3d4248">名称
+            <input type="text" value="JP-02" style="height:40px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; color:#1f2225">
+          </label>
+          <label style="display:flex; flex-direction:column; gap:6px; font-size:13px; color:#3d4248">分组
+            <select style="height:40px; padding:0 8px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; color:#1f2225; background:#fff"><option>亚洲入口</option><option>美国</option><option>欧洲</option><option>新建分组…</option></select>
+          </label>
+          <label style="display:flex; flex-direction:column; gap:6px; font-size:13px; color:#3d4248">标签（可选）
+            <input type="text" placeholder="如：IIJ、原生 IP" style="height:40px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; color:#1f2225">
+          </label>
+        </div>
+        <p style="margin:0; font-size:12px; color:#5f6368">地区、IP、系统信息会在 Agent 连上后自动识别，无需填写。</p>
+      </section>
+
+      <section style="display:flex; flex-direction:column; gap:12px">
+        <h2 style="margin:0; font-size:14px; font-weight:600">2 · 安装模式</h2>
+        <div role="radiogroup" aria-label="安装模式" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px">
+          <button type="button" role="radio" aria-checked="{{probeChecked}}" onClick="{{pickProbe}}" style="text-align:left; padding:14px 16px; border-radius:6px; border:{{probeBorder}}; background:{{probeBg}}; font:inherit; color:#1f2225; cursor:pointer; display:flex; flex-direction:column; gap:4px">
+            <span style="font-weight:600">仅探针</span>
+            <span style="font-size:12px; color:#5f6368; line-height:1.6">只做监控，不安装 Xray。以后可在详情页一键升级为节点。</span>
+          </button>
+          <button type="button" role="radio" aria-checked="{{nodeChecked}}" onClick="{{pickNode}}" style="text-align:left; padding:14px 16px; border-radius:6px; border:{{nodeBorder}}; background:{{nodeBg}}; font:inherit; color:#1f2225; cursor:pointer; display:flex; flex-direction:column; gap:4px">
+            <span style="font-weight:600">节点</span>
+            <span style="font-size:12px; color:#5f6368; line-height:1.6">探针 + Xray。安装后由面板统一生成和下发配置。</span>
+          </button>
+        </div>
+        <sc-if value="{{isNode}}" hint-placeholder-val="{{true}}">
+          <div style="display:flex; flex-direction:column; gap:4px; padding:12px 16px; border-radius:6px; background:#f7f8f9; border:1px solid #eceef1">
+            <span style="font-size:13px; font-weight:500; margin-bottom:4px">节点能力（可多选）</span>
+            <label style="display:flex; align-items:flex-start; gap:10px; min-height:40px; padding:6px 0; cursor:pointer">
+              <input type="checkbox" checked="{{reality}}" onChange="{{toggleReality}}" style="width:16px; height:16px; margin-top:3px; accent-color:#0f7b45">
+              <span style="display:flex; flex-direction:column; gap:2px"><span>Reality 入站（直连 / 入口）</span><span style="font-size:12px; color:#5f6368">客户端连接的节点，默认端口 443。创建后可在「线路」里添加直连或链式线路。</span></span>
+            </label>
+            <label style="display:flex; align-items:flex-start; gap:10px; min-height:40px; padding:6px 0; cursor:pointer">
+              <input type="checkbox" checked="{{landing}}" onChange="{{toggleLanding}}" style="width:16px; height:16px; margin-top:3px; accent-color:#0f7b45">
+              <span style="display:flex; flex-direction:column; gap:2px"><span>SS2022 落地</span><span style="font-size:12px; color:#5f6368">只接收入口机流量，端口随机，防火墙只放行入口机 IP。</span></span>
+            </label>
+          </div>
+        </sc-if>
+      </section>
+
+      <section style="display:flex; flex-direction:column; gap:12px">
+        <h2 style="margin:0; font-size:14px; font-weight:600">3 · 安装</h2>
+        <div role="tablist" aria-label="安装方式" style="display:flex; gap:20px; border-bottom:1px solid #e4e6ea">
+          <button type="button" role="tab" aria-selected="{{cmdSel}}" onClick="{{pickCmd}}" style="height:40px; padding:0 2px; border:none; border-bottom:2px solid {{cmdLine}}; margin-bottom:-1px; background:none; font:inherit; color:{{cmdFg}}; font-weight:{{cmdFw}}; cursor:pointer">一键命令</button>
+          <button type="button" role="tab" aria-selected="{{sshSel}}" onClick="{{pickSsh}}" style="height:40px; padding:0 2px; border:none; border-bottom:2px solid {{sshLine}}; margin-bottom:-1px; background:none; font:inherit; color:{{sshFg}}; font-weight:{{sshFw}}; cursor:pointer">SSH 一键安装</button>
+        </div>
+
+        <sc-if value="{{isCmd}}" hint-placeholder-val="{{true}}">
+          <p style="margin:0; font-size:13px; color:#3d4248">用 root 登录 VPS，执行下面的命令：</p>
+          <div style="display:flex; align-items:flex-start; gap:12px; padding:14px 16px; border-radius:6px; background:#1f2328; color:#e8eaed">
+            <code style="flex:1; min-width:0; font-family:'JetBrains Mono',monospace; font-size:12.5px; line-height:1.7; word-break:break-all">{{command}}</code>
+            <button type="button" onClick="{{copy}}" style="flex:none; height:34px; padding:0 12px; border-radius:4px; border:1px solid #4a5058; background:#2b3036; color:#e8eaed; font:inherit; font-size:13px; cursor:pointer">{{copyLabel}}</button>
+          </div>
+          <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; font-size:12px; color:#5f6368">
+            <span>Token <span style="font-family:'JetBrains Mono',monospace; color:#1f2225">29:41</span> 后失效 · 只能使用一次</span>
+            <button type="button" style="border:none; background:none; padding:6px 0; font:inherit; font-size:12px; color:#0f7b45; cursor:pointer">重新生成</button>
+            <span style="flex:1"></span>
+            <span>支持 Debian 11+ / Ubuntu 20.04+ / Rocky·Alma 9 / Alpine 3.18+ · amd64 / arm64</span>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{isSsh}}" hint-placeholder-val="{{false}}">
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px">
+            <label style="display:flex; flex-direction:column; gap:6px; font-size:13px; color:#3d4248; grid-column:span 2">主机 IP
+              <input type="text" placeholder="例如 154.x.x.x" style="height:40px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; color:#1f2225">
+            </label>
+            <label style="display:flex; flex-direction:column; gap:6px; font-size:13px; color:#3d4248">端口
+              <input type="text" value="22" style="height:40px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; color:#1f2225">
+            </label>
+            <label style="display:flex; flex-direction:column; gap:6px; font-size:13px; color:#3d4248">用户
+              <input type="text" value="root" style="height:40px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; color:#1f2225">
+            </label>
+          </div>
+          <label style="display:flex; flex-direction:column; gap:6px; font-size:13px; color:#3d4248">私钥或密码
+            <textarea rows="3" placeholder="粘贴私钥（-----BEGIN OPENSSH PRIVATE KEY-----…）或输入密码" style="padding:10px 12px; border:1px solid #d5d8dd; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#1f2225; resize:vertical"></textarea>
+          </label>
+          <div style="display:flex; gap:8px; padding:10px 12px; border-radius:6px; background:#e7effb; color:#173f7a; font-size:12px; line-height:1.6">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="flex:none; margin-top:2px"><path d="M6 11V8a6 6 0 0 1 12 0v3 M5 11h14v10H5z"></path></svg>
+            <span>凭据只在本次安装时使用，安装结束后立即丢弃，不写入数据库或日志。</span>
+          </div>
+          <button type="button" style="align-self:flex-start; height:40px; padding:0 18px; border:none; border-radius:4px; background:#0f7b45; color:#fff; font:inherit; font-weight:500; cursor:pointer">连接并安装</button>
+        </sc-if>
+      </section>
+
+      <section style="display:flex; flex-direction:column; gap:12px">
+        <h2 style="margin:0; font-size:14px; font-weight:600">4 · 安装进度</h2>
+        <ol style="list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:0">
+          <sc-for list="{{steps}}" as="st" hint-placeholder-count="4">
+            <li style="display:flex; gap:12px; min-height:44px">
+              <span style="display:flex; flex-direction:column; align-items:center">
+                <span style="width:22px; height:22px; box-sizing:border-box; border-radius:11px; border:2px solid {{st.ring}}; background:{{st.fill}}; color:#fff; display:inline-flex; align-items:center; justify-content:center; font-size:11px; font-weight:700">{{st.mark}}</span>
+                <span style="flex:1; width:2px; background:#e4e6ea"></span>
+              </span>
+              <span style="display:flex; flex-direction:column; gap:2px; padding-bottom:12px">
+                <span style="font-weight:500; color:{{st.fg}}">{{st.label}}</span>
+                <span style="font-size:12px; color:#5f6368">{{st.hint}}</span>
+              </span>
+            </li>
+          </sc-for>
+        </ol>
+      </section>
+    </div>
+
+    <div style="display:flex; flex-wrap:wrap; justify-content:flex-end; gap:10px; padding:14px 24px; border-top:1px solid #e4e6ea; background:#fafbfc">
+      <a href="Main.dc.html" style="display:inline-flex; align-items:center; height:40px; padding:0 16px; border-radius:4px; border:1px solid #d5d8dd; background:#fff; color:#1f2225; text-decoration:none">稍后再说</a>
+      <button type="button" disabled="{{true}}" style="height:40px; padding:0 16px; border:none; border-radius:4px; background:#c9cdd2; color:#3d4248; font:inherit; font-weight:500; cursor:not-allowed">为它新建线路（安装完成后可用）</button>
+    </div>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  state = { mode: 'node', reality: true, landing: false, method: 'cmd', copied: false };
+  renderVals() {
+    const s = this.state;
+    const isNode = s.mode === 'node';
+    const sel = (on) => ({ border: on ? '2px solid #0f7b45' : '1px solid #d5d8dd', bg: on ? '#f1f9f4' : '#fff' });
+    const p = sel(!isNode), n = sel(isNode);
+    const caps = [s.reality ? 'reality' : null, s.landing ? 'landing' : null].filter(Boolean).join(',');
+    let command = 'bash <(curl -fsSL https://panel.example.com/install.sh) --token 7f3kQ2…x9Lp --mode ' + s.mode;
+    if (isNode && caps) command += ' --caps ' + caps;
+    const tab = (on) => ({ line: on ? '#0f7b45' : 'transparent', fg: on ? '#0f7b45' : '#3d4248', fw: on ? '600' : '500', sel: on ? 'true' : 'false' });
+    const c = tab(s.method === 'cmd'), h = tab(s.method === 'ssh');
+    const STEP = {
+      done: { ring: '#0f7b45', fill: '#0f7b45', fg: '#1f2225', mark: '✓' },
+      now: { ring: '#1d5fbf', fill: '#fff', fg: '#1d5fbf', mark: '' },
+      todo: { ring: '#c9cdd2', fill: '#fff', fg: '#5f6368', mark: '' }
+    };
+    const raw = [
+      ['now', '等待 Agent 连接', '已等待 00:42。若超过 5 分钟，请检查 VPS 能否访问面板地址。'],
+      ['todo', '注册并识别系统', '获取地区、IP、系统、虚拟化类型'],
+      isNode ? ['todo', '安装 Xray 与规则文件', '下载并校验当前推荐版本'] : null,
+      ['todo', '完成', isNode ? '可以开始为它创建线路' : '开始上报监控数据']
+    ].filter(Boolean);
+    const steps = raw.map(([k, label, hint]) => ({ ...STEP[k], label, hint }));
+    return {
+      isNode,
+      probeChecked: isNode ? 'false' : 'true', nodeChecked: isNode ? 'true' : 'false',
+      probeBorder: p.border, probeBg: p.bg, nodeBorder: n.border, nodeBg: n.bg,
+      pickProbe: () => this.setState({ mode: 'probe', copied: false }),
+      pickNode: () => this.setState({ mode: 'node', copied: false }),
+      reality: s.reality, landing: s.landing,
+      toggleReality: () => this.setState({ reality: !s.reality, copied: false }),
+      toggleLanding: () => this.setState({ landing: !s.landing, copied: false }),
+      isCmd: s.method === 'cmd', isSsh: s.method === 'ssh',
+      cmdLine: c.line, cmdFg: c.fg, cmdFw: c.fw, cmdSel: c.sel,
+      sshLine: h.line, sshFg: h.fg, sshFw: h.fw, sshSel: h.sel,
+      pickCmd: () => this.setState({ method: 'cmd' }),
+      pickSsh: () => this.setState({ method: 'ssh' }),
+      command,
+      copyLabel: s.copied ? '已复制' : '复制',
+      copy: () => this.setState({ copied: true }),
+      steps
+    };
+  }
+}
+</script>
+</body>
+</html>

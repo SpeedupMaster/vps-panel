@@ -1,0 +1,57 @@
+// Reference description of the panel <-> agent protocol.
+//
+// The Go code does not generate stubs from this file: both sides use the
+// structs in internal/common/proto with a JSON gRPC codec (content-subtype
+// "json"), so builds need no protoc. Keep this file in sync with messages.go.
+syntax = "proto3";
+package vpspanel;
+
+service AgentHub {
+  // One-time install token -> long-lived agent_id + agent_secret.
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  // Agent dials out; metadata x-agent-id / x-agent-ts / x-agent-nonce /
+  // x-agent-sig = hex(HMAC-SHA256(secret, id|ts|nonce)).
+  rpc Connect(stream AgentMessage) returns (stream PanelMessage);
+}
+
+message AgentMessage {
+  oneof payload {
+    Hello        hello       = 1;  // version, mode, system info, local switches
+    Metrics      metrics     = 2;
+    TrafficDelta traffic     = 3;  // carries seq, deduped by the panel
+    ProbeResult  probe       = 4;
+    TaskResult   task_result = 5;  // streamed output chunks
+    XrayState    xray_state  = 6;  // config hash, version, running, drift
+    Event        event       = 7;  // xray crash, config drift, ip change
+  }
+}
+
+message PanelMessage {
+  oneof payload {
+    ApplyConfig   apply_config = 1;  // full Xray config + version (+ firewall)
+    XrayOp        xray_op      = 2;  // hot add / remove user
+    ProbeTasks    probe_tasks  = 3;
+    Task          task         = 4;  // install, update, bbr, diagnose, ...
+    Ack           ack          = 5;  // traffic seq acknowledged
+    AgentSettings settings     = 6;
+    ShellInput    shell_input  = 7;  // WebSSH keystrokes
+  }
+}
+
+// Field-level definitions: see internal/common/proto/messages.go.
+message RegisterRequest {}
+message RegisterResponse {}
+message Hello {}
+message Metrics {}
+message TrafficDelta {}
+message ProbeResult {}
+message TaskResult {}
+message XrayState {}
+message Event {}
+message ApplyConfig {}
+message XrayOp {}
+message ProbeTasks {}
+message Task {}
+message Ack {}
+message AgentSettings {}
+message ShellInput {}

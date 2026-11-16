@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>更新中心</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Noto+Sans+SC:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#0f7b45}a:hover{color:#0a5c33}
+</style>
+</helmet>
+<div style="display:flex; flex-wrap:wrap; min-height:100vh; background:#f4f5f7; font-family:Inter,'Noto Sans SC',system-ui,sans-serif; color:#1f2225; font-size:14px">
+  <div style="flex:1 1 220px; background:#fff; border-right:1px solid #e4e6ea">
+    <dc-import name="Sidebar" active="updates" hint-size="100%,900px"></dc-import>
+  </div>
+  <main style="flex:999 1 560px; min-width:0; display:flex; flex-direction:column">
+    <header style="display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:12px 28px; background:#fff; border-bottom:1px solid #e4e6ea">
+      <h1 style="margin:0; font-size:20px; font-weight:600">更新中心</h1>
+      <span style="font-size:13px; color:#5f6368">上次检查：1 小时前</span>
+      <span style="flex:1"></span>
+      <button type="button" style="height:40px; padding:0 14px; border-radius:4px; border:1px solid #d5d8dd; background:#fff; color:#1f2225; font:inherit; cursor:pointer">立即检查</button>
+    </header>
+
+    <div style="padding:24px 28px 48px; display:flex; flex-direction:column; gap:20px; max-width:1400px; width:100%; box-sizing:border-box">
+      <section aria-label="组件" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:16px">
+        <sc-for list="{{cards}}" as="c" hint-placeholder-count="4">
+          <div style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:16px 18px; display:flex; flex-direction:column; gap:8px">
+            <div style="display:flex; align-items:center; gap:8px"><span style="font-weight:600; flex:1">{{c.name}}</span><span style="padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:{{c.bg}}; color:{{c.fg}}">{{c.tag}}</span></div>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:20px; font-weight:600">{{c.version}}</span>
+            <span style="font-size:12px; color:#5f6368; line-height:1.6">{{c.detail}}</span>
+          </div>
+        </sc-for>
+      </section>
+
+      <section style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:18px 20px; display:flex; flex-direction:column; gap:14px">
+        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:12px">
+          <h2 style="margin:0; font-size:15px; font-weight:600; flex:1">批量更新</h2>
+          <div role="tablist" aria-label="更新对象" style="display:inline-flex; gap:2px; padding:3px; border-radius:6px; background:#e9ebee">
+            <sc-for list="{{comps}}" as="t" hint-placeholder-count="2">
+              <button type="button" role="tab" aria-selected="{{t.sel}}" onClick="{{t.pick}}" style="height:32px; padding:0 14px; border:none; border-radius:4px; font:inherit; font-size:13px; cursor:pointer; background:{{t.bg}}; color:{{t.fg}}; font-weight:{{t.fw}}">{{t.label}}</button>
+            </sc-for>
+          </div>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:flex-end">
+          <label style="display:flex; flex-direction:column; gap:6px; font-size:13px; color:#3d4248">目标版本
+            <select style="height:40px; min-width:200px; padding:0 8px; border:1px solid #d5d8dd; border-radius:4px; font-family:'JetBrains Mono',monospace; color:#1f2225; background:#fff"><option>{{targetVersion}}（最新）</option><option>{{prevVersion}}</option></select>
+          </label>
+          <fieldset style="border:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px">
+            <legend style="font-size:13px; color:#3d4248; padding:0; margin-bottom:6px">策略</legend>
+            <div style="display:flex; flex-wrap:wrap; gap:16px; font-size:13px">
+              <label style="display:flex; align-items:center; gap:6px; min-height:40px"><input type="radio" name="strategy" checked="{{true}}" style="accent-color:#0f7b45">先更新 1 台，观察 10 分钟再更新其余</label>
+              <label style="display:flex; align-items:center; gap:6px; min-height:40px"><input type="radio" name="strategy" style="accent-color:#0f7b45">全部同时更新</label>
+            </div>
+          </fieldset>
+        </div>
+
+        <div style="overflow-x:auto">
+          <div role="table" aria-label="待更新服务器" style="min-width:760px; font-size:13px">
+            <div role="row" style="display:grid; grid-template-columns:44px 1fr 1fr 1fr 1fr 2fr; color:#5f6368; font-size:12px; background:#fafbfc">
+              <span role="columnheader" style="padding:10px 12px"><span style="position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0)">选择</span></span>
+              <span role="columnheader" style="padding:10px 0">服务器</span><span role="columnheader" style="padding:10px 0">角色</span><span role="columnheader" style="padding:10px 0">当前版本</span><span role="columnheader" style="padding:10px 0">更新后</span><span role="columnheader" style="padding:10px 0">说明</span>
+            </div>
+            <sc-for list="{{targets}}" as="t" hint-placeholder-count="6">
+              <div role="row" style="display:grid; grid-template-columns:44px 1fr 1fr 1fr 1fr 2fr; align-items:center; border-top:1px solid #f0f1f3; opacity:{{t.opacity}}">
+                <span role="cell" style="padding:10px 12px"><input type="checkbox" aria-label="{{t.label}}" checked="{{t.checked}}" disabled="{{t.disabled}}" style="width:16px; height:16px; accent-color:#0f7b45"></span>
+                <span role="cell" style="font-family:'JetBrains Mono',monospace; font-weight:600">{{t.name}}</span>
+                <span role="cell" style="color:#3d4248">{{t.role}}</span>
+                <span role="cell" style="font-family:'JetBrains Mono',monospace">{{t.current}}</span>
+                <span role="cell" style="font-family:'JetBrains Mono',monospace; color:{{t.afterFg}}">{{t.after}}</span>
+                <span role="cell" style="font-size:12px; color:{{t.noteFg}}">{{t.note}}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:12px">
+          <span style="font-size:13px; color:#3d4248">已选 <strong>{{selectedCount}}</strong> 台。{{flowText}}</span>
+          <span style="flex:1"></span>
+          <button type="button" style="height:40px; padding:0 18px; border:none; border-radius:4px; background:#0f7b45; color:#fff; font:inherit; font-weight:500; cursor:pointer">开始更新</button>
+        </div>
+      </section>
+
+      <div style="display:flex; flex-wrap:wrap; gap:20px; align-items:flex-start">
+        <section style="flex:1 1 420px; min-width:0; background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:18px 20px; display:flex; flex-direction:column; gap:6px">
+          <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:6px">
+            <h2 style="margin:0; font-size:15px; font-weight:600; flex:1">Xray 版本</h2>
+            <label style="display:flex; align-items:center; gap:6px; font-size:13px; min-height:36px"><input type="checkbox" style="width:16px; height:16px; accent-color:#0f7b45">显示预发布版</label>
+          </div>
+          <sc-for list="{{versions}}" as="v" hint-placeholder-count="4">
+            <details open="{{v.open}}" style="border-top:1px solid #f0f1f3; padding:4px 0">
+              <summary style="display:flex; align-items:center; gap:10px; min-height:40px; cursor:pointer; font-size:13px">
+                <span style="font-family:'JetBrains Mono',monospace; font-weight:600; width:72px">{{v.v}}</span>
+                <span style="padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:{{v.bg}}; color:{{v.fg}}">{{v.tag}}</span>
+                <span style="flex:1; font-size:12px; color:#5f6368">{{v.date}}</span>
+                <span style="font-size:12px; color:#5f6368">{{v.usage}}</span>
+              </summary>
+              <div style="padding:6px 0 10px 82px; font-size:12px; color:#3d4248; line-height:1.7">更新日志从 GitHub Release 拉取后显示在这里。配置生成器会标出与当前配置相关的变化（例如字段改名、默认值变化）。</div>
+            </details>
+          </sc-for>
+        </section>
+
+        <section style="flex:1 1 520px; min-width:0; background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:18px 20px; display:flex; flex-direction:column; gap:6px">
+          <h2 style="margin:0 0 6px; font-size:15px; font-weight:600">更新记录</h2>
+          <sc-for list="{{tasks}}" as="t" hint-placeholder-count="5">
+            <div style="display:flex; flex-direction:column; gap:8px; padding:12px 0; border-top:1px solid #f0f1f3">
+              <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; font-size:13px">
+                <span style="font-weight:600">{{t.what}}</span>
+                <span style="font-family:'JetBrains Mono',monospace; font-size:12px">{{t.server}}</span>
+                <span style="padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:{{t.bg}}; color:{{t.fg}}">{{t.status}}</span>
+                <span style="flex:1"></span>
+                <span style="font-size:12px; color:#5f6368">{{t.time}}</span>
+              </div>
+              <div style="display:flex; flex-wrap:wrap; gap:6px">
+                <sc-for list="{{t.steps}}" as="s" hint-placeholder-count="5">
+                  <span style="padding:2px 8px; border-radius:12px; font-size:12px; background:{{s.bg}}; color:{{s.fg}}">{{s.text}}</span>
+                </sc-for>
+              </div>
+              <sc-if value="{{t.hasNote}}" hint-placeholder-val="{{false}}">
+                <span style="font-size:12px; color:{{t.noteFg}}; line-height:1.6">{{t.note}}</span>
+              </sc-if>
+            </div>
+          </sc-for>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1600}}'>
+class Component extends DCLogic {
+  state = { comp: 'xray' };
+  renderVals() {
+    const comp = this.state.comp;
+    const isX = comp === 'xray';
+    const TAG = { 可更新: ['#e7effb', '#1d5fbf'], 最新: ['#e6f4ec', '#0f7b45'], 自动: ['#eef0f2', '#4a4f55'] };
+    const cards = [
+      ['Agent', 'v0.3.3', '可更新', '6 台中 2 台待更新（FR-01 离线，上线后执行）'],
+      ['Xray', '26.4.1', '可更新', '5 台节点机：1 台已是最新，4 台可更新，0 台锁定'],
+      ['规则文件', '今天 04:00', '自动', 'geoip.dat / geosite.dat · 每天 04:00 自动更新'],
+      ['面板', 'v0.1.0', '最新', '更新前会自动备份数据库']
+    ].map(([name, version, tag, detail]) => ({ name, version, tag, detail, bg: TAG[tag][0], fg: TAG[tag][1] }));
+    const comps = [['xray', 'Xray'], ['agent', 'Agent']].map(([id, label]) => {
+      const on = id === comp;
+      return { label, sel: on ? 'true' : 'false', bg: on ? '#fff' : 'transparent', fg: on ? '#0f7b45' : '#3d4248', fw: on ? '600' : '500', pick: () => this.setState({ comp: id }) };
+    });
+    const xrayRows = [
+      ['HK-01', '入口', '26.3.10', '26.4.1', '先更新这台（灰度）', true, false],
+      ['HK-02', '入口', '26.3.10', '26.4.1', '', true, false],
+      ['JP-01', '入口', '26.4.1', '—', '已是最新', false, true],
+      ['SG-01', '入口', '26.3.10', '26.4.1', '疑似被封，不影响更新', true, false],
+      ['US-01', '落地', '26.3.10', '26.4.1', '落地机更新期间，所有链式线路会中断约 1 秒', true, false]
+    ];
+    const agentRows = [
+      ['HK-01', '入口', 'v0.3.2', 'v0.3.3', '', true, false],
+      ['HK-02', '入口', 'v0.3.3', '—', '已是最新', false, true],
+      ['JP-01', '入口', 'v0.3.3', '—', '已是最新', false, true],
+      ['SG-01', '入口', 'v0.3.3', '—', '已是最新', false, true],
+      ['US-01', '落地', 'v0.3.3', '—', '已是最新', false, true],
+      ['PANEL', '仅探针', 'v0.3.3', '—', '已是最新', false, true],
+      ['FR-01', '仅探针', 'v0.3.2', 'v0.3.3', '离线：任务排队，24 小时内上线后执行', true, false]
+    ];
+    const rows = isX ? xrayRows : agentRows;
+    const targets = rows.map(([name, role, current, after, note, checked, disabled]) => ({
+      name, role, current, after, note, checked, disabled,
+      label: '选择 ' + name,
+      opacity: disabled ? '0.6' : '1',
+      afterFg: after === '—' ? '#5f6368' : '#0f7b45',
+      noteFg: note.startsWith('落地') ? '#94520a' : '#5f6368'
+    }));
+    const VT = { 正式: ['#e6f4ec', '#0f7b45'], 预发布: ['#fdf1dc', '#94520a'] };
+    const versions = [
+      ['26.4.1', '正式', '11-12', '1 台使用中', true],
+      ['26.3.10', '正式', '10-28', '4 台使用中', false],
+      ['26.3.2', '正式', '10-09', '', false],
+      ['26.2.20', '正式', '09-21', '', false]
+    ].map(([v, tag, date, usage, open]) => ({ v, tag, date, usage, open, bg: VT[tag][0], fg: VT[tag][1] }));
+    const ST = { 成功: ['#e6f4ec', '#0f7b45'], 已回滚: ['#fbe7ea', '#b4233a'], 排队中: ['#eef0f2', '#4a4f55'], 进行中: ['#e7effb', '#1d5fbf'] };
+    const step = (text, k) => ({ text, bg: k === 'ok' ? '#e6f4ec' : k === 'fail' ? '#fbe7ea' : k === 'now' ? '#e7effb' : '#f4f5f7', fg: k === 'ok' ? '#0f7b45' : k === 'fail' ? '#b4233a' : k === 'now' ? '#1d5fbf' : '#5f6368' });
+    const tasks = [
+      ['Xray → 26.4.1', 'JP-01', '成功', '11-12 21:30', [['下载', 'ok'], ['校验', 'ok'], ['测试配置', 'ok'], ['替换重启', 'ok'], ['健康检查', 'ok']], ''],
+      ['Xray → 26.4.1', 'HK-02', '已回滚', '11-12 21:42', [['下载', 'ok'], ['校验', 'ok'], ['测试配置', 'ok'], ['替换重启', 'ok'], ['健康检查', 'fail']], '重启后 Xray 进程 30 秒内退出 2 次，已恢复 26.3.10 并通知。可在详情页查看日志。'],
+      ['Agent → v0.3.3', 'FR-01', '排队中', '11-16 12:05', [['等待上线', 'wait']], '任务 24 小时后过期。'],
+      ['Agent → v0.3.3', '5 台', '成功', '11-15 09:10', [['下载', 'ok'], ['签名校验', 'ok'], ['替换重启', 'ok'], ['重新连接', 'ok']], ''],
+      ['规则文件', '5 台', '成功', '今天 04:00', [['下载', 'ok'], ['校验', 'ok'], ['替换', 'ok']], '下次重启 Xray 时生效。']
+    ].map(([what, server, status, time, steps, note]) => ({
+      what, server, status, time, note, hasNote: !!note,
+      noteFg: status === '已回滚' ? '#b4233a' : '#5f6368',
+      bg: ST[status][0], fg: ST[status][1],
+      steps: steps.map(([t, k]) => step(t, k))
+    }));
+    return {
+      cards, comps, targets, versions, tasks,
+      targetVersion: isX ? '26.4.1' : 'v0.3.3', prevVersion: isX ? '26.3.10' : 'v0.3.2',
+      selectedCount: String(targets.filter((t) => t.checked).length),
+      flowText: isX
+        ? '每台依次执行：下载 → 校验 → 用新版测试现有配置 → 替换重启 → 健康检查，失败自动回滚。'
+        : '每台依次执行：下载 → 签名校验 → 替换重启 → 60 秒内重新连上面板，否则自动回滚到旧版本。'
+    };
+  }
+}
+</script>
+</body>
+</html>

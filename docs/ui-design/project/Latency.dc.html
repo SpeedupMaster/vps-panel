@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>延迟</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Noto+Sans+SC:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#0f7b45}a:hover{color:#0a5c33}
+</style>
+</helmet>
+<div style="display:flex; flex-wrap:wrap; min-height:100vh; background:#f4f5f7; font-family:Inter,'Noto Sans SC',system-ui,sans-serif; color:#1f2225; font-size:14px">
+  <div style="flex:1 1 220px; background:#fff; border-right:1px solid #e4e6ea">
+    <dc-import name="Sidebar" active="latency" hint-size="100%,900px"></dc-import>
+  </div>
+  <main style="flex:999 1 560px; min-width:0; display:flex; flex-direction:column">
+    <header style="display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:12px 28px; background:#fff; border-bottom:1px solid #e4e6ea">
+      <h1 style="margin:0; font-size:20px; font-weight:600">延迟</h1>
+      <span style="flex:1"></span>
+      <div role="group" aria-label="时间范围" style="display:inline-flex; gap:2px; padding:3px; border-radius:6px; background:#e9ebee">
+        <sc-for list="{{ranges}}" as="r" hint-placeholder-count="3">
+          <button type="button" aria-pressed="{{r.pressed}}" onClick="{{r.pick}}" style="height:32px; min-width:52px; padding:0 10px; border:none; border-radius:4px; font:inherit; font-size:13px; cursor:pointer; background:{{r.bg}}; color:{{r.fg}}; font-weight:{{r.fw}}">{{r.label}}</button>
+        </sc-for>
+      </div>
+      <button type="button" style="height:40px; padding:0 14px; border-radius:4px; border:1px solid #d5d8dd; background:#fff; color:#1f2225; font:inherit; cursor:pointer">管理拨测目标（12 个）</button>
+    </header>
+
+    <div style="padding:24px 28px 48px; display:flex; flex-direction:column; gap:20px; max-width:1400px; width:100%; box-sizing:border-box">
+      <div style="display:flex; gap:10px; padding:12px 16px; border-radius:6px; background:#e7effb; color:#173f7a; font-size:13px; line-height:1.7">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="flex:none; margin-top:2px"><path d="M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18 M12 11v6 M12 7.5v.5"></path></svg>
+        <span>没有国内探测点：下面是各台 VPS 访问国内目标的<strong>回程</strong>数据，能反映线路质量和 IP 是否被封，测不出封端口或协议干扰。</span>
+      </div>
+
+      <section style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:18px 20px; display:flex; flex-direction:column; gap:14px">
+        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px">
+          <h2 style="margin:0; font-size:15px; font-weight:600; flex:1 1 auto">回程延迟 · {{server}} → 国内</h2>
+          <div role="group" aria-label="选择服务器" style="display:flex; flex-wrap:wrap; gap:6px">
+            <sc-for list="{{chips}}" as="c" hint-placeholder-count="6">
+              <button type="button" aria-pressed="{{c.pressed}}" onClick="{{c.pick}}" style="height:32px; padding:0 12px; border-radius:16px; border:1px solid {{c.border}}; background:{{c.bg}}; color:{{c.fg}}; font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:600; cursor:pointer">{{c.name}}</button>
+            </sc-for>
+          </div>
+        </div>
+        <sc-for list="{{smoke}}" as="s" hint-placeholder-count="3">
+          <div style="display:flex; flex-wrap:wrap; align-items:center; gap:12px">
+            <div style="width:120px; display:flex; flex-direction:column; gap:2px">
+              <span style="font-weight:600">{{s.carrier}}</span>
+              <span style="font-size:12px; color:#5f6368">{{s.targets}}</span>
+              <span style="font-size:12px; font-family:'JetBrains Mono',monospace">{{s.stat}}</span>
+            </div>
+            <svg viewBox="0 0 900 96" role="img" aria-label="{{s.aria}}" style="flex:1 1 500px; min-width:0; height:auto; display:block">
+              <path d="M0 8H900 M0 42H900" stroke="#f0f1f3"></path>
+              <path d="M0 76H900" stroke="#d5d8dd"></path>
+              <path d="{{s.band}}" fill="{{s.bandFill}}"></path>
+              <path d="{{s.median}}" fill="none" stroke="{{s.color}}" stroke-width="1.6"></path>
+              <path d="{{s.loss1}}" fill="#e3a13a"></path>
+              <path d="{{s.loss2}}" fill="#b4233a"></path>
+              <text x="896" y="18" text-anchor="end" font-size="10" fill="#5f6368">{{yMax}}</text>
+              <text x="0" y="94" font-size="10" fill="#5f6368">{{xs.a}}</text>
+              <text x="450" y="94" text-anchor="middle" font-size="10" fill="#5f6368">{{xs.b}}</text>
+              <text x="900" y="94" text-anchor="end" font-size="10" fill="#5f6368">现在</text>
+            </svg>
+          </div>
+        </sc-for>
+        <div style="display:flex; flex-wrap:wrap; gap:8px 20px; font-size:12px; color:#3d4248">
+          <span style="display:inline-flex; align-items:center; gap:6px"><span style="width:18px; height:10px; background:#dbe6f8"></span>最小 ~ 最大</span>
+          <span style="display:inline-flex; align-items:center; gap:6px"><span style="width:18px; height:2px; background:#2f6fd0"></span>中位数</span>
+          <span style="display:inline-flex; align-items:center; gap:6px"><span style="width:10px; height:10px; background:#e3a13a"></span>丢包 1–20%</span>
+          <span style="display:inline-flex; align-items:center; gap:6px"><span style="width:10px; height:10px; background:#b4233a"></span>丢包 &gt; 20%</span>
+        </div>
+      </section>
+
+      <section style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:18px 20px; display:flex; flex-direction:column; gap:10px">
+        <h2 style="margin:0; font-size:15px; font-weight:600">回程汇总（{{rangeLabel}}平均 · 丢包）</h2>
+        <div style="overflow-x:auto">
+          <div role="table" aria-label="回程汇总" style="min-width:680px; font-size:13px">
+            <div role="row" style="display:grid; grid-template-columns:1.2fr 1fr 1fr 1fr 1.4fr; color:#5f6368; font-size:12px">
+              <span role="columnheader" style="padding:8px 10px">服务器</span><span role="columnheader" style="padding:8px 10px">电信</span><span role="columnheader" style="padding:8px 10px">联通</span><span role="columnheader" style="padding:8px 10px">移动</span><span role="columnheader" style="padding:8px 10px">判断</span>
+            </div>
+            <sc-for list="{{summary}}" as="r" hint-placeholder-count="6">
+              <div role="row" style="display:grid; grid-template-columns:1.2fr 1fr 1fr 1fr 1.4fr; align-items:center; border-top:1px solid #f0f1f3">
+                <span role="cell" style="padding:10px; font-family:'JetBrains Mono',monospace; font-weight:600">{{r.name}}</span>
+                <sc-for list="{{r.cells}}" as="c" hint-placeholder-count="3">
+                  <span role="cell" style="padding:6px 10px"><span style="display:inline-block; padding:3px 8px; border-radius:4px; background:{{c.bg}}; color:{{c.fg}}; font-family:'JetBrains Mono',monospace; font-size:12px">{{c.text}}</span></span>
+                </sc-for>
+                <span role="cell" style="padding:10px; font-size:12px; color:{{r.verdictFg}}">{{r.verdict}}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </section>
+
+      <div style="display:flex; flex-wrap:wrap; gap:20px; align-items:flex-start">
+        <section style="flex:1 1 380px; min-width:0; background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:18px 20px; display:flex; flex-direction:column; gap:12px">
+          <h2 style="margin:0; font-size:15px; font-weight:600">线路段 · 入口 → US-01</h2>
+          <p style="margin:0; font-size:12px; color:#5f6368">来自入口机 Xray Observatory，每分钟探活一次。</p>
+          <sc-for list="{{segments}}" as="s" hint-placeholder-count="4">
+            <div style="display:flex; align-items:center; gap:10px; font-size:13px">
+              <span style="width:56px; font-family:'JetBrains Mono',monospace; font-weight:600">{{s.name}}</span>
+              <span style="flex:1; height:8px; border-radius:4px; background:#eceef1; overflow:hidden"><span style="display:block; height:100%; width:{{s.w}}; border-radius:4px; background:#5b3aa8"></span></span>
+              <span style="width:64px; text-align:right; font-family:'JetBrains Mono',monospace">{{s.ms}}</span>
+              <span style="width:56px; text-align:right; font-size:12px; color:{{s.aliveFg}}">{{s.alive}}</span>
+            </div>
+          </sc-for>
+        </section>
+
+        <section style="flex:1 1 520px; min-width:0; background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:18px 20px; display:flex; flex-direction:column; gap:12px">
+          <div style="display:flex; align-items:center"><h2 style="margin:0; font-size:15px; font-weight:600; flex:1">VPS 互测矩阵（TCP，ms）</h2><span style="font-size:12px; color:#5f6368">颜色越深延迟越高</span></div>
+          <div style="overflow-x:auto">
+            <div style="display:grid; grid-template-columns:72px repeat(6, minmax(56px, 1fr)); gap:3px; min-width:440px; font-size:12px">
+              <span></span>
+              <sc-for list="{{matrixHead}}" as="h" hint-placeholder-count="6">
+                <span style="text-align:center; padding:6px 0; font-family:'JetBrains Mono',monospace; font-weight:600; color:#3d4248">{{h}}</span>
+              </sc-for>
+              <sc-for list="{{matrix}}" as="m" hint-placeholder-count="36">
+                <span style="display:flex; align-items:center; justify-content:{{m.justify}}; min-height:34px; border-radius:4px; background:{{m.bg}}; color:{{m.fg}}; font-family:'JetBrains Mono',monospace; font-weight:{{m.fw}}">{{m.text}}</span>
+              </sc-for>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1700}}'>
+class Component extends DCLogic {
+  state = { range: '24h', server: 'HK-01' };
+  renderVals() {
+    const { range, server } = this.state;
+    const seed = { '6h': 1, '24h': 2, '7d': 3 }[range] + server.charCodeAt(0) + server.charCodeAt(3) * 3;
+    const BASE = { 'HK-01': [38, 41, 52], 'HK-02': [45, 39, 61], 'JP-01': [62, 58, 74], 'SG-01': [null, null, null], 'US-01': [158, 162, 171], 'PANEL': [182, 176, 201] };
+    const b = BASE[server];
+    const max = b[0] && b[0] > 120 ? 300 : 120;
+    const N = 90;
+    const y = (v) => 76 - (Math.min(v, max) / max) * 68;
+    const COLORS = ['#2f6fd0', '#d97a0b', '#6b7075'];
+    const FILLS = ['#dbe6f8', '#f8e3c8', '#e2e4e7'];
+    const carriers = [['电信', '北京 / 上海 / 广州'], ['联通', '北京 / 上海 / 广州'], ['移动', '北京 / 上海 / 广州']];
+    const smoke = carriers.map(([carrier, targets], k) => {
+      const base = b[k];
+      if (base === null) {
+        let loss2 = '';
+        for (let i = 0; i < N; i++) { const x = i * 10; if (i > 62) loss2 += 'M' + x + ' 70h9v6h-9Z '; }
+        let med = '';
+        for (let i = 0; i <= 62; i++) { const v = 40 + 4 * Math.sin((i + seed + k) / 3); med += (i ? 'L' : 'M') + (i * 10) + ' ' + y(v).toFixed(1) + ' '; }
+        return { carrier, targets, stat: '100% 丢包', aria: carrier + '回程：最近 4 小时全部不可达', band: '', bandFill: FILLS[k], median: med, color: COLORS[k], loss1: '', loss2 };
+      }
+      let top = '', bottom = [], med = '', loss1 = '', loss2 = '';
+      for (let i = 0; i < N; i++) {
+        const x = i * 10;
+        const m = base + base * 0.08 * Math.sin((i + seed * 3 + k * 5) / 5) + base * 0.04 * Math.sin(i * 1.3 + k);
+        const spread = base * (0.06 + 0.05 * Math.abs(Math.sin((i + seed) / 7)));
+        top += (i ? 'L' : 'M') + x + ' ' + y(m + spread).toFixed(1) + ' ';
+        bottom.unshift('L' + x + ' ' + y(m - spread * 0.6).toFixed(1));
+        med += (i ? 'L' : 'M') + x + ' ' + y(m).toFixed(1) + ' ';
+        const r = Math.sin(i * 12.9898 + seed * 78.233 + k * 3.1) * 43758.5453;
+        const frac = r - Math.floor(r);
+        if (frac > 0.985) loss2 += 'M' + x + ' 70h9v6h-9Z ';
+        else if (frac > 0.93) loss1 += 'M' + x + ' 70h9v6h-9Z ';
+      }
+      return { carrier, targets, stat: base + ' ms · ' + (k === 1 ? '0.3%' : '0%'), aria: carrier + '回程延迟，中位数约 ' + base + ' 毫秒', band: top + bottom.join(' ') + ' Z', bandFill: FILLS[k], median: med, color: COLORS[k], loss1, loss2 };
+    });
+    const names = ['HK-01', 'HK-02', 'JP-01', 'SG-01', 'US-01', 'PANEL'];
+    const chips = names.map((name) => {
+      const on = name === server;
+      return { name, pressed: on ? 'true' : 'false', border: on ? '#0f7b45' : '#d5d8dd', bg: on ? '#e6f4ec' : '#fff', fg: on ? '#0f7b45' : '#3d4248', pick: () => this.setState({ server: name }) };
+    });
+    const ranges = ['6h', '24h', '7d'].map((id) => {
+      const on = id === range;
+      return { label: id, pressed: on ? 'true' : 'false', bg: on ? '#fff' : 'transparent', fg: on ? '#0f7b45' : '#3d4248', fw: on ? '600' : '500', pick: () => this.setState({ range: id }) };
+    });
+    const XS = { '6h': ['6 小时前', '3 小时前'], '24h': ['24 小时前', '12 小时前'], '7d': ['7 天前', '3.5 天前'] }[range];
+    const cell = (text, level) => ({ text, bg: level === 2 ? '#fbe7ea' : level === 1 ? '#fdf1dc' : '#f4f5f7', fg: level === 2 ? '#b4233a' : level === 1 ? '#94520a' : '#1f2225' });
+    const summary = [
+      ['HK-01', [['38 ms · 0%', 0], ['41 ms · 0.3%', 0], ['52 ms · 0%', 0]], '正常', '#0f7b45'],
+      ['HK-02', [['45 ms · 0%', 0], ['39 ms · 0%', 0], ['61 ms · 6.2%', 1]], '移动丢包偏高', '#94520a'],
+      ['JP-01', [['62 ms · 0%', 0], ['58 ms · 0%', 0], ['74 ms · 0.5%', 0]], '正常', '#0f7b45'],
+      ['SG-01', [['不可达', 2], ['不可达', 2], ['不可达', 2]], '疑似 IP 被封（其他机器同目标正常）', '#b4233a'],
+      ['US-01', [['158 ms · 0%', 0], ['162 ms · 0%', 0], ['171 ms · 1.1%', 0]], '正常（落地机，仅供参考）', '#5f6368'],
+      ['PANEL', [['182 ms · 0%', 0], ['176 ms · 0%', 0], ['201 ms · 0%', 0]], '正常（仅探针）', '#5f6368']
+    ].map(([name, cs, verdict, verdictFg]) => ({ name, cells: cs.map(([t, l]) => cell(t, l)), verdict, verdictFg }));
+    const segments = [['HK-01', 142, true], ['HK-02', 151, true], ['JP-01', 108, true], ['SG-01', 175, true]].map(([name, ms, ok]) => ({
+      name, ms: ms + ' ms', w: Math.round(ms / 200 * 100) + '%', alive: ok ? '存活' : '中断', aliveFg: ok ? '#0f7b45' : '#b4233a'
+    }));
+    const L = {
+      'HK-01': { 'HK-02': 3, 'JP-01': 48, 'SG-01': 34, 'US-01': 142, 'PANEL': 185 },
+      'HK-02': { 'JP-01': 52, 'SG-01': 37, 'US-01': 151, 'PANEL': 190 },
+      'JP-01': { 'SG-01': 70, 'US-01': 108, 'PANEL': 225 },
+      'SG-01': { 'US-01': 175, 'PANEL': 160 },
+      'US-01': { 'PANEL': 145 }
+    };
+    const get = (a, c) => (L[a] && L[a][c]) || (L[c] && L[c][a]);
+    const shade = (v) => v < 50 ? '#eef4fc' : v < 100 ? '#d6e4f8' : v < 150 ? '#b9d0f3' : '#9dbdee';
+    const matrix = [];
+    names.forEach((a) => {
+      matrix.push({ text: a, bg: 'transparent', fg: '#3d4248', fw: '600', justify: 'flex-start' });
+      names.forEach((c) => {
+        if (a === c) matrix.push({ text: '—', bg: '#f4f5f7', fg: '#5f6368', fw: '400', justify: 'center' });
+        else { const v = get(a, c); matrix.push({ text: String(v), bg: shade(v), fg: '#13315f', fw: '500', justify: 'center' }); }
+      });
+    });
+    return {
+      server, chips, ranges, smoke, summary, segments, matrix, matrixHead: names,
+      yMax: max + ' ms', xs: { a: XS[0], b: XS[1] },
+      rangeLabel: { '6h': '近 6 小时', '24h': '近 24 小时', '7d': '近 7 天' }[range]
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>线路</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Noto+Sans+SC:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#0f7b45}a:hover{color:#0a5c33}
+</style>
+</helmet>
+<div style="display:flex; flex-wrap:wrap; min-height:100vh; background:#f4f5f7; font-family:Inter,'Noto Sans SC',system-ui,sans-serif; color:#1f2225; font-size:14px">
+  <div style="flex:1 1 220px; background:#fff; border-right:1px solid #e4e6ea">
+    <dc-import name="Sidebar" active="routes" hint-size="100%,900px"></dc-import>
+  </div>
+  <main style="flex:999 1 560px; min-width:0; display:flex; flex-direction:column">
+    <header style="display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:12px 28px; background:#fff; border-bottom:1px solid #e4e6ea">
+      <h1 style="margin:0; font-size:20px; font-weight:600">线路</h1>
+      <span style="font-size:13px; color:#5f6368">8 条 · 6 条在订阅中</span>
+      <span style="flex:1"></span>
+      <button type="button" style="height:40px; padding:0 14px; border-radius:4px; border:1px solid #d5d8dd; background:#fff; color:#1f2225; font:inherit; cursor:pointer">一键轮换密钥</button>
+      <a href="RouteWizard.dc.html" style="display:inline-flex; align-items:center; gap:6px; height:40px; padding:0 16px; border-radius:4px; background:#0f7b45; color:#fff; text-decoration:none; font-weight:500">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14 M5 12h14"></path></svg>
+        新建线路
+      </a>
+    </header>
+
+    <div style="padding:24px 28px 48px; display:flex; flex-direction:column; gap:20px; max-width:1400px; width:100%; box-sizing:border-box">
+      <div style="display:flex; flex-wrap:wrap; align-items:center; gap:12px">
+        <div role="group" aria-label="按类型筛选" style="display:inline-flex; gap:2px; padding:3px; border-radius:6px; background:#e9ebee">
+          <sc-for list="{{tabs}}" as="t" hint-placeholder-count="3">
+            <button type="button" aria-pressed="{{t.pressed}}" onClick="{{t.pick}}" style="height:34px; padding:0 14px; border:none; border-radius:4px; font:inherit; cursor:pointer; background:{{t.bg}}; color:{{t.fg}}; font-weight:{{t.fw}}">{{t.label}} <span style="font-family:'JetBrains Mono',monospace; font-size:12px">{{t.n}}</span></button>
+          </sc-for>
+        </div>
+        <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:#5f6368">入口
+          <select style="height:36px; padding:0 8px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; color:#1f2225; background:#fff"><option>全部入口</option><option>HK-01</option><option>HK-02</option><option>JP-01</option><option>SG-01</option></select>
+        </label>
+        <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:#5f6368">状态
+          <select style="height:36px; padding:0 8px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; color:#1f2225; background:#fff"><option>全部状态</option><option>正常</option><option>异常</option><option>已停用</option></select>
+        </label>
+      </div>
+
+      <section style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; overflow:hidden">
+        <div style="overflow-x:auto">
+          <div role="table" aria-label="线路列表" style="min-width:1080px; font-size:13px">
+            <div role="row" style="display:grid; grid-template-columns:1.5fr 0.6fr 0.7fr 0.7fr 1.4fr 0.7fr 0.8fr 0.9fr 0.7fr 1.3fr; align-items:center; background:#fafbfc; color:#5f6368; font-size:12px">
+              <span role="columnheader" style="padding:12px 16px">名称</span>
+              <span role="columnheader" style="padding:12px 8px">类型</span>
+              <span role="columnheader" style="padding:12px 8px">入口</span>
+              <span role="columnheader" style="padding:12px 8px">落地</span>
+              <span role="columnheader" style="padding:12px 8px">估算延迟</span>
+              <span role="columnheader" style="padding:12px 8px">今日</span>
+              <span role="columnheader" style="padding:12px 8px">本月</span>
+              <span role="columnheader" style="padding:12px 8px">状态</span>
+              <span role="columnheader" style="padding:12px 8px">订阅</span>
+              <span role="columnheader" style="padding:12px 16px; text-align:right">操作</span>
+            </div>
+            <sc-for list="{{routes}}" as="r" hint-placeholder-count="8">
+                <div role="row" style="display:grid; grid-template-columns:1.5fr 0.6fr 0.7fr 0.7fr 1.4fr 0.7fr 0.8fr 0.9fr 0.7fr 1.3fr; align-items:center; border-top:1px solid #f0f1f3; background:{{r.rowBg}}">
+                  <span role="cell" style="padding:12px 16px; font-weight:600">{{r.name}}</span>
+                  <span role="cell" style="padding:12px 8px"><span style="padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:{{r.typeBg}}; color:{{r.typeFg}}">{{r.type}}</span></span>
+                  <span role="cell" style="padding:12px 8px"><a href="ServerDetail.dc.html" style="font-family:'JetBrains Mono',monospace; text-decoration:none">{{r.entry}}</a></span>
+                  <span role="cell" style="padding:12px 8px; font-family:'JetBrains Mono',monospace; color:{{r.landingFg}}">{{r.landing}}</span>
+                  <span role="cell" style="padding:12px 8px">
+                    <span style="font-family:'JetBrains Mono',monospace; font-weight:600; color:{{r.latFg}}">{{r.lat}}</span>
+                    <span style="display:block; font-size:11px; color:#5f6368">{{r.latSplit}}</span>
+                  </span>
+                  <span role="cell" style="padding:12px 8px; font-family:'JetBrains Mono',monospace">{{r.today}}</span>
+                  <span role="cell" style="padding:12px 8px; font-family:'JetBrains Mono',monospace">{{r.month}}</span>
+                  <span role="cell" style="padding:12px 8px">
+                    <span style="display:inline-flex; align-items:center; gap:6px; padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:{{r.stBg}}; color:{{r.stFg}}"><span style="width:6px; height:6px; border-radius:3px; background:{{r.stFg}}"></span>{{r.st}}</span>
+                  </span>
+                  <span role="cell" style="padding:12px 8px">
+                    <button type="button" role="switch" aria-checked="{{r.inSub}}" aria-label="{{r.subLabel}}" style="width:40px; height:22px; padding:2px; border:none; border-radius:11px; background:{{r.swBg}}; cursor:pointer; display:flex; justify-content:{{r.swJustify}}"><span style="width:18px; height:18px; border-radius:9px; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,0.25)"></span></button>
+                    <span style="display:block; font-size:11px; color:#5f6368; margin-top:2px">{{r.subNote}}</span>
+                  </span>
+                  <span role="cell" style="padding:8px 16px">
+                    <span style="display:flex; justify-content:flex-end; gap:4px">
+                      <button type="button" aria-label="复制分享链接" style="width:34px; height:34px; border:1px solid #e4e6ea; border-radius:4px; background:#fff; color:#3d4248; cursor:pointer; display:inline-flex; align-items:center; justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M9 9h11v11H9z M5 15H4V4h11v1"></path></svg></button>
+                      <button type="button" aria-label="二维码" style="width:34px; height:34px; border:1px solid #e4e6ea; border-radius:4px; background:#fff; color:#3d4248; cursor:pointer; display:inline-flex; align-items:center; justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 4h6v6H4z M14 4h6v6h-6z M4 14h6v6H4z M14 14h2v2h-2z M18 18h2v2h-2z M14 18h2 M18 14h2"></path></svg></button>
+                      <button type="button" aria-label="编辑" style="width:34px; height:34px; border:1px solid #e4e6ea; border-radius:4px; background:#fff; color:#3d4248; cursor:pointer; display:inline-flex; align-items:center; justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg></button>
+                      <button type="button" aria-haspopup="menu" aria-label="更多" style="width:34px; height:34px; border:1px solid #e4e6ea; border-radius:4px; background:#fff; color:#3d4248; cursor:pointer; display:inline-flex; align-items:center; justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="19" cy="12" r="1.6"></circle></svg></button>
+                    </span>
+                  </span>
+                </div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:8px 20px; padding:10px 16px; border-top:1px solid #f0f1f3; font-size:12px; color:#5f6368">
+          <span>估算延迟 = 入口回程（三网平均）+ 入口到落地线路段</span>
+          <span>疑似被封的线路会自动移出订阅，恢复后自动加回</span>
+        </div>
+      </section>
+
+      <section style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:18px 20px; display:flex; flex-direction:column; gap:12px">
+        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px">
+          <h2 style="margin:0; font-size:15px; font-weight:600">落地 US-01 · SS2022 入站</h2>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#5f6368">端口 23456 · 2022-blake3-aes-128-gcm · tcp,udp</span>
+          <span style="flex:1"></span>
+          <span style="display:inline-flex; align-items:center; gap:6px; padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:#e6f4ec; color:#0f7b45">防火墙白名单已同步（4 个 IP）</span>
+        </div>
+        <div style="overflow-x:auto">
+          <div role="table" aria-label="落地 SS 用户" style="min-width:720px; font-size:13px">
+            <div role="row" style="display:grid; grid-template-columns:1.2fr 1.2fr 1fr 1fr 1fr 1fr; color:#5f6368; font-size:12px">
+              <span role="columnheader" style="padding:8px 0">用户（每个入口一个）</span><span role="columnheader" style="padding:8px 0">来源 IP</span><span role="columnheader" style="padding:8px 0">线路段延迟</span><span role="columnheader" style="padding:8px 0">今日</span><span role="columnheader" style="padding:8px 0">本月</span><span role="columnheader" style="padding:8px 0">白名单</span>
+            </div>
+            <sc-for list="{{ssUsers}}" as="u" hint-placeholder-count="4">
+              <div role="row" style="display:grid; grid-template-columns:1.2fr 1.2fr 1fr 1fr 1fr 1fr; align-items:center; border-top:1px solid #f0f1f3">
+                <span role="cell" style="padding:10px 0; font-family:'JetBrains Mono',monospace">{{u.email}}</span>
+                <span role="cell" style="font-family:'JetBrains Mono',monospace; color:#5f6368">{{u.ip}}</span>
+                <span role="cell" style="font-family:'JetBrains Mono',monospace">{{u.lat}}</span>
+                <span role="cell" style="font-family:'JetBrains Mono',monospace">{{u.today}}</span>
+                <span role="cell" style="font-family:'JetBrains Mono',monospace">{{u.month}}</span>
+                <span role="cell"><span style="padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:#e6f4ec; color:#0f7b45">已放行</span></span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1250}}'>
+class Component extends DCLogic {
+  state = { filter: 'all' };
+  renderVals() {
+    const f = this.state.filter;
+    const ST = { 正常: ['#e6f4ec', '#0f7b45'], 疑似被封: ['#fbe7ea', '#b4233a'], 线路段延迟高: ['#fdf1dc', '#94520a'], 已停用: ['#eef0f2', '#4a4f55'] };
+    const raw = [
+      ['HK-01 直连', 'direct', 'HK-01', '—', '44 ms', '回程 44', '6.2 GB', '103.7 GB', '正常', true],
+      ['HK-01 → US-01', 'chain', 'HK-01', 'US-01', '186 ms', '回程 44 + 段 142', '11.8 GB', '188.2 GB', '正常', true],
+      ['HK-02 直连', 'direct', 'HK-02', '—', '48 ms', '回程 48', '3.0 GB', '61.5 GB', '正常', true],
+      ['HK-02 → US-01', 'chain', 'HK-02', 'US-01', '199 ms', '回程 48 + 段 151', '8.9 GB', '207.0 GB', '正常', true],
+      ['JP-01 直连', 'direct', 'JP-01', '—', '65 ms', '回程 65', '1.4 GB', '38.2 GB', '正常', true],
+      ['JP-01 → US-01', 'chain', 'JP-01', 'US-01', '173 ms', '回程 65 + 段 108', '5.6 GB', '121.9 GB', '正常', true],
+      ['SG-01 直连', 'direct', 'SG-01', '—', '不可达', '回程全部失败', '0.0 GB', '22.4 GB', '疑似被封', false],
+      ['SG-01 → US-01', 'chain', 'SG-01', 'US-01', '不可达', '回程全部失败 · 段 175', '0.0 GB', '61.3 GB', '疑似被封', false]
+    ];
+    const routes = raw.filter((r) => f === 'all' || r[1] === f).map(([name, type, entry, landing, lat, latSplit, today, month, st, inSub]) => ({
+      name, entry, landing, lat, latSplit, today, month, st,
+      type: type === 'direct' ? '直连' : '链式',
+      typeBg: type === 'direct' ? '#eef0f2' : '#f0eafb', typeFg: type === 'direct' ? '#4a4f55' : '#5b3aa8',
+      landingFg: landing === '—' ? '#5f6368' : '#1f2225',
+      latFg: st === '疑似被封' ? '#b4233a' : '#1f2225',
+      stBg: ST[st][0], stFg: ST[st][1],
+      rowBg: st === '疑似被封' ? '#fffafa' : '#fff',
+      inSub: inSub ? 'true' : 'false',
+      subLabel: name + ' 是否加入订阅',
+      swBg: inSub ? '#0f7b45' : '#c9cdd2', swJustify: inSub ? 'flex-end' : 'flex-start',
+      subNote: inSub ? '' : '自动移出'
+    }));
+    const tabs = [['all', '全部', 8], ['direct', '直连', 4], ['chain', '链式', 4]].map(([id, label, n]) => {
+      const on = f === id;
+      return { label, n, pressed: on ? 'true' : 'false', bg: on ? '#fff' : 'transparent', fg: on ? '#0f7b45' : '#3d4248', fw: on ? '600' : '500', pick: () => this.setState({ filter: id }) };
+    });
+    const ssUsers = [
+      ['from-hk01', '103.**.**.21', '142 ms', '11.8 GB', '188.2 GB'],
+      ['from-hk02', '45.**.**.137', '151 ms', '8.9 GB', '207.0 GB'],
+      ['from-jp01', '154.**.**.9', '108 ms', '5.6 GB', '121.9 GB'],
+      ['from-sg01', '139.**.**.66', '175 ms', '0.0 GB', '61.3 GB']
+    ].map(([email, ip, lat, today, month]) => ({ email, ip, lat, today, month }));
+    return { routes, tabs, ssUsers };
+  }
+}
+</script>
+</body>
+</html>

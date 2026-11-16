@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>登录</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Noto+Sans+SC:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#0f7b45}a:hover{color:#0a5c33}
+</style>
+</helmet>
+<div style="min-height:100vh; box-sizing:border-box; padding:48px 20px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px; background:#f4f5f7; font-family:Inter,'Noto Sans SC',system-ui,sans-serif; color:#1f2225; font-size:14px">
+  <div style="display:flex; align-items:center; gap:10px">
+    <svg width="40" height="40" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0f7b45"></rect><path d="M7 17h4l3-7 4 12 3-5h4" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+    <span style="font-size:22px; font-weight:700">VPS Panel</span>
+  </div>
+
+  <div style="width:100%; max-width:400px; box-sizing:border-box; background:#fff; border:1px solid #e4e6ea; border-radius:8px; padding:32px; display:flex; flex-direction:column; gap:18px">
+    <sc-if value="{{isPassword}}" hint-placeholder-val="{{true}}">
+      <div style="display:flex; flex-direction:column; gap:4px">
+        <h1 style="margin:0; font-size:20px; font-weight:600">登录</h1>
+        <p style="margin:0; color:#5f6368; font-size:13px">请输入管理员账号</p>
+      </div>
+      <label style="display:flex; flex-direction:column; gap:6px; font-size:13px; font-weight:500">用户名
+        <input type="text" value="admin" autocomplete="username" style="height:40px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; font-weight:400; color:#1f2225">
+      </label>
+      <label style="display:flex; flex-direction:column; gap:6px; font-size:13px; font-weight:500">密码
+        <input type="password" value="placeholder" autocomplete="current-password" style="height:40px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; font:inherit; font-weight:400; color:#1f2225">
+      </label>
+      <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:#3d4248; min-height:32px">
+        <input type="checkbox" style="width:16px; height:16px; accent-color:#0f7b45">记住此设备 30 天（仍需输入密码）
+      </label>
+      <button type="button" onClick="{{toTotp}}" style="height:42px; border:none; border-radius:4px; background:#0f7b45; color:#fff; font:inherit; font-weight:600; cursor:pointer">登录</button>
+      <div style="display:flex; gap:8px; padding:10px 12px; border-radius:6px; background:#fdf1dc; color:#6b3c06; font-size:12px; line-height:1.6">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="flex:none; margin-top:2px"><path d="M12 3l10 18H2z M12 10v5 M12 18v.5"></path></svg>
+        <span>失败状态示例：密码错误，还可尝试 2 次。连续失败 5 次后，此 IP 将锁定 15 分钟。</span>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{isTotp}}" hint-placeholder-val="{{false}}">
+      <div style="display:flex; flex-direction:column; gap:4px">
+        <h1 style="margin:0; font-size:20px; font-weight:600">两步验证</h1>
+        <p style="margin:0; color:#5f6368; font-size:13px">打开身份验证器 App，输入 6 位动态码</p>
+      </div>
+      <label style="display:flex; flex-direction:column; gap:6px; font-size:13px; font-weight:500">动态码
+        <input type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" style="height:52px; padding:0 12px; border:1px solid #d5d8dd; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:24px; letter-spacing:10px; text-align:center; color:#1f2225">
+      </label>
+      <a href="Main.dc.html" style="display:flex; align-items:center; justify-content:center; height:42px; border-radius:4px; background:#0f7b45; color:#fff; text-decoration:none; font-weight:600">验证并进入</a>
+      <div style="display:flex; justify-content:space-between; font-size:13px">
+        <button type="button" onClick="{{back}}" style="border:none; background:none; padding:8px 0; font:inherit; color:#0f7b45; cursor:pointer">返回</button>
+        <span style="color:#5f6368; padding:8px 0">无法使用验证器？用恢复码</span>
+      </div>
+    </sc-if>
+  </div>
+
+  <p style="margin:0; max-width:400px; text-align:center; font-size:12px; color:#5f6368; line-height:1.7">新 IP 登录成功后会推送 Telegram 通知。忘记密码时，在面板所在 VPS 上执行 <span style="font-family:'JetBrains Mono',monospace; color:#1f2225">vpspanel reset-admin</span> 重置。</p>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  state = { step: 'password' };
+  renderVals() {
+    const step = this.state.step;
+    return {
+      isPassword: step === 'password',
+      isTotp: step === 'totp',
+      toTotp: () => this.setState({ step: 'totp' }),
+      back: () => this.setState({ step: 'password' })
+    };
+  }
+}
+</script>
+</body>
+</html>

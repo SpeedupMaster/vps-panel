@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>服务器详情 · HK-01</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Noto+Sans+SC:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#0f7b45}a:hover{color:#0a5c33}
+html{scroll-behavior:smooth}
+</style>
+</helmet>
+<div style="display:flex; flex-wrap:wrap; min-height:100vh; background:#f4f5f7; font-family:Inter,'Noto Sans SC',system-ui,sans-serif; color:#1f2225; font-size:14px">
+  <div style="flex:1 1 220px; background:#fff; border-right:1px solid #e4e6ea">
+    <dc-import name="Sidebar" active="overview" hint-size="100%,900px"></dc-import>
+  </div>
+  <main style="flex:999 1 560px; min-width:0; display:flex; flex-direction:column">
+    <header style="background:#fff; border-bottom:1px solid #e4e6ea; padding:14px 28px 0; display:flex; flex-direction:column; gap:12px">
+      <nav aria-label="面包屑" style="font-size:13px; color:#5f6368"><a href="Main.dc.html" style="text-decoration:none">总览</a> / HK-01</nav>
+      <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px">
+        <span style="font-size:12px; font-weight:600; padding:2px 6px; border-radius:4px; background:#eef0f2; color:#3d4248; font-family:'JetBrains Mono',monospace">HK</span>
+        <h1 style="margin:0; font-size:22px; font-weight:600">HK-01</h1>
+        <span style="color:#5f6368">香港</span>
+        <span style="padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:#e7effb; color:#1d5fbf">入口 · Reality</span>
+        <span style="display:inline-flex; align-items:center; gap:6px; padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:#e6f4ec; color:#0f7b45"><span style="width:6px; height:6px; border-radius:3px; background:#0f7b45"></span>在线</span>
+        <span style="font-size:12px; color:#5f6368">已运行 41 天 · 最后心跳 3 秒前</span>
+        <span style="flex:1"></span>
+        <button type="button" style="height:40px; padding:0 14px; border-radius:4px; border:1px solid #d5d8dd; background:#fff; color:#1f2225; font:inherit; cursor:pointer">重启 Xray</button>
+        <a href="Tools.dc.html" style="display:inline-flex; align-items:center; height:40px; box-sizing:border-box; padding:0 14px; border-radius:4px; border:1px solid #d5d8dd; background:#fff; color:#1f2225; text-decoration:none">一键诊断</a>
+        <button type="button" aria-haspopup="menu" aria-label="更多操作" style="width:40px; height:40px; border-radius:4px; border:1px solid #d5d8dd; background:#fff; color:#3d4248; cursor:pointer; display:inline-flex; align-items:center; justify-content:center">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="19" cy="12" r="1.8"></circle></svg>
+        </button>
+      </div>
+      <nav aria-label="页内导航" style="display:flex; flex-wrap:wrap; gap:24px">
+        <a href="#overview" style="padding:10px 2px; border-bottom:2px solid #0f7b45; color:#0f7b45; font-weight:600; text-decoration:none">概览</a>
+        <a href="#xray" style="padding:10px 2px; border-bottom:2px solid transparent; color:#3d4248; text-decoration:none">Xray</a>
+        <a href="#traffic" style="padding:10px 2px; border-bottom:2px solid transparent; color:#3d4248; text-decoration:none">流量</a>
+        <a href="#asset" style="padding:10px 2px; border-bottom:2px solid transparent; color:#3d4248; text-decoration:none">资产</a>
+        <a href="#history" style="padding:10px 2px; border-bottom:2px solid transparent; color:#3d4248; text-decoration:none">配置历史</a>
+      </nav>
+    </header>
+
+    <div style="padding:24px 28px 48px; display:flex; flex-direction:column; gap:20px; max-width:1400px; width:100%; box-sizing:border-box">
+
+      <div id="overview" style="display:flex; flex-wrap:wrap; gap:20px; align-items:flex-start">
+        <div style="flex:3 1 560px; min-width:0; display:flex; flex-direction:column; gap:16px">
+          <div style="display:flex; flex-wrap:wrap; align-items:center; gap:12px">
+            <h2 style="margin:0; font-size:16px; font-weight:600; flex:1">监控</h2>
+            <div role="group" aria-label="时间范围" style="display:inline-flex; gap:2px; padding:3px; border-radius:6px; background:#e9ebee">
+              <sc-for list="{{ranges}}" as="r" hint-placeholder-count="5">
+                <button type="button" aria-pressed="{{r.pressed}}" onClick="{{r.pick}}" style="height:32px; min-width:48px; padding:0 10px; border:none; border-radius:4px; font:inherit; font-size:13px; cursor:pointer; background:{{r.bg}}; color:{{r.fg}}; font-weight:{{r.fw}}">{{r.label}}</button>
+              </sc-for>
+            </div>
+          </div>
+
+          <sc-for list="{{charts}}" as="c" hint-placeholder-count="3">
+            <section style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:16px 18px; display:flex; flex-direction:column; gap:10px">
+              <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px">
+                <h3 style="margin:0; font-size:14px; font-weight:600; flex:1">{{c.title}}</h3>
+                <sc-for list="{{c.legend}}" as="l" hint-placeholder-count="2">
+                  <span style="display:inline-flex; align-items:center; gap:6px; font-size:12px; color:#3d4248"><span style="width:14px; height:3px; border-radius:2px; background:{{l.color}}"></span>{{l.label}} <span style="font-family:'JetBrains Mono',monospace; color:#1f2225">{{l.now}}</span></span>
+                </sc-for>
+              </div>
+              <svg viewBox="0 0 640 170" role="img" aria-label="{{c.title}}折线图" style="width:100%; height:auto; display:block">
+                <path d="M40 10H640 M40 50H640 M40 90H640 M40 130H640" stroke="#eef0f2" stroke-width="1"></path>
+                <path d="M40 150H640" stroke="#d5d8dd" stroke-width="1"></path>
+                <text x="34" y="14" text-anchor="end" font-size="10" fill="#5f6368">{{c.y0}}</text>
+                <text x="34" y="94" text-anchor="end" font-size="10" fill="#5f6368">{{c.y1}}</text>
+                <text x="34" y="153" text-anchor="end" font-size="10" fill="#5f6368">0</text>
+                <path d="{{c.d1}}" fill="none" stroke="{{c.c1}}" stroke-width="1.8" stroke-linejoin="round"></path>
+                <path d="{{c.d2}}" fill="none" stroke="{{c.c2}}" stroke-width="1.8" stroke-linejoin="round"></path>
+                <path d="{{c.d3}}" fill="none" stroke="{{c.c3}}" stroke-width="1.8" stroke-linejoin="round"></path>
+                <text x="40" y="168" font-size="10" fill="#5f6368">{{xs.a}}</text>
+                <text x="340" y="168" text-anchor="middle" font-size="10" fill="#5f6368">{{xs.b}}</text>
+                <text x="640" y="168" text-anchor="end" font-size="10" fill="#5f6368">{{xs.c}}</text>
+              </svg>
+              <sc-if value="{{c.hasNote}}" hint-placeholder-val="{{false}}">
+                <p style="margin:0; font-size:12px; color:#5f6368">{{c.note}}</p>
+              </sc-if>
+            </section>
+          </sc-for>
+        </div>
+
+        <div style="flex:1 1 300px; min-width:0; display:flex; flex-direction:column; gap:16px">
+          <section style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:16px 18px; display:flex; flex-direction:column; gap:10px">
+            <h3 style="margin:0; font-size:14px; font-weight:600">系统信息</h3>
+            <dl style="margin:0; display:grid; grid-template-columns:auto 1fr; gap:8px 14px; font-size:13px">
+              <dt style="color:#5f6368">IPv4</dt>
+              <dd style="margin:0; display:flex; align-items:center; gap:6px; font-family:'JetBrains Mono',monospace">103.**.**.21
+                <button type="button" aria-label="显示完整 IP" style="width:28px; height:28px; border:none; background:none; color:#5f6368; cursor:pointer; display:inline-flex; align-items:center; justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0"></path></svg></button>
+              </dd>
+              <dt style="color:#5f6368">IPv6</dt><dd style="margin:0; font-family:'JetBrains Mono',monospace">2404:****::21</dd>
+              <dt style="color:#5f6368">ASN</dt><dd style="margin:0">AS[编号] · [运营商名称]</dd>
+              <dt style="color:#5f6368">系统</dt><dd style="margin:0">Debian 12 · 内核 6.1</dd>
+              <dt style="color:#5f6368">虚拟化</dt><dd style="margin:0">KVM</dd>
+              <dt style="color:#5f6368">配置</dt><dd style="margin:0">2 vCPU · 2 GB · 40 GB SSD</dd>
+              <dt style="color:#5f6368">连接数</dt><dd style="margin:0; font-family:'JetBrains Mono',monospace">TCP 182 · UDP 24</dd>
+            </dl>
+          </section>
+
+          <section style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:16px 18px; display:flex; flex-direction:column; gap:10px">
+            <div style="display:flex; align-items:center"><h3 style="margin:0; font-size:14px; font-weight:600; flex:1">本周期流量</h3><span style="font-size:12px; color:#5f6368">11-15 → 12-14</span></div>
+            <div style="font-family:'JetBrains Mono',monospace"><span style="font-size:26px; font-weight:600">312</span><span style="color:#5f6368"> GB / 1 TB</span></div>
+            <span style="height:8px; border-radius:4px; background:#eceef1; overflow:hidden"><span style="display:block; height:100%; width:30%; border-radius:4px; background:#2f6fd0"></span></span>
+            <div style="display:flex; flex-direction:column; gap:4px; font-size:12px; color:#5f6368">
+              <span>计费口径：只计出站 · 每月 15 日重置</span>
+              <span>按近 7 天速度，本周期预计用到 <span style="color:#1f2225; font-weight:600">约 640 GB</span>，不会超额</span>
+              <span>超额动作：仅告警（80% / 90% / 100%）</span>
+            </div>
+          </section>
+
+          <section style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:16px 18px; display:flex; flex-direction:column; gap:10px">
+            <div style="display:flex; align-items:center"><h3 style="margin:0; font-size:14px; font-weight:600; flex:1">网络优化</h3><a href="Tools.dc.html" style="font-size:13px">调整</a></div>
+            <div style="display:flex; flex-wrap:wrap; gap:6px">
+              <span style="padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:#e6f4ec; color:#0f7b45">BBR 已开启</span>
+              <span style="padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:#eef0f2; color:#4a4f55">队列 fq</span>
+              <span style="padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:#eef0f2; color:#4a4f55">调优档位：均衡</span>
+            </div>
+          </section>
+
+          <section style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:16px 18px; display:flex; flex-direction:column; gap:10px">
+            <div style="display:flex; align-items:center"><h3 style="margin:0; font-size:14px; font-weight:600; flex:1">版本</h3><a href="Updates.dc.html" style="font-size:13px">更新中心</a></div>
+            <div style="display:flex; align-items:center; gap:8px; font-size:13px"><span style="width:52px; color:#5f6368">Agent</span><span style="font-family:'JetBrains Mono',monospace">v0.3.2</span><span style="margin-left:auto; padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:#e7effb; color:#1d5fbf">可更新到 v0.3.3</span></div>
+            <div style="display:flex; align-items:center; gap:8px; font-size:13px"><span style="width:52px; color:#5f6368">Xray</span><span style="font-family:'JetBrains Mono',monospace">26.3.10</span><span style="margin-left:auto; padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:#e7effb; color:#1d5fbf">可更新到 26.4.1</span></div>
+            <div style="display:flex; align-items:center; gap:8px; font-size:13px"><span style="width:52px; color:#5f6368">规则</span><span>geoip / geosite · 今天 04:00 更新</span></div>
+          </section>
+        </div>
+      </div>
+
+      <section id="xray" style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:18px 20px; display:flex; flex-direction:column; gap:16px">
+        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px">
+          <h2 style="margin:0; font-size:16px; font-weight:600; flex:1">Xray</h2>
+          <span style="display:inline-flex; align-items:center; gap:6px; padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:#e6f4ec; color:#0f7b45"><span style="width:6px; height:6px; border-radius:3px; background:#0f7b45"></span>运行中</span>
+          <span style="font-size:12px; color:#5f6368">内存 46 MB · 已运行 6 天 · 配置与面板一致（v14）</span>
+          <button type="button" style="height:36px; padding:0 12px; border-radius:4px; border:1px solid #d5d8dd; background:#fff; color:#1f2225; font:inherit; font-size:13px; cursor:pointer">查看日志</button>
+        </div>
+
+        <div style="display:flex; flex-wrap:wrap; gap:16px">
+          <div style="flex:1 1 420px; min-width:0; border:1px solid #eceef1; border-radius:6px; padding:14px 16px; display:flex; flex-direction:column; gap:12px">
+            <div style="display:flex; align-items:center; gap:8px"><h3 style="margin:0; font-size:14px; font-weight:600; flex:1">Reality 入站</h3>
+              <button type="button" style="height:34px; padding:0 12px; border-radius:4px; border:1px solid #d5d8dd; background:#fff; color:#1f2225; font:inherit; font-size:13px; cursor:pointer">编辑</button>
+              <button type="button" style="height:34px; padding:0 12px; border-radius:4px; border:1px solid #d5d8dd; background:#fff; color:#1f2225; font:inherit; font-size:13px; cursor:pointer">轮换密钥</button>
+            </div>
+            <dl style="margin:0; display:grid; grid-template-columns:auto 1fr; gap:8px 14px; font-size:13px">
+              <dt style="color:#5f6368">端口</dt><dd style="margin:0; font-family:'JetBrains Mono',monospace">443</dd>
+              <dt style="color:#5f6368">协议</dt><dd style="margin:0">VLESS · TCP · xtls-rprx-vision</dd>
+              <dt style="color:#5f6368">目标站</dt>
+              <dd style="margin:0; display:flex; flex-wrap:wrap; align-items:center; gap:6px"><span style="font-family:'JetBrains Mono',monospace">[目标站域名]:443</span>
+                <span style="padding:0 6px; border-radius:4px; font-size:11px; line-height:18px; background:#e6f4ec; color:#0f7b45">TLS 1.3</span>
+                <span style="padding:0 6px; border-radius:4px; font-size:11px; line-height:18px; background:#e6f4ec; color:#0f7b45">H2</span>
+                <span style="padding:0 6px; border-radius:4px; font-size:11px; line-height:18px; background:#e6f4ec; color:#0f7b45">X25519</span>
+                <span style="font-size:12px; color:#5f6368">握手 12 ms · 2 小时前检测</span>
+              </dd>
+              <dt style="color:#5f6368">公钥</dt><dd style="margin:0; font-family:'JetBrains Mono',monospace">Zt3x…Q8mA</dd>
+              <dt style="color:#5f6368">shortIds</dt><dd style="margin:0; font-family:'JetBrains Mono',monospace">2 个</dd>
+              <dt style="color:#5f6368">用户</dt><dd style="margin:0">2 个（每条线路一个 UUID）</dd>
+            </dl>
+          </div>
+
+          <div style="flex:1 1 420px; min-width:0; border:1px solid #eceef1; border-radius:6px; padding:14px 16px; display:flex; flex-direction:column; gap:10px">
+            <div style="display:flex; align-items:center"><h3 style="margin:0; font-size:14px; font-weight:600; flex:1">本机线路</h3><a href="RouteWizard.dc.html" style="font-size:13px">新建线路</a></div>
+            <div style="display:flex; flex-direction:column">
+              <div style="display:flex; align-items:center; gap:10px; padding:10px 0; border-top:1px solid #f0f1f3; font-size:13px">
+                <span style="padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:#eef0f2; color:#4a4f55">直连</span>
+                <a href="Routes.dc.html" style="font-weight:600; color:#1f2225; text-decoration:none">HK-01 直连</a>
+                <span style="flex:1"></span>
+                <span style="font-size:12px; color:#5f6368">今日 <span style="font-family:'JetBrains Mono',monospace; color:#1f2225">6.2 GB</span></span>
+                <span style="padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:#e6f4ec; color:#0f7b45">正常</span>
+              </div>
+              <div style="display:flex; align-items:center; gap:10px; padding:10px 0; border-top:1px solid #f0f1f3; font-size:13px">
+                <span style="padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:#f0eafb; color:#5b3aa8">链式</span>
+                <a href="Routes.dc.html" style="font-weight:600; color:#1f2225; text-decoration:none">HK-01 → US-01</a>
+                <span style="flex:1"></span>
+                <span style="font-size:12px; color:#5f6368">线路段 <span style="font-family:'JetBrains Mono',monospace; color:#1f2225">142 ms</span></span>
+                <span style="font-size:12px; color:#5f6368">今日 <span style="font-family:'JetBrains Mono',monospace; color:#1f2225">11.8 GB</span></span>
+                <span style="padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:#e6f4ec; color:#0f7b45">正常</span>
+              </div>
+            </div>
+            <p style="margin:0; font-size:12px; color:#5f6368; line-height:1.6">出站 to-us01 由 Xray Observatory 每分钟探活一次。</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="traffic" style="background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:18px 20px; display:flex; flex-direction:column; gap:14px">
+        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px">
+          <h2 style="margin:0; font-size:16px; font-weight:600; flex:1">流量 · 近 30 天（网卡出站）</h2>
+          <span style="font-size:12px; color:#5f6368">合计 <span style="font-family:'JetBrains Mono',monospace; color:#1f2225">398 GB</span></span>
+        </div>
+        <svg viewBox="0 0 640 140" role="img" aria-label="近 30 天每日出站流量柱状图" style="width:100%; height:auto; display:block">
+          <path d="M0 20H640 M0 70H640" stroke="#eef0f2"></path>
+          <path d="M0 120H640" stroke="#d5d8dd"></path>
+          <path d="{{bars}}" fill="#2f6fd0"></path>
+          <text x="0" y="136" font-size="10" fill="#5f6368">10-18</text>
+          <text x="320" y="136" text-anchor="middle" font-size="10" fill="#5f6368">11-01</text>
+          <text x="640" y="136" text-anchor="end" font-size="10" fill="#5f6368">今天</text>
+        </svg>
+        <div style="overflow-x:auto">
+          <table style="width:100%; border-collapse:collapse; font-size:13px; min-width:520px">
+            <thead><tr style="text-align:left; color:#5f6368; font-size:12px">
+              <th style="padding:8px 0; font-weight:500">本周期按线路</th><th style="padding:8px 0; font-weight:500">上行</th><th style="padding:8px 0; font-weight:500">下行</th><th style="padding:8px 0; font-weight:500">合计</th>
+            </tr></thead>
+            <tbody>
+              <tr style="border-top:1px solid #f0f1f3"><td style="padding:9px 0">HK-01 直连</td><td style="font-family:'JetBrains Mono',monospace">4.1 GB</td><td style="font-family:'JetBrains Mono',monospace">99.6 GB</td><td style="font-family:'JetBrains Mono',monospace">103.7 GB</td></tr>
+              <tr style="border-top:1px solid #f0f1f3"><td style="padding:9px 0">HK-01 → US-01</td><td style="font-family:'JetBrains Mono',monospace">7.3 GB</td><td style="font-family:'JetBrains Mono',monospace">180.9 GB</td><td style="font-family:'JetBrains Mono',monospace">188.2 GB</td></tr>
+              <tr style="border-top:1px solid #f0f1f3"><td style="padding:9px 0; color:#5f6368">非代理流量（系统、探针等）</td><td colspan="2" style="color:#5f6368">—</td><td style="font-family:'JetBrains Mono',monospace">20.1 GB</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div style="display:flex; flex-wrap:wrap; gap:20px; align-items:flex-start">
+        <section id="asset" style="flex:1 1 380px; min-width:0; background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:18px 20px; display:flex; flex-direction:column; gap:12px">
+          <div style="display:flex; align-items:center"><h2 style="margin:0; font-size:16px; font-weight:600; flex:1">资产</h2><button type="button" style="height:34px; padding:0 12px; border-radius:4px; border:1px solid #d5d8dd; background:#fff; color:#1f2225; font:inherit; font-size:13px; cursor:pointer">编辑</button></div>
+          <dl style="margin:0; display:grid; grid-template-columns:auto 1fr; gap:9px 16px; font-size:13px">
+            <dt style="color:#5f6368">服务商</dt><dd style="margin:0">[服务商名称] · <a href="#asset">打开商家后台</a></dd>
+            <dt style="color:#5f6368">价格</dt><dd style="margin:0; font-family:'JetBrains Mono',monospace">$4.99 / 月</dd>
+            <dt style="color:#5f6368">到期</dt><dd style="margin:0">2026-12-09 <span style="color:#5f6368">（23 天后）</span> · 提前 7 天和 1 天提醒</dd>
+            <dt style="color:#5f6368">流量额度</dt><dd style="margin:0">1 TB · 只计出站 · 每月 15 日重置</dd>
+            <dt style="color:#5f6368">超额动作</dt><dd style="margin:0">仅告警</dd>
+            <dt style="color:#5f6368">分组 / 标签</dt><dd style="margin:0">亚洲入口 · CN2</dd>
+            <dt style="color:#5f6368">备注</dt><dd style="margin:0; color:#5f6368">—</dd>
+          </dl>
+        </section>
+
+        <section id="history" style="flex:1 1 460px; min-width:0; background:#fff; border:1px solid #e4e6ea; border-radius:6px; padding:18px 20px; display:flex; flex-direction:column; gap:4px">
+          <h2 style="margin:0 0 8px; font-size:16px; font-weight:600">配置历史</h2>
+          <sc-for list="{{history}}" as="h" hint-placeholder-count="4">
+            <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; padding:10px 0; border-top:1px solid #f0f1f3; font-size:13px">
+              <span style="font-family:'JetBrains Mono',monospace; font-weight:600; width:34px">{{h.v}}</span>
+              <span style="flex:1 1 200px; min-width:0">{{h.text}}</span>
+              <span style="padding:1px 8px; border-radius:4px; font-size:12px; line-height:20px; background:{{h.bg}}; color:{{h.fg}}">{{h.how}}</span>
+              <span style="font-size:12px; color:#5f6368; width:86px">{{h.time}}</span>
+              <button type="button" style="height:32px; padding:0 10px; border-radius:4px; border:1px solid #d5d8dd; background:#fff; color:#1f2225; font:inherit; font-size:12px; cursor:pointer">差异</button>
+              <sc-if value="{{h.canRollback}}" hint-placeholder-val="{{true}}">
+                <button type="button" style="height:32px; padding:0 10px; border-radius:4px; border:1px solid #d5d8dd; background:#fff; color:#1f2225; font:inherit; font-size:12px; cursor:pointer">回滚到此</button>
+              </sc-if>
+              <sc-if value="{{h.current}}" hint-placeholder-val="{{false}}">
+                <span style="font-size:12px; color:#0f7b45; font-weight:600; padding:0 10px">当前</span>
+              </sc-if>
+            </div>
+          </sc-for>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2200}}'>
+class Component extends DCLogic {
+  state = { range: '24h' };
+  renderVals() {
+    const range = this.state.range;
+    const seedOf = { '1h': 1, '6h': 2, '24h': 3, '7d': 4, '30d': 5 }[range];
+    const N = 60;
+    const series = (base, amp, k, max) => {
+      const pts = [];
+      for (let i = 0; i < N; i++) {
+        const v = base + amp * Math.sin((i + seedOf * 7 + k) / (4 + k)) + amp * 0.45 * Math.sin((i * (k + 2) + seedOf) / 2.3);
+        const x = 40 + (i * 600) / (N - 1);
+        const y = 150 - (Math.max(0, Math.min(v, max)) / max) * 140;
+        pts.push((i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1));
+      }
+      return pts.join(' ');
+    };
+    const charts = [
+      { title: 'CPU 与内存', y0: '100%', y1: '50%', d1: series(24, 9, 1, 100), c1: '#2f6fd0', d2: series(41, 3, 2, 100), c2: '#d97a0b', d3: '', c3: 'none',
+        legend: [{ label: 'CPU', color: '#2f6fd0', now: '23%' }, { label: '内存', color: '#d97a0b', now: '41%' }], hasNote: true, note: 'CPU steal 当前 0.4%（超过 10% 持续 5 分钟会告警）' },
+      { title: '网络速率', y0: '40 MB/s', y1: '20 MB/s', d1: series(3, 1.6, 3, 40), c1: '#2f6fd0', d2: series(17, 7, 4, 40), c2: '#d97a0b', d3: '', c3: 'none',
+        legend: [{ label: '上行', color: '#2f6fd0', now: '2.4 MB/s' }, { label: '下行', color: '#d97a0b', now: '18.1 MB/s' }], hasNote: false, note: '' },
+      { title: '回程延迟（VPS → 国内）', y0: '120 ms', y1: '60 ms', d1: series(38, 4, 5, 120), c1: '#2f6fd0', d2: series(41, 5, 6, 120), c2: '#d97a0b', d3: series(52, 7, 7, 120), c3: '#6b7075',
+        legend: [{ label: '电信', color: '#2f6fd0', now: '38 ms' }, { label: '联通', color: '#d97a0b', now: '41 ms' }, { label: '移动', color: '#6b7075', now: '52 ms' }], hasNote: true, note: '丢包：电信 0% · 联通 0.3% · 移动 0%。完整数据见「延迟」页。' }
+    ];
+    const XS = { '1h': ['60 分钟前', '30 分钟前', '现在'], '6h': ['6 小时前', '3 小时前', '现在'], '24h': ['昨天此时', '12 小时前', '现在'], '7d': ['7 天前', '4 天前', '现在'], '30d': ['30 天前', '15 天前', '现在'] }[range];
+    const ranges = ['1h', '6h', '24h', '7d', '30d'].map((id) => {
+      const on = id === range;
+      return { label: id, pressed: on ? 'true' : 'false', bg: on ? '#fff' : 'transparent', fg: on ? '#0f7b45' : '#3d4248', fw: on ? '600' : '500', pick: () => this.setState({ range: id }) };
+    });
+    let bars = '';
+    for (let i = 0; i < 30; i++) {
+      const v = 9 + 4 * Math.sin(i / 2.6) + 3 * Math.sin(i * 1.7) + (i % 7 === 5 ? 5 : 0);
+      const h = Math.max(4, Math.min(v, 22)) / 22 * 100;
+      const x = i * (640 / 30) + 3;
+      bars += 'M' + x.toFixed(1) + ' ' + (120 - h).toFixed(1) + 'h15V120h-15Z ';
+    }
+    const HOW = { 热更新: ['#e6f4ec', '#0f7b45'], 重启: ['#fdf1dc', '#94520a'], 回滚: ['#e7effb', '#1d5fbf'] };
+    const history = [
+      ['v14', '新增线路 HK-01 → US-01（用户 r-2、出站 to-us01、路由规则）', '热更新', '今天 10:21', false, true],
+      ['v13', '更换 Reality 目标站', '重启', '11-09 22:40', true, false],
+      ['v12', '轮换 Reality 密钥与 shortIds', '重启', '11-02 08:15', true, false],
+      ['v11', '回滚到 v9（v10 校验失败）', '回滚', '10-28 19:02', true, false]
+    ].map(([v, text, how, time, canRollback, current]) => ({ v, text, how, time, canRollback, current, bg: HOW[how][0], fg: HOW[how][1] }));
+    return { charts, ranges, xs: { a: XS[0], b: XS[1], c: XS[2] }, bars, history };
+  }
+}
+</script>
+</body>
+</html>
