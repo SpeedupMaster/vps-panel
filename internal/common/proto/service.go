@@ -17,9 +17,9 @@ const CodecName = "json"
 
 type jsonCodec struct{}
 
-func (jsonCodec) Marshal(v any) ([]byte, error)      { return json.Marshal(v) }
-func (jsonCodec) Unmarshal(b []byte, v any) error    { return json.Unmarshal(b, v) }
-func (jsonCodec) Name() string                       { return CodecName }
+func (jsonCodec) Marshal(v any) ([]byte, error)   { return json.Marshal(v) }
+func (jsonCodec) Unmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
+func (jsonCodec) Name() string                    { return CodecName }
 
 func init() { encoding.RegisterCodec(jsonCodec{}) }
 

@@ -22,10 +22,10 @@ type AgentMessage struct {
 
 // Hello is the first frame after the stream opens.
 type Hello struct {
-	Version  string       `json:"version"`
-	Mode     string       `json:"mode"` // probe | node
+	Version  string        `json:"version"`
+	Mode     string        `json:"mode"` // probe | node
 	Switches LocalSwitches `json:"switches"`
-	System   SystemInfo   `json:"system"`
+	System   SystemInfo    `json:"system"`
 }
 
 // LocalSwitches can only be changed in /etc/vpsagent/agent.yaml on the VPS.
@@ -55,22 +55,22 @@ type SystemInfo struct {
 }
 
 type Metrics struct {
-	TS        int64   `json:"ts"`
-	CPU       float64 `json:"cpu"`   // percent
-	Steal     float64 `json:"steal"` // percent
-	Load1     float64 `json:"load1"`
-	Load5     float64 `json:"load5"`
-	Load15    float64 `json:"load15"`
-	MemUsed   uint64  `json:"mem_used"`
-	SwapUsed  uint64  `json:"swap_used"`
-	DiskUsed  uint64  `json:"disk_used"`
-	DiskRead  uint64  `json:"disk_read"`  // bytes/s
-	DiskWrite uint64  `json:"disk_write"` // bytes/s
-	NetIn     uint64  `json:"net_in"`     // bytes/s
-	NetOut    uint64  `json:"net_out"`    // bytes/s
-	TCPConns  int     `json:"tcp"`
-	UDPConns  int     `json:"udp"`
-	Uptime    int64   `json:"uptime"`
+	TS        int64     `json:"ts"`
+	CPU       float64   `json:"cpu"`   // percent
+	Steal     float64   `json:"steal"` // percent
+	Load1     float64   `json:"load1"`
+	Load5     float64   `json:"load5"`
+	Load15    float64   `json:"load15"`
+	MemUsed   uint64    `json:"mem_used"`
+	SwapUsed  uint64    `json:"swap_used"`
+	DiskUsed  uint64    `json:"disk_used"`
+	DiskRead  uint64    `json:"disk_read"`  // bytes/s
+	DiskWrite uint64    `json:"disk_write"` // bytes/s
+	NetIn     uint64    `json:"net_in"`     // bytes/s
+	NetOut    uint64    `json:"net_out"`    // bytes/s
+	TCPConns  int       `json:"tcp"`
+	UDPConns  int       `json:"udp"`
+	Uptime    int64     `json:"uptime"`
 	Xray      *XrayProc `json:"xray,omitempty"`
 }
 
@@ -139,11 +139,11 @@ type Event struct {
 // ---------- Panel -> Agent ----------
 
 type PanelMessage struct {
-	ApplyConfig *ApplyConfig `json:"apply_config,omitempty"`
-	XrayOp      *XrayOp      `json:"xray_op,omitempty"`
-	ProbeTasks  *ProbeTasks  `json:"probe_tasks,omitempty"`
-	Task        *Task        `json:"task,omitempty"`
-	Ack         *Ack         `json:"ack,omitempty"`
+	ApplyConfig *ApplyConfig   `json:"apply_config,omitempty"`
+	XrayOp      *XrayOp        `json:"xray_op,omitempty"`
+	ProbeTasks  *ProbeTasks    `json:"probe_tasks,omitempty"`
+	Task        *Task          `json:"task,omitempty"`
+	Ack         *Ack           `json:"ack,omitempty"`
 	Settings    *AgentSettings `json:"settings,omitempty"`
 	ShellInput  *ShellInput    `json:"shell_input,omitempty"`
 }
@@ -175,10 +175,10 @@ type FirewallPolicy struct {
 
 // XrayOp hot-adds or removes users / routing rules through the Xray API.
 type XrayOp struct {
-	TaskID uint64          `json:"task_id"`
-	Op     string          `json:"op"` // add_user | remove_user
-	Tag    string          `json:"tag"`
-	User   *XrayUser       `json:"user,omitempty"`
+	TaskID uint64    `json:"task_id"`
+	Op     string    `json:"op"` // add_user | remove_user
+	Tag    string    `json:"tag"`
+	User   *XrayUser `json:"user,omitempty"`
 	// FullConfig lets the agent fall back to a restart if the API call fails.
 	FullConfig []byte `json:"full_config,omitempty"`
 	Version    int    `json:"version"`
@@ -220,7 +220,8 @@ type Ack struct {
 }
 
 type AgentSettings struct {
-	ReportInterval int `json:"report_interval"` // seconds
+	ReportInterval int      `json:"report_interval"`      // seconds
+	PanelURLs      []string `json:"panel_urls,omitempty"` // primary first; agent reconnects in order
 }
 
 // Task types understood by the agent.

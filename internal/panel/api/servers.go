@@ -1,0 +1,170 @@
+package api
+
+import (
+	"net/http"
+	"sort"
+	"strconv"
+	"time"
+
+	"github.com/gin-gonic/gin"
+
+	"vpspanel/internal/panel/service"
+	"vpspanel/internal/panel/store"
+)
+
+type serverView struct {
+	*store.Server
+	System   any           `json:"system"`
+	Switches any           `json:"switches"`
+	Latest   any           `json:"latest"`
+	Online   bool          `json:"online"`
+	Roles    []string      `json:"roles"`
+	Usage    service.Usage `json:"usage"`
+	Monthly  float64       `json:"monthly_cost"`
+}
+
+func (a *API) view(sv *store.Server) serverView {
+	return serverView{
+		Server: sv, System: service.SystemInfo(sv), Switches: service.Switches(sv),
+		Latest: a.P.Latest(sv.ID), Online: a.P.Hub.Online(sv.ID), Roles: a.P.Roles(sv),
+		Usage: a.P.CycleUsage(sv), Monthly: service.MonthlyCost(sv),
+	}
+}
+
+func (a *API) listServers(c *gin.Context) {
+	var svs []store.Server
+	a.P.St.DB.Order("sort, id").Find(&svs)
+	out := make([]serverView, 0, len(svs))
+	for i := range svs {
+		out = append(out, a.view(&svs[i]))
+	}
+	ok(c, out)
+}
+
+func (a *API) getServer(c *gin.Context) {
+	var sv store.Server
+	if err := a.P.St.DB.First(&sv, idParam(c)).Error; err != nil {
+		fail(c, http.StatusNotFound, "服务器不存在")
+		return
+	}
+	ok(c, a.view(&sv))
+}
+
+func (a *API) createServer(c *gin.Context) {
+	var in service.ServerInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		bad(c, err)
+		return
+	}
+	sv, token, err := a.P.CreateServer(in)
+	if err != nil {
+		bad(c, err)
+		return
+	}
+	a.P.Audit("server", "create", sv.Name, sv.Mode, c.ClientIP())
+	ok(c, gin.H{"server": sv, "token": token, "command": a.P.InstallCommand(token, sv.Mode), "expires_at": sv.InstallTokenExp})
+}
+
+func (a *API) updateServer(c *gin.Context) {
+	var in service.ServerInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		bad(c, err)
+		return
+	}
+	if err := a.P.UpdateServer(idParam(c), in); err != nil {
+		bad(c, err)
+		return
+	}
+	a.P.Audit("server", "update", in.Name, "", c.ClientIP())
+	ok(c, gin.H{"ok": true})
+}
+
+func (a *API) deleteServer(c *gin.Context) {
+	id := idParam(c)
+	name := a.P.ServerName(id)
+	if err := a.P.DeleteServer(id); err != nil {
+		bad(c, err)
+		return
+	}
+	a.P.Audit("server", "delete", name, "", c.ClientIP())
+	ok(c, gin.H{"ok": true})
+}
+
+func (a *API) newToken(c *gin.Context) {
+	var sv store.Server
+	if err := a.P.St.DB.First(&sv, idParam(c)).Error; err != nil {
+		fail(c, http.StatusNotFound, "服务器不存在")
+		return
+	}
+	token, err := a.P.NewInstallToken(sv.ID)
+	if err != nil {
+		bad(c, err)
+		return
+	}
+	a.P.Audit("server", "new_install_token", sv.Name, "", c.ClientIP())
+	ok(c, gin.H{"token": token, "command": a.P.InstallCommand(token, sv.Mode)})
+}
+
+func (a *API) serverMetrics(c *gin.Context) {
+	rng, _ := strconv.ParseInt(c.DefaultQuery("range", "3600"), 10, 64)
+	if rng <= 0 || rng > 400*86400 {
+		rng = 3600
+	}
+	ok(c, a.P.MetricSeries(idParam(c), rng))
+}
+
+func (a *API) overview(c *gin.Context) {
+	var svs []store.Server
+	a.P.St.DB.Order("sort, id").Find(&svs)
+	online, nodes, probes := 0, 0, 0
+	var monthly float64
+	var upMonth, downMonth uint64
+	type expiring struct {
+		ID   uint      `json:"id"`
+		Name string    `json:"name"`
+		At   time.Time `json:"at"`
+		Days int       `json:"days"`
+	}
+	var exp []expiring
+	type share struct {
+		ID    uint   `json:"id"`
+		Name  string `json:"name"`
+		Used  uint64 `json:"used"`
+		Quota int64  `json:"quota"`
+	}
+	var shares []share
+	for i := range svs {
+		sv := &svs[i]
+		if a.P.Hub.Online(sv.ID) {
+			online++
+		}
+		if sv.Mode == "node" {
+			nodes++
+		} else {
+			probes++
+		}
+		monthly += a.P.ToCurrency(service.MonthlyCost(sv), sv.Currency)
+		u := a.P.CycleUsage(sv)
+		upMonth += u.Up
+		downMonth += u.Down
+		shares = append(shares, share{sv.ID, sv.Name, u.Counted, sv.QuotaBytes})
+		if sv.ExpireAt != nil {
+			d := int(time.Until(*sv.ExpireAt).Hours() / 24)
+			if d <= 30 {
+				exp = append(exp, expiring{sv.ID, sv.Name, *sv.ExpireAt, d})
+			}
+		}
+	}
+	sort.Slice(shares, func(i, j int) bool { return shares[i].Used > shares[j].Used })
+	sort.Slice(exp, func(i, j int) bool { return exp[i].At.Before(exp[j].At) })
+	var firing int64
+	a.P.St.DB.Model(&store.AlertEvent{}).Where("status = ?", "firing").Count(&firing)
+	var recent []store.AlertEvent
+	a.P.St.DB.Order("started_at desc").Limit(6).Find(&recent)
+	ok(c, gin.H{
+		"total": len(svs), "online": online, "nodes": nodes, "probes": probes,
+		"monthly_cost": monthly, "currency": a.P.St.Get("currency", "USD"),
+		"traffic_up": upMonth, "traffic_down": downMonth,
+		"expiring": exp, "alerts_firing": firing, "recent_alerts": recent, "traffic_share": shares,
+	})
+}
