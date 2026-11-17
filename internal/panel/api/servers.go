@@ -168,3 +168,38 @@ func (a *API) overview(c *gin.Context) {
 		"expiring": exp, "alerts_firing": firing, "recent_alerts": recent, "traffic_share": shares,
 	})
 }
+
+// serverTraffic: NIC daily series plus this cycle's per-route and landing-user totals.
+func (a *API) serverTraffic(c *gin.Context) {
+	var sv store.Server
+	if err := a.P.St.DB.First(&sv, idParam(c)).Error; err != nil {
+		fail(c, http.StatusNotFound, "服务器不存在")
+		return
+	}
+	days, _ := strconv.Atoi(c.DefaultQuery("days", "30"))
+	if days <= 0 || days > 400 {
+		days = 30
+	}
+	sid := strconv.FormatUint(uint64(sv.ID), 10)
+	now := time.Now()
+	since := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(days - 1))
+	usage := a.P.CycleUsage(&sv)
+	type item struct {
+		ID   uint   `json:"id"`
+		Name string `json:"name"`
+		Up   uint64 `json:"up"`
+		Down uint64 `json:"down"`
+	}
+	var routes []store.Route
+	a.P.St.DB.Where("entry_server_id = ?", sv.ID).Order("sort, id").Find(&routes)
+	rs := make([]item, 0, len(routes))
+	for _, r := range routes {
+		up, down := a.P.Sum("route", strconv.FormatUint(uint64(r.ID), 10), usage.CycleStart)
+		rs = append(rs, item{r.ID, r.Name, up, down})
+	}
+	ok(c, gin.H{
+		"daily":  a.P.TrafficSeries("server", sid, since, true),
+		"hourly": a.P.TrafficSeries("server", sid, now.Add(-48*time.Hour), false),
+		"routes": rs, "usage": usage,
+	})
+}

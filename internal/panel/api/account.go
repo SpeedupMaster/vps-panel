@@ -83,6 +83,7 @@ func (a *API) changePassword(c *gin.Context) {
 		bad(c, err)
 		return
 	}
+	_ = a.P.Auth.KickOthers(c.MustGet("session").(*store.Session).ID)
 	a.P.Audit("login", "change_password", "", "", c.ClientIP())
 	ok(c, gin.H{"ok": true})
 }

@@ -48,6 +48,7 @@ func (a *API) mountNodes(r *gin.Engine, g *gin.RouterGroup) {
 	g.POST("/servers/:id/deploy", a.deployNode)
 	g.GET("/servers/:id/configs", a.listConfigs)
 	g.GET("/servers/:id/configs/:vid", a.getConfig)
+	g.GET("/servers/:id/configs/:vid/diff", a.diffConfig)
 	g.POST("/servers/:id/configs/:vid/rollback", a.rollbackConfig)
 	g.GET("/servers/:id/preview-config", a.previewConfig)
 
@@ -427,4 +428,19 @@ func (a *API) serveSub(c *gin.Context) {
 	}
 	c.Header("Cache-Control", "no-store")
 	c.Data(http.StatusOK, res.ContentType, res.Body)
+}
+
+// diffConfig compares a version with the one before it.
+func (a *API) diffConfig(c *gin.Context) {
+	var v store.ConfigVersion
+	if err := a.P.St.DB.First(&v, "id = ? AND server_id = ?", c.Param("vid"), idParam(c)).Error; err != nil {
+		fail(c, 404, "版本不存在")
+		return
+	}
+	var prev store.ConfigVersion
+	base := ""
+	if a.P.St.DB.Where("server_id = ? AND version < ?", v.ServerID, v.Version).Order("version DESC").First(&prev).Error == nil {
+		base = redactConfig(prev.Config)
+	}
+	ok(c, gin.H{"from": prev.Version, "to": v.Version, "diff": service.LineDiff(base, redactConfig(v.Config))})
 }

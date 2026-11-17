@@ -67,6 +67,7 @@ func (a *API) Router() *gin.Engine {
 	authed.DELETE("/servers/:id", a.deleteServer)
 	authed.POST("/servers/:id/token", a.newToken)
 	authed.GET("/servers/:id/metrics", a.serverMetrics)
+	authed.GET("/servers/:id/traffic", a.serverTraffic)
 
 	authed.GET("/tasks", a.listTasks)
 	authed.GET("/tasks/:id", a.getTask)

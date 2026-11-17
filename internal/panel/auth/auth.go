@@ -188,6 +188,11 @@ func (a *Auth) Kick(id string) error {
 	return a.st.DB.Delete(&store.Session{}, "id = ?", id).Error
 }
 
+// KickOthers ends every session except keep (used after a password change).
+func (a *Auth) KickOthers(keep string) error {
+	return a.st.DB.Delete(&store.Session{}, "id <> ?", keep).Error
+}
+
 func (a *Auth) ChangePassword(old, nw string) error {
 	ad, err := a.Admin()
 	if err != nil {

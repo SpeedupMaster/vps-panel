@@ -407,6 +407,18 @@ func (p *Panel) StartUpdate(req UpdateRequest) (string, error) {
 	}
 	var svs []store.Server
 	p.St.DB.Where("id IN ?", req.ServerIDs).Order("id").Find(&svs)
+	if req.Component == "xray" { // servers pinned to a version keep it
+		kept := svs[:0]
+		for _, sv := range svs {
+			if sv.XrayLockedVersion == "" || strings.TrimPrefix(sv.XrayLockedVersion, "v") == strings.TrimPrefix(req.Version, "v") {
+				kept = append(kept, sv)
+			}
+		}
+		svs = kept
+		if len(svs) == 0 {
+			return "", errors.New("所选服务器都锁定了 Xray 版本")
+		}
+	}
 	for i := range svs {
 		if _, _, _, err := p.updateTask(&svs[i], req); err != nil {
 			return "", fmt.Errorf("%s：%w", svs[i].Name, err)
