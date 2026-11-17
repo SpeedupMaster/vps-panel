@@ -251,15 +251,15 @@ onMounted(() => {
               </div>
               <div class="field">
                 <div class="f-label"><span class="f-name">当前密码</span></div>
-                <div class="f-ctl"><n-input v-model:value="pw.old" type="password" show-password-on="click" placeholder="当前密码" :input-props="{ autocomplete: 'current-password' }" /></div>
+                <div class="f-ctl"><n-input v-model:value="pw.old" type="password" show-password-on="click" placeholder="" aria-label="当前密码" :input-props="{ autocomplete: 'current-password' }" /></div>
               </div>
               <div class="field">
                 <div class="f-label"><span class="f-name">新密码</span><span class="f-hint">至少 10 位</span></div>
-                <div class="f-ctl"><n-input v-model:value="pw.new" type="password" show-password-on="click" placeholder="新密码" :input-props="{ autocomplete: 'new-password' }" /></div>
+                <div class="f-ctl"><n-input v-model:value="pw.new" type="password" show-password-on="click" placeholder="" aria-label="新密码" :input-props="{ autocomplete: 'new-password' }" /></div>
               </div>
               <div class="field">
                 <div class="f-label"><span class="f-name">确认新密码</span></div>
-                <div class="f-ctl"><n-input v-model:value="pw.again" type="password" show-password-on="click" placeholder="再输一次" :input-props="{ autocomplete: 'new-password' }" @keyup.enter="changePw" /></div>
+                <div class="f-ctl"><n-input v-model:value="pw.again" type="password" show-password-on="click" placeholder="" aria-label="确认新密码" :input-props="{ autocomplete: 'new-password' }" @keyup.enter="changePw" /></div>
               </div>
               <div class="f-actions">
                 <span class="f-hint">忘记密码时，在面板所在机器上执行 <code class="mono">vps-panel reset-admin</code></span>
@@ -283,7 +283,7 @@ onMounted(() => {
                     <span class="f-hint">无法扫码时手动输入（点击复制）：</span>
                     <code class="mono small secret" @click="copy(totp.secret)">{{ totp.secret }}</code>
                     <n-input v-model:value="totp.code" placeholder="6 位验证码" maxlength="6" :input-props="{ inputmode: 'numeric', autocomplete: 'one-time-code' }" @keyup.enter="confirmTotp" />
-                    <div class="row"><n-button type="primary" :disabled="totp.code.length < 6" @click="confirmTotp">确认开启</n-button><n-button @click="totp.step = ''">取消</n-button></div>
+                    <div class="row"><n-button @click="totp.step = ''">取消</n-button><n-button type="primary" :disabled="totp.code.length < 6" @click="confirmTotp">确认开启</n-button></div>
                   </div>
                 </div>
               </div>
@@ -291,7 +291,7 @@ onMounted(() => {
                 <div class="f-label"><span class="f-name">恢复码</span><span class="f-hint">只显示这一次。手机丢失时可用其中任意一个登录，每个只能用一次。</span></div>
                 <div class="f-ctl">
                   <div class="codes mono"><span v-for="c in totp.codes" :key="c">{{ c }}</span></div>
-                  <div class="row"><n-button size="small" @click="copy(totp.codes.join('\n'))">复制全部</n-button><n-button size="small" type="primary" @click="totp.step = ''">我已保存</n-button></div>
+                  <div class="row"><n-button @click="copy(totp.codes.join('\n'))">复制全部</n-button><n-button type="primary" @click="totp.step = ''">我已保存</n-button></div>
                 </div>
               </div>
               <template v-else>
@@ -327,6 +327,7 @@ onMounted(() => {
             </div>
             <div class="card s-card">
               <div v-if="!sessions.length" class="empty">没有会话</div>
+              <template v-else>
               <div class="table-wrap hide-mobile">
                 <table class="plain">
                   <thead><tr><th>设备</th><th>IP</th><th>登录时间</th><th>最近活动</th><th /></tr></thead>
@@ -345,6 +346,7 @@ onMounted(() => {
                   <div class="m-row small muted"><span class="mono">{{ s.ip }}</span><span>· {{ ago(s.last_seen) }}</span></div>
                 </div>
               </div>
+              </template>
             </div>
           </section>
         </div>
@@ -418,7 +420,7 @@ onMounted(() => {
                   <span class="f-hint">{{ dt(b.at) }} · {{ bytes(b.size) }}{{ b.encrypted ? ' · 已加密' : '' }}</span>
                 </div>
                 <div class="row b-act">
-                  <a class="link-btn" :href="`/api/backups/${encodeURIComponent(b.name)}`" download>下载</a>
+                  <n-button tag="a" size="tiny" quaternary :href="`/api/backups/${encodeURIComponent(b.name)}`" download>下载</n-button>
                   <n-button size="tiny" quaternary @click="openRestore(b)">恢复</n-button>
                   <n-button size="tiny" quaternary type="error" @click="delBackup(b)">删除</n-button>
                 </div>
@@ -497,7 +499,7 @@ onMounted(() => {
           </div>
           <span class="spacer" />
           <n-select v-model:value="audit.type" :options="auditTypes" aria-label="类别" style="width: 120px" />
-          <a class="link-btn" :href="`/api/audit?format=csv&type=${audit.type}`" download>导出 CSV</a>
+          <n-button tag="a" :href="`/api/audit?format=csv&type=${audit.type}`" download>导出 CSV</n-button>
         </div>
         <div class="card s-card">
           <div v-if="!audit.items.length" class="empty">暂无记录</div>
@@ -521,15 +523,16 @@ onMounted(() => {
               </div>
             </div>
           </template>
-          <div v-if="audit.more" class="f-actions" style="justify-content: center"><n-button size="small" @click="loadAudit(false)">加载更多</n-button></div>
+          <div v-if="audit.more" class="f-actions more"><n-button @click="loadAudit(false)">加载更多</n-button></div>
         </div>
       </n-tab-pane>
     </n-tabs>
 
     <n-modal v-model:show="restore.show" preset="card" title="恢复备份" style="width: min(460px, 96vw)">
       <div class="m-form">
-        <div v-if="restore.name" class="field">
-          <div class="f-label"><span class="f-name">备份</span><span class="f-hint mono">{{ restore.name }}</span></div>
+        <div v-if="restore.name" class="field f-inline">
+          <div class="f-label"><span class="f-name">备份</span></div>
+          <div class="f-ctl"><span class="mono small b-name">{{ restore.name }}</span></div>
         </div>
         <div class="field f-inline" v-else>
           <div class="f-label"><span class="f-name">备份文件</span><span class="f-hint">.vpb 或 .gz</span></div>
@@ -549,8 +552,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.form { display: flex; flex-direction: column; gap: 8px; }
-.form label { font-size: 13px; color: var(--c-text-2); margin-top: 6px; }
 .secret { cursor: pointer; word-break: break-all; background: var(--c-surface); padding: 6px 8px; border-radius: 4px; }
 .codes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 16px; padding: 12px; background: var(--c-surface); border-radius: 6px; margin: 10px 0; font-size: 14px; }
 .totp-scan { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
@@ -563,6 +564,8 @@ onMounted(() => {
 .b-item { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--c-border); flex-wrap: wrap; }
 .b-main { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 200px; }
 .b-act { gap: 4px; }
+.b-name { overflow-wrap: anywhere; text-align: right; }
+.more { justify-content: center; }
 p { line-height: 1.6; }
 @media (max-width: 767px) {
   .fx { grid-template-columns: repeat(2, minmax(0, 1fr)); }
