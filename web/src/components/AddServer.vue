@@ -13,7 +13,12 @@ const props = defineProps({ show: Boolean })
 const emit = defineEmits(['update:show'])
 const router = useRouter()
 
-const form = ref({ name: '', group: '', mode: 'node', cap_reality: true, cap_landing: false })
+const blankForm = () => ({ name: '', group: '', mode: 'node', cap_reality: true, cap_landing: false, reality_target: '', reality_server_names: '' })
+const form = ref(blankForm())
+// Reality target / SNI: empty fields use the default target from Settings.
+const defaultTarget = ref('www.microsoft.com')
+const targetHolder = computed(() => defaultTarget.value + (defaultTarget.value.includes(':') ? '' : ':443'))
+const sniHolder = computed(() => (form.value.reality_target.trim() || defaultTarget.value).split(':')[0])
 const created = ref(null) // {server, token, command, expires_at}
 const busy = ref(false)
 const now = ref(Date.now())
@@ -32,7 +37,10 @@ const live = computed(() => created.value && state.servers.find((s) => s.id === 
 const connected = computed(() => live.value && (live.value.online || live.value.status === 'online'))
 
 watch(() => props.show, (v) => {
-  if (v && !created.value) { form.value = { name: '', group: '', mode: 'node', cap_reality: true, cap_landing: false } }
+  if (v && !created.value) {
+    form.value = blankForm()
+    api.get('/settings').then((st) => { if (st?.reality_default_target) defaultTarget.value = st.reality_default_target }).catch(() => {})
+  }
 })
 // Poll the list until the agent connects (SSE also updates it).
 let poll = null
@@ -49,6 +57,7 @@ async function create() {
   busy.value = true
   const body = { ...form.value, name: form.value.name.trim() }
   if (body.mode === 'probe') { body.cap_reality = false; body.cap_landing = false }
+  if (!body.cap_reality) { delete body.reality_target; delete body.reality_server_names }
   const r = await run(() => api.post('/servers', body))
   busy.value = false
   if (r) { created.value = r; loadServers() }
@@ -106,6 +115,16 @@ function openDetail() { const id = created.value.server.id; close(); router.push
             <div class="f-label"><span class="f-name">Reality 入站</span><span class="f-hint">直连或入口：客户端连接的节点，默认端口 443。创建后可在「线路」里添加线路</span></div>
             <div class="f-ctl"><n-switch v-model:value="form.cap_reality" aria-label="Reality 入站" /></div>
           </div>
+          <template v-if="form.cap_reality">
+            <div class="field">
+              <div class="f-label"><span class="f-name">目标站</span><span class="f-hint">Reality 伪装的网站，host:port。留空用设置里的默认目标；可在「工具 → Reality 目标扫描」里挑选</span></div>
+              <div class="f-ctl"><n-input v-model:value="form.reality_target" :placeholder="targetHolder" aria-label="目标站" /></div>
+            </div>
+            <div class="field">
+              <div class="f-label"><span class="f-name">SNI</span><span class="f-hint">客户端握手用的域名，多个用逗号分隔，订阅里用第一个。留空跟随目标站</span></div>
+              <div class="f-ctl"><n-input v-model:value="form.reality_server_names" :placeholder="sniHolder" aria-label="SNI" /></div>
+            </div>
+          </template>
           <div class="field f-bool">
             <div class="f-label"><span class="f-name">SS2022 落地</span><span class="f-hint">只接收入口机流量，端口随机，防火墙只放行入口机 IP</span></div>
             <div class="f-ctl"><n-switch v-model:value="form.cap_landing" aria-label="SS2022 落地" /></div>

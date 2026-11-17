@@ -209,3 +209,25 @@ func TestPrivatePeers(t *testing.T) {
 		}
 	}
 }
+
+func TestRealityTarget(t *testing.T) {
+	cases := []struct {
+		target, names         string
+		wantTarget, wantNames string
+		wantErr               bool
+	}{
+		{"www.apple.com", "", "www.apple.com:443", "www.apple.com", false},
+		{" www.apple.com:8443 ", "", "www.apple.com:8443", "www.apple.com", false},
+		{"www.microsoft.com:443", "a.example.com, b.example.com", "www.microsoft.com:443", "a.example.com,b.example.com", false},
+		{"", "a.example.com", "", "", true},
+		{"https://www.apple.com", "", "", "", true},
+		{"www.apple.com", "https://www.apple.com", "", "", true},
+		{"www.apple.com", "bad_name.com", "", "", true},
+	}
+	for _, c := range cases {
+		gt, gn, err := realityTarget(c.target, c.names)
+		if (err != nil) != c.wantErr || gt != c.wantTarget || gn != c.wantNames {
+			t.Errorf("realityTarget(%q, %q) = %q, %q, %v", c.target, c.names, gt, gn, err)
+		}
+	}
+}

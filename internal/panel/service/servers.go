@@ -33,6 +33,9 @@ type ServerInput struct {
 	CountMode   string     `json:"count_mode"`
 	OnExceeded  string     `json:"on_exceeded"`
 	Sort        int        `json:"sort"`
+	// Only read when creating a node with Reality; empty = the default target.
+	RealityTarget      string `json:"reality_target"`
+	RealityServerNames string `json:"reality_server_names"`
 }
 
 func (in *ServerInput) validate() error {
@@ -80,6 +83,17 @@ func (p *Panel) CreateServer(in ServerInput) (*store.Server, string, error) {
 	if err := in.validate(); err != nil {
 		return nil, "", err
 	}
+	var target, names string
+	if in.Mode == "node" && in.CapReality && (strings.TrimSpace(in.RealityTarget) != "" || strings.TrimSpace(in.RealityServerNames) != "") {
+		t := in.RealityTarget
+		if strings.TrimSpace(t) == "" {
+			t = p.St.Get("reality_default_target", "www.microsoft.com")
+		}
+		var err error
+		if target, names, err = realityTarget(t, in.RealityServerNames); err != nil {
+			return nil, "", err
+		}
+	}
 	sv := &store.Server{Mode: in.Mode, CapReality: in.CapReality, CapLanding: in.CapLanding, Status: "pending", AgentID: "pending-" + secret.RandomToken(8)}
 	in.apply(sv)
 	token := secret.RandomToken(24)
@@ -90,6 +104,11 @@ func (p *Panel) CreateServer(in ServerInput) (*store.Server, string, error) {
 			return nil, "", errors.New("名称已存在")
 		}
 		return nil, "", err
+	}
+	if target != "" {
+		if _, err := p.ensureReality(sv.ID, target, names); err != nil {
+			return nil, "", err
+		}
 	}
 	return sv, token, nil
 }

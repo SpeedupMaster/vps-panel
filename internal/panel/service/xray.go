@@ -78,18 +78,58 @@ func randomPort(lo, hi int) int {
 
 // EnsureReality creates the entry inbound with defaults if missing.
 func (p *Panel) EnsureReality(serverID uint) (*store.RealityInbound, error) {
+	return p.ensureReality(serverID, "", "")
+}
+
+// ensureReality creates the entry inbound if missing, using target and
+// serverNames (already normalised by realityTarget) or the default target.
+func (p *Panel) ensureReality(serverID uint, target, serverNames string) (*store.RealityInbound, error) {
 	var in store.RealityInbound
 	if err := p.St.DB.First(&in, "server_id = ?", serverID).Error; err == nil {
 		return &in, nil
 	}
+	if target == "" {
+		var err error
+		if target, serverNames, err = realityTarget(p.St.Get("reality_default_target", "www.microsoft.com"), ""); err != nil {
+			return nil, err
+		}
+	}
 	priv, pub := NewX25519()
 	enc := p.Box.Seal(priv)
-	target := p.St.Get("reality_default_target", "www.microsoft.com")
 	in = store.RealityInbound{
-		ServerID: serverID, Port: 443, Target: target + ":443", ServerNames: target,
+		ServerID: serverID, Port: 443, Target: target, ServerNames: serverNames,
 		PrivateKeyEnc: enc, PublicKey: pub, ShortIDs: NewShortID(), Fingerprint: "chrome",
 	}
 	return &in, p.St.DB.Create(&in).Error
+}
+
+var sniRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$`)
+
+// realityTarget normalises a Reality target (host or host:port, port 443 by
+// default) and its comma separated SNI list; an empty list follows the
+// target's host.
+func realityTarget(target, serverNames string) (string, string, error) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return "", "", errors.New("目标站不能为空")
+	}
+	if strings.Contains(target, "/") {
+		return "", "", errors.New("目标站填 host:port，例如 www.example.com:443，不要带 https:// 或路径")
+	}
+	if !strings.Contains(target, ":") {
+		target += ":443"
+	}
+	names := splitList(serverNames)
+	if len(names) == 0 {
+		host, _, _ := strings.Cut(target, ":")
+		names = []string{host}
+	}
+	for _, n := range names {
+		if !sniRe.MatchString(n) {
+			return "", "", fmt.Errorf("SNI %q 不是有效的域名", n)
+		}
+	}
+	return target, strings.Join(names, ","), nil
 }
 
 type RealityInput struct {
@@ -110,15 +150,8 @@ func (p *Panel) UpdateReality(serverID uint, in RealityInput) error {
 	if in.Port < 1 || in.Port > 65535 {
 		return errors.New("端口无效")
 	}
-	in.Target = strings.TrimSpace(in.Target)
-	if in.Target == "" {
-		return errors.New("目标站不能为空")
-	}
-	if !strings.Contains(in.Target, ":") {
-		in.Target += ":443"
-	}
-	if strings.TrimSpace(in.ServerNames) == "" {
-		in.ServerNames, _, _ = strings.Cut(in.Target, ":")
+	if in.Target, in.ServerNames, err = realityTarget(in.Target, in.ServerNames); err != nil {
+		return err
 	}
 	for _, sid := range splitList(in.ShortIDs) {
 		if len(sid) > 16 || len(sid)%2 != 0 {
@@ -134,7 +167,7 @@ func (p *Panel) UpdateReality(serverID uint, in RealityInput) error {
 	if in.Fingerprint == "" {
 		in.Fingerprint = "chrome"
 	}
-	r.Port, r.Target, r.ServerNames, r.ShortIDs, r.Address, r.Fingerprint = in.Port, in.Target, strings.Join(splitList(in.ServerNames), ","), strings.Join(splitList(in.ShortIDs), ","), strings.TrimSpace(in.Address), in.Fingerprint
+	r.Port, r.Target, r.ServerNames, r.ShortIDs, r.Address, r.Fingerprint = in.Port, in.Target, in.ServerNames, strings.Join(splitList(in.ShortIDs), ","), strings.TrimSpace(in.Address), in.Fingerprint
 	if in.RegenKeys {
 		priv, pub := NewX25519()
 		r.PrivateKeyEnc = p.Box.Seal(priv)
