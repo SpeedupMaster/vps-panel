@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -282,7 +283,7 @@ func (m *Manager) hot(ctx context.Context, op *proto.XrayOp) error {
 		}
 		b, err := exec.CommandContext(ctx, Bin, "api", "rmu", "--server="+APIAddr, "-tag="+op.Tag, op.User.Email).CombinedOutput()
 		if err != nil {
-			return fmt.Errorf("%v %s", err, strings.TrimSpace(string(b)))
+			return cmdErr(err, b)
 		}
 		return nil
 	case "add_user":
@@ -298,8 +299,8 @@ func (m *Manager) hot(ctx context.Context, op *proto.XrayOp) error {
 		_, _ = f.Write(in)
 		f.Close()
 		b, err := exec.CommandContext(ctx, Bin, "api", "adu", "--server="+APIAddr, f.Name()).CombinedOutput()
-		if err != nil || strings.Contains(string(b), "failed") {
-			return fmt.Errorf("%v %s", err, strings.TrimSpace(string(b)))
+		if err != nil || !aduAdded(string(b)) {
+			return cmdErr(err, b)
 		}
 		if len(op.Rule) > 0 {
 			rf, err := os.CreateTemp("", "adrules-*.json")
@@ -319,6 +320,20 @@ func (m *Manager) hot(ctx context.Context, op *proto.XrayOp) error {
 		return nil
 	}
 	return fmt.Errorf("未知操作 %s", op.Op)
+}
+
+var aduRe = regexp.MustCompile(`Added ([0-9]+) user`)
+
+// aduAdded reports whether `xray api adu` really added the user. Xray exits 0
+// and prints "Added 0 user(s)" when the inbound cannot take users at runtime,
+// e.g. a Shadowsocks 2022 inbound that started without clients runs in
+// single-user mode; the caller then falls back to a restart.
+func aduAdded(out string) bool {
+	if strings.Contains(out, "failed") {
+		return false
+	}
+	m := aduRe.FindStringSubmatch(out)
+	return m == nil || m[1] != "0"
 }
 
 // inboundWithUser builds the `xray api adu` input: the inbound with the given
@@ -414,4 +429,14 @@ func waitActive(ctx context.Context, d time.Duration) bool {
 		}
 	}
 	return false
+}
+
+// cmdErr reports a failed xray CLI call by its output, plus the exit error
+// when there was one.
+func cmdErr(err error, out []byte) error {
+	msg := strings.TrimSpace(string(out))
+	if err != nil {
+		return fmt.Errorf("%v %s", err, msg)
+	}
+	return errors.New(msg)
 }

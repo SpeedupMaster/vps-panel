@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net/netip"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -156,8 +158,9 @@ func (p *Panel) EnsureLanding(serverID uint) (*store.LandingInbound, error) {
 }
 
 type LandingInput struct {
-	Port   int    `json:"port"`
-	Method string `json:"method"`
+	Port    int    `json:"port"`
+	Method  string `json:"method"`
+	Address string `json:"address"`
 }
 
 func (p *Panel) UpdateLanding(serverID uint, in LandingInput) error {
@@ -171,8 +174,12 @@ func (p *Panel) UpdateLanding(serverID uint, in LandingInput) error {
 	if in.Method != "2022-blake3-aes-128-gcm" && in.Method != "2022-blake3-aes-256-gcm" {
 		return errors.New("不支持的加密方式")
 	}
+	in.Address = strings.TrimSpace(in.Address)
+	if in.Address != "" && !validHost(in.Address) {
+		return errors.New("连接地址需是 IP 或域名")
+	}
 	methodChanged := in.Method != l.Method
-	l.Port, l.Method = in.Port, in.Method
+	l.Port, l.Method, l.Address = in.Port, in.Method, in.Address
 	if methodChanged { // key lengths differ: regenerate server and user keys
 		l.ServerKeyEnc = p.Box.Seal(SSKey(l.Method))
 		var users []store.LandingUser
@@ -225,6 +232,24 @@ func parseIDs(s string) []uint {
 		}
 	}
 	return ids
+}
+
+// landingAddr is where entries reach a landing: the configured connection
+// address, else its public IP.
+func landingAddr(sv *store.Server, l *store.LandingInbound) string {
+	if l != nil && l.Address != "" {
+		return l.Address
+	}
+	return serverAddr(sv)
+}
+
+var hostRe = regexp.MustCompile(`^[A-Za-z0-9.-]{1,253}$`)
+
+func validHost(s string) bool {
+	if _, err := netip.ParseAddr(s); err == nil {
+		return true
+	}
+	return hostRe.MatchString(s) && !strings.HasPrefix(s, "-") && !strings.HasSuffix(s, ".")
 }
 
 func serverAddr(sv *store.Server) string {
@@ -313,11 +338,12 @@ func (p *Panel) BuildConfig(serverID uint) ([]byte, *proto.FirewallPolicy, error
 			if err != nil {
 				return err
 			}
-			if serverAddr(&lsv) == "" {
+			addr := landingAddr(&lsv, l)
+			if addr == "" {
 				return fmt.Errorf("落地机 %s 还没有上报 IP", lsv.Name)
 			}
 			outs[landingID] = true
-			n.Outs = append(n.Outs, xrayconf.SSOut{Tag: outTag(landingID) + slug(lsv.Name), Address: serverAddr(&lsv), Port: l.Port, Method: l.Method, Password: sk + ":" + uk})
+			n.Outs = append(n.Outs, xrayconf.SSOut{Tag: outTag(landingID) + slug(lsv.Name), Address: addr, Port: l.Port, Method: l.Method, Password: sk + ":" + uk})
 			return nil
 		}
 		for _, rt := range p.entryRoutes(sv.ID) {

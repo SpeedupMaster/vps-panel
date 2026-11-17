@@ -200,7 +200,7 @@ const reality = ref({})
 const landing = ref({})
 function fillXrayForms(x) {
   if (x.reality) reality.value = { port: x.reality.port, target: x.reality.target, server_names: x.reality.server_names, short_ids: x.reality.short_ids, address: x.reality.address, fingerprint: x.reality.fingerprint || 'chrome', regen_keys: false }
-  if (x.landing) landing.value = { port: x.landing.port, method: x.landing.method }
+  if (x.landing) landing.value = { port: x.landing.port, method: x.landing.method, address: x.landing.address || '' }
 }
 const editReality = ref(false)
 const editLanding = ref(false)
@@ -443,11 +443,16 @@ function diffClass(line) {
               <div v-if="!editLanding" class="kv">
                 <span>端口</span><span class="mono">{{ xray.landing.port }}</span>
                 <span>加密</span><span class="mono small">{{ xray.landing.method }}</span>
+                <span>连接地址</span><span class="mono small">{{ xray.landing.address || '公网 IP' }}</span>
                 <span>防火墙</span><span>只放行入口机 IP</span>
               </div>
               <n-form v-else @submit.prevent label-placement="top" size="small">
                 <n-form-item label="端口（1024–65535）"><n-input-number v-model:value="landing.port" :min="1024" :max="65535" :show-button="false" /></n-form-item>
                 <n-form-item label="加密方式"><n-select v-model:value="landing.method" :options="methods" /></n-form-item>
+                <n-form-item label="连接地址（可选）">
+                  <n-input v-model:value="landing.address" placeholder="留空 = 落地机公网 IP" />
+                  <template #feedback><span class="muted small">入口和落地在同一内网、或落地是 NAT 机端口映射时填写。走内网时入口机的来源 IP 是内网地址，落地防火墙只放行公网 IP，需要在设置里关闭「落地防火墙白名单」。</span></template>
+                </n-form-item>
                 <n-button type="primary" @click="saveLanding">保存并下发</n-button>
               </n-form>
               <h3 class="sub-h">入口用户（本月）</h3>

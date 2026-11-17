@@ -86,9 +86,12 @@ type RealityInbound struct {
 }
 
 type LandingInbound struct {
-	ServerID     uint   `gorm:"primaryKey" json:"server_id"`
-	Port         int    `json:"port"`
-	Method       string `json:"method"`
+	ServerID uint   `gorm:"primaryKey" json:"server_id"`
+	Port     int    `json:"port"`
+	Method   string `json:"method"`
+	// Address entries dial instead of the landing's public IP (internal
+	// network, NAT port mapping). Empty = public IP.
+	Address      string `json:"address"`
 	ServerKeyEnc string `json:"-"`
 }
 

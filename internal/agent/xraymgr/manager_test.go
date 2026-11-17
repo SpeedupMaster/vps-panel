@@ -26,3 +26,16 @@ func TestInboundWithUser(t *testing.T) {
 		t.Fatalf("%s %v", b, err)
 	}
 }
+func TestAduAdded(t *testing.T) {
+	cases := map[string]bool{
+		"result: ok\nAdded 1 user(s) in total.\n": true,
+		"Added 0 user(s) in total.\n":             false,
+		"failed to add user: ...":                 false,
+		"":                                        true, // older Xray prints nothing on success
+	}
+	for out, want := range cases {
+		if got := aduAdded(out); got != want {
+			t.Errorf("aduAdded(%q) = %v, want %v", out, got, want)
+		}
+	}
+}

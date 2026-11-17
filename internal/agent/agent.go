@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"net"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -218,7 +219,7 @@ func (a *Agent) session(ctx context.Context, panelURL string) error {
 				first = false
 				go a.OnConnected()
 			}
-			a.handle(ctx, m)
+			a.handle(ctx, m, panelURL)
 		}
 	}()
 	return <-errc
@@ -241,7 +242,7 @@ func (a *Agent) Emit(m *proto.AgentMessage) bool {
 	}
 }
 
-func (a *Agent) handle(ctx context.Context, m *proto.PanelMessage) {
+func (a *Agent) handle(ctx context.Context, m *proto.PanelMessage, current string) {
 	switch {
 	case m.Ack != nil:
 		a.Buf.Ack(m.Ack.Seq)
@@ -251,8 +252,8 @@ func (a *Agent) handle(ctx context.Context, m *proto.PanelMessage) {
 			a.interval = time.Duration(m.Settings.ReportInterval) * time.Second
 			a.mu.Unlock()
 		}
-		if len(m.Settings.PanelURLs) > 0 && m.Settings.PanelURLs[0] != "" {
-			a.Creds.PanelURLs = m.Settings.PanelURLs
+		if urls := mergePanelURLs(m.Settings.PanelURLs, current); !slices.Equal(urls, a.Creds.PanelURLs) {
+			a.Creds.PanelURLs = urls
 			if err := config.SaveCredentials(a.Creds); err != nil {
 				log.Printf("save panel urls: %v", err)
 			}
@@ -489,4 +490,19 @@ func (a *Agent) UnregisterShell(id uint64) {
 	a.mu.Lock()
 	delete(a.shells, id)
 	a.mu.Unlock()
+}
+
+// mergePanelURLs takes the panel's address list but keeps the one this agent
+// is connected through as the last fallback: the configured address may not
+// be reachable from here (LAN-only, or still being set up), and dropping the
+// working one would lock the agent out after its next restart.
+func mergePanelURLs(fromPanel []string, current string) []string {
+	var out []string
+	for _, u := range append(fromPanel, current) {
+		u = strings.TrimRight(strings.TrimSpace(u), "/")
+		if u != "" && !slices.Contains(out, u) {
+			out = append(out, u)
+		}
+	}
+	return out
 }

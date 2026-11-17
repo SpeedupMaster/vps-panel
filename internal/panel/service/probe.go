@@ -172,10 +172,10 @@ func (p *Panel) ProbeTargetsFor(serverID uint) []proto.ProbeTarget {
 		for l := range landings {
 			var lsv store.Server
 			var li store.LandingInbound
-			if p.St.DB.First(&lsv, l).Error != nil || p.St.DB.First(&li, "server_id = ?", l).Error != nil || serverAddr(&lsv) == "" {
+			if p.St.DB.First(&lsv, l).Error != nil || p.St.DB.First(&li, "server_id = ?", l).Error != nil || landingAddr(&lsv, &li) == "" {
 				continue
 			}
-			out = append(out, proto.ProbeTarget{ID: fmt.Sprintf("seg-%d", l), Kind: "segment", Type: "tcp", Host: serverAddr(&lsv), Port: li.Port})
+			out = append(out, proto.ProbeTarget{ID: fmt.Sprintf("seg-%d", l), Kind: "segment", Type: "tcp", Host: landingAddr(&lsv, &li), Port: li.Port})
 		}
 	}
 	if sv.CapLanding {

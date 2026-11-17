@@ -4,6 +4,7 @@ package collector
 
 import (
 	"bufio"
+	"net/netip"
 	"os"
 	"os/exec"
 	"regexp"
@@ -253,7 +254,7 @@ func (c *Collector) System() proto.SystemInfo {
 	s.BootTime = time.Now().Unix() - uptime()
 	s.Virt = DetectVirt()
 	s.IPv4, s.IPv6 = localIPs()
-	if strings.HasPrefix(s.IPv4, "10.") || strings.HasPrefix(s.IPv4, "192.168.") || strings.HasPrefix(s.IPv4, "172.") {
+	if a, err := netip.ParseAddr(s.IPv4); err != nil || a.IsPrivate() || a.IsLoopback() || a.IsLinkLocalUnicast() || cgnat.Contains(a) {
 		s.IPv4 = PublicIPv4()
 	}
 	s.Congestion = readFirst("/proc/sys/net/ipv4/tcp_congestion_control")
@@ -261,3 +262,6 @@ func (c *Collector) System() proto.SystemInfo {
 	s.AvailCC = readFirst("/proc/sys/net/ipv4/tcp_available_congestion_control")
 	return s
 }
+
+// cgnat is the carrier-grade NAT range (100.64.0.0/10): not public either.
+var cgnat = netip.MustParsePrefix("100.64.0.0/10")
