@@ -58,6 +58,8 @@ func (p *Panel) OnSettingsChanged(keys []string) {
 			push = true
 		case "probe_interval":
 			probes = true
+		case "landing_firewall":
+			go p.RedeployLandings("落地防火墙设置变更")
 		}
 	}
 	for _, id := range p.Hub.OnlineIDs() {

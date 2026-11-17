@@ -150,18 +150,18 @@ function latency(r) {
 
     <div v-for="l in landings" :key="l.server.id" class="card">
       <div class="card-title"><h2>落地 {{ l.server.name }} · SS2022 入站</h2></div>
-      <p v-if="l.landing" class="small muted" style="margin-top: -6px">端口 {{ l.landing.port }} · {{ l.landing.method }} · tcp,udp · 防火墙白名单已同步（{{ l.landing_users?.length || 0 }} 个入口）</p>
+      <p v-if="l.landing" class="small muted" style="margin-top: -6px">端口 {{ l.landing.port }} · {{ l.landing.method }} · tcp,udp · {{ l.landing_firewall ? `防火墙只放行 ${l.landing_users?.length || 0} 个入口` : '防火墙白名单未启用' }}</p>
       <div v-if="!l.landing_users?.length" class="muted small">还没有入口机使用这台落地</div>
       <div class="table-wrap" v-else>
         <table class="plain">
-          <thead><tr><th>用户（每个入口一个）</th><th>来源</th><th>本月上行</th><th>本月下行</th><th>白名单</th></tr></thead>
+          <thead><tr><th>用户（每个入口一个）</th><th>来源</th><th>本月上行</th><th>本月下行</th><th v-if="l.landing_firewall">白名单</th></tr></thead>
           <tbody>
             <tr v-for="u in l.landing_users" :key="u.id">
               <td class="mono small">{{ u.email }}</td>
               <td>{{ u.entry_name }}</td>
               <td class="mono">{{ bytes(u.month_up) }}</td>
               <td class="mono">{{ bytes(u.month_down) }}</td>
-              <td><span class="tag ok">已放行</span></td>
+              <td v-if="l.landing_firewall"><span class="tag ok">已放行</span></td>
             </tr>
           </tbody>
         </table>

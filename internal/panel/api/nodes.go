@@ -110,6 +110,7 @@ func (a *API) getXray(c *gin.Context) {
 			list = append(list, lu{u.ID, u.Email, u.EntryServerID, a.P.ServerName(u.EntryServerID), up, down})
 		}
 		res["landing_users"] = list
+		res["landing_firewall"] = a.P.St.GetBool("landing_firewall", true)
 	}
 	var latest store.ConfigVersion
 	if a.P.St.DB.Where("server_id = ?", id).Order("version DESC").Select("id, version, reason, applied, created_at").First(&latest).Error == nil {

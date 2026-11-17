@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math/big"
 	"net/netip"
 	"regexp"
@@ -236,6 +237,21 @@ func parseIDs(s string) []uint {
 
 // landingAddr is where entries reach a landing: the configured connection
 // address, else its public IP.
+// privatePeers: entries that reach a landing through a private connection
+// address arrive from private source IPs, which the public-IP whitelist would
+// drop. Those ranges can't be reached from the internet, so allowing them
+// keeps the whitelist meaningful.
+func privatePeers(addr string) []string {
+	a, err := netip.ParseAddr(addr)
+	if err != nil || !(a.IsPrivate() || a.IsLinkLocalUnicast() || netip.MustParsePrefix("100.64.0.0/10").Contains(a)) {
+		return nil
+	}
+	if a.Is4() {
+		return []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10"}
+	}
+	return []string{"fc00::/7", "fe80::/10"}
+}
+
 func landingAddr(sv *store.Server, l *store.LandingInbound) string {
 	if l != nil && l.Address != "" {
 		return l.Address
@@ -401,6 +417,7 @@ func (p *Panel) BuildConfig(serverID uint) ([]byte, *proto.FirewallPolicy, error
 				}
 			}
 		}
+		fw.Allowed = append(fw.Allowed, privatePeers(l.Address)...)
 		if !p.St.GetBool("landing_firewall", true) {
 			fw = &proto.FirewallPolicy{} // port 0 removes the table
 		}
@@ -444,6 +461,33 @@ func (p *Panel) latestVersion(serverID uint) *store.ConfigVersion {
 // Deploy renders the config, records a version when it changed, and pushes
 // it. With op set (single user add/remove), the agent tries a hot update via
 // the Xray API first. Returns the task id (0 when nothing was sent).
+// syncFirewall pushes a landing whitelist that differs from the last one the
+// agent received. An offline agent gets it from onXrayState when it's back.
+func (p *Panel) syncFirewall(serverID uint, fw *proto.FirewallPolicy) {
+	if fw == nil || !p.Hub.Online(serverID) {
+		return
+	}
+	key := fmt.Sprintf("fw_hash_%d", serverID)
+	fb, _ := json.Marshal(fw)
+	if h := xrayconf.Hash(fb); h != p.St.Get(key, "") {
+		if p.Hub.Send(serverID, &proto.PanelMessage{ApplyConfig: &proto.ApplyConfig{Firewall: fw}}) == nil {
+			p.St.Set(key, h)
+		}
+	}
+}
+
+// RedeployLandings re-renders every landing, e.g. after the whitelist
+// setting changed.
+func (p *Panel) RedeployLandings(reason string) {
+	var ls []store.LandingInbound
+	p.St.DB.Find(&ls)
+	for _, l := range ls {
+		if _, err := p.Deploy(l.ServerID, reason, nil); err != nil {
+			log.Printf("redeploy landing %d: %v", l.ServerID, err)
+		}
+	}
+}
+
 func (p *Panel) Deploy(serverID uint, reason string, op *proto.XrayOp) (uint64, error) {
 	raw, fw, err := p.BuildConfig(serverID)
 	if err != nil {
@@ -468,16 +512,7 @@ func (p *Panel) Deploy(serverID uint, reason string, op *proto.XrayOp) (uint64, 
 	} else {
 		ver = last.Version
 		if last.Applied && op == nil {
-			// Config unchanged; the landing whitelist may still differ.
-			if fw != nil && p.Hub.Online(serverID) {
-				key := fmt.Sprintf("fw_hash_%d", serverID)
-				fb, _ := json.Marshal(fw)
-				if h := xrayconf.Hash(fb); h != p.St.Get(key, "") {
-					if p.Hub.Send(serverID, &proto.PanelMessage{ApplyConfig: &proto.ApplyConfig{Firewall: fw}}) == nil {
-						p.St.Set(key, h)
-					}
-				}
-			}
+			p.syncFirewall(serverID, fw) // config unchanged; the whitelist may still differ
 			return 0, nil
 		}
 	}
@@ -610,6 +645,13 @@ func (p *Panel) onXrayState(serverID uint, s *proto.XrayState) {
 			go p.Deploy(serverID, "首次部署", nil)
 		} else if last != nil && !last.Applied {
 			p.markApplied(serverID, last.Version)
+		}
+		if last != nil && sv.CapLanding {
+			go func() { // a whitelist change made while it was offline
+				if _, fw, err := p.BuildConfig(serverID); err == nil {
+					p.syncFirewall(serverID, fw)
+				}
+			}()
 		}
 		return
 	}

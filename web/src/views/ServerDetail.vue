@@ -451,7 +451,7 @@ function diffClass(line) {
                 <n-form-item label="加密方式"><n-select v-model:value="landing.method" :options="methods" /></n-form-item>
                 <n-form-item label="连接地址（可选）">
                   <n-input v-model:value="landing.address" placeholder="留空 = 落地机公网 IP" />
-                  <template #feedback><span class="muted small">入口和落地在同一内网、或落地是 NAT 机端口映射时填写。走内网时入口机的来源 IP 是内网地址，落地防火墙只放行公网 IP，需要在设置里关闭「落地防火墙白名单」。</span></template>
+                  <template #feedback><span class="muted small">入口和落地在同一内网、或落地是 NAT 机端口映射时填写。填内网 IP 时，落地防火墙会同时放行内网网段（入口走内网时来源是内网地址）。</span></template>
                 </n-form-item>
                 <n-button type="primary" @click="saveLanding">保存并下发</n-button>
               </n-form>

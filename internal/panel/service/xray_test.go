@@ -192,3 +192,20 @@ func TestRealityKeys(t *testing.T) {
 		t.Fatal(priv, pub, got)
 	}
 }
+
+func TestPrivatePeers(t *testing.T) {
+	if got := privatePeers("10.0.0.5"); len(got) != 4 {
+		t.Fatalf("private v4: %v", got)
+	}
+	if got := privatePeers("100.80.1.2"); len(got) != 4 {
+		t.Fatalf("cgnat: %v", got)
+	}
+	if got := privatePeers("fd00::5"); len(got) != 2 {
+		t.Fatalf("ula: %v", got)
+	}
+	for _, a := range []string{"", "203.0.113.9", "land.example.com"} {
+		if got := privatePeers(a); got != nil {
+			t.Fatalf("%q should add nothing: %v", a, got)
+		}
+	}
+}

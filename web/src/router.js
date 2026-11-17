@@ -3,6 +3,7 @@ import { state, loadMe } from './store'
 
 const routes = [
   { path: '/login', name: 'login', component: () => import('./views/Login.vue'), meta: { public: true, title: '登录' } },
+  { path: '/offline', name: 'offline', component: () => import('./views/Offline.vue'), meta: { public: true, title: '离线' } },
   {
     path: '/',
     component: () => import('./components/Shell.vue'),
@@ -33,7 +34,12 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   if (to.meta.public) return true
   if (!state.me) {
-    try { await loadMe() } catch { return { name: 'login', query: { next: to.fullPath } } }
+    try {
+      await loadMe()
+    } catch (e) {
+      // No network is not "logged out": the session cookie may be fine.
+      return { name: e.status === 0 ? 'offline' : 'login', query: { next: to.fullPath } }
+    }
   }
   return true
 })

@@ -48,6 +48,7 @@ a:hover { color: var(--c-primary-hover); }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
 .dot.ok { background: #1a9d5b; } .dot.bad { background: var(--c-danger); } .dot.warn { background: #d98613; } .dot.off { background: #9aa0a6; }
 .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table-wrap th, .table-wrap td { white-space: nowrap; } /* scroll sideways instead of one character per line on phones */
 table.plain { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.plain th { text-align: left; font-weight: 500; color: var(--c-muted); padding: 8px 10px; border-bottom: 1px solid var(--c-border); white-space: nowrap; }
 table.plain td { padding: 10px; border-bottom: 1px solid var(--c-border); vertical-align: middle; }
