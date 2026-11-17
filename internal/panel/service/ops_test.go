@@ -151,3 +151,28 @@ func TestScriptsAndS3(t *testing.T) {
 		t.Fatal(req.URL, req.Header)
 	}
 }
+
+func TestSeedScriptsAddsNewOnesOnce(t *testing.T) {
+	p := newTestPanel(t)
+	count := func() int64 {
+		var n int64
+		p.St.DB.Model(&store.Script{}).Count(&n)
+		return n
+	}
+	// An older panel: the original five, minus one the user deleted.
+	for _, s := range BuiltinScripts[:4] {
+		s := s
+		if err := p.SaveScript(&s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p.SeedScripts()
+	if got, want := count(), int64(len(BuiltinScripts)-1); got != want {
+		t.Fatalf("after upgrade: %d scripts, want %d (new ones added, deleted one not restored)", got, want)
+	}
+	p.St.DB.Where("name = ?", BuiltinScripts[len(BuiltinScripts)-1].Name).Delete(&store.Script{})
+	p.SeedScripts()
+	if got, want := count(), int64(len(BuiltinScripts)-2); got != want {
+		t.Fatalf("deleted script came back: %d, want %d", got, want)
+	}
+}

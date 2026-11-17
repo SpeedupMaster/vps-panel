@@ -256,18 +256,55 @@ printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLo
 grep -q '^Include /etc/ssh/sshd_config.d' /etc/ssh/sshd_config || sed -i '1i Include /etc/ssh/sshd_config.d/*.conf' /etc/ssh/sshd_config
 sshd -t && (systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null || rc-service sshd reload)
 echo "已禁用密码登录"`},
+	{Name: "安装 XanMod 内核（BBRv3，需重启，有风险）", Content: `set -e
+# Optional per the plan: a new kernel can fail to boot on some providers.
+# Make sure the provider offers a VNC/rescue console before running this.
+. /etc/os-release
+case "$ID" in debian|ubuntu) ;; *) echo "仅支持 Debian / Ubuntu，当前 $ID"; exit 1;; esac
+[ "$(uname -m)" = "x86_64" ] || { echo "仅支持 x86_64"; exit 1; }
+virt=$(systemd-detect-virt 2>/dev/null || echo none)
+case "$virt" in lxc|openvz|docker|podman|wsl) echo "$virt 容器无法更换内核"; exit 1;; esac
+flags=$(grep -m1 '^flags' /proc/cpuinfo)
+echo "$flags" | grep -qw sse4_2 || { echo "CPU 不支持 x86-64-v2，无法安装 XanMod"; exit 1; }
+level=x64v3
+for f in avx2 bmi2 fma movbe; do echo "$flags" | grep -qw $f || { level=x64v2; break; }; done
+apt-get update -qq && apt-get install -y -qq gnupg wget ca-certificates
+install -d -m 0755 /etc/apt/keyrings
+wget -qO - https://dl.xanmod.org/archive.key | gpg --dearmor --yes -o /etc/apt/keyrings/xanmod-archive-keyring.gpg
+echo 'deb [signed-by=/etc/apt/keyrings/xanmod-archive-keyring.gpg] http://deb.xanmod.org releases main' > /etc/apt/sources.list.d/xanmod-release.list
+apt-get update -qq && apt-get install -y -qq linux-xanmod-$level
+echo "已安装 linux-xanmod-$level。确认无误后手动重启：reboot"
+echo "重启后在面板「工具 → 网络调优」里开启 BBR + fq，内核会使用 BBRv3"`},
 }
 
+// SeedScripts adds each built-in script once, so upgrades pick up new ones
+// while scripts the user deleted stay deleted.
 func (p *Panel) SeedScripts() {
-	var n int64
-	p.St.DB.Model(&store.Script{}).Count(&n)
-	if n > 0 {
-		return
+	seeded := map[string]bool{}
+	_ = json.Unmarshal([]byte(p.St.Get("scripts_seeded", "")), &seeded)
+	if len(seeded) == 0 { // panels from before this list: everything present counts
+		var have []store.Script
+		p.St.DB.Select("name").Find(&have)
+		for _, s := range have {
+			seeded[s.Name] = true
+		}
+		if len(have) > 0 {
+			for _, s := range BuiltinScripts[:5] { // the original set
+				seeded[s.Name] = true
+			}
+		}
 	}
 	for _, s := range BuiltinScripts {
+		if seeded[s.Name] {
+			continue
+		}
 		s := s
-		_ = p.SaveScript(&s)
+		if p.SaveScript(&s) == nil {
+			seeded[s.Name] = true
+		}
 	}
+	b, _ := json.Marshal(seeded)
+	_ = p.St.Set("scripts_seeded", string(b))
 }
 
 func (p *Panel) SaveScript(s *store.Script) error {
