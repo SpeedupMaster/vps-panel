@@ -125,7 +125,8 @@ const groups = {
     ] },
   ],
 }
-const dirtyKeys = computed(() => Object.keys(cfg.value).filter((k) => cfg.value[k] !== orig.value[k]))
+const dirtyKeys = computed(() => Object.keys(cfg.value).filter((k) => !backupKeys.includes(k) && isDirty(k)))
+const pwChanged = computed(() => { const t = state.me?.password_at; return t && !t.startsWith('0001') ? ago(t) : '' })
 function boolVal(f) { const v = cfg.value[f.k]; return v === '' || v == null ? f.def : v === '1' || v === 'true' }
 function numVal(f) { const v = cfg.value[f.k]; return v === '' || v == null ? null : Number(v) }
 function setVal(k, v) { cfg.value = { ...cfg.value, [k]: v == null ? '' : typeof v === 'boolean' ? (v ? '1' : '0') : String(v) } }
@@ -162,8 +163,27 @@ const targets = computed({
   set: (v) => setVal('backup_target', v.join(',')),
 })
 const backupKeys = ['backup_enabled', 'backup_time', 'backup_keep', 'backup_target', 'backup_password', 'backup_s3_endpoint', 'backup_s3_bucket', 'backup_s3_region', 'backup_s3_access_key', 'backup_s3_secret', 'backup_s3_prefix', 'backup_webdav_url', 'backup_webdav_user', 'backup_webdav_password', 'backup_tg_channel']
-const backupDirty = computed(() => backupKeys.some((k) => cfg.value[k] !== orig.value[k]))
-async function saveBackupSettings() { await saveSettings(backupKeys.filter((k) => cfg.value[k] !== orig.value[k])); loadBackups() }
+const backupDirtyKeys = computed(() => backupKeys.filter(isDirty))
+function resetKeys(keys) { const c = { ...cfg.value }; for (const k of keys) c[k] = orig.value[k]; cfg.value = c }
+async function saveBackupSettings() { await saveSettings(backupDirtyKeys.value); loadBackups() }
+const remoteGroups = computed(() => [
+  targets.value.includes('s3') && { title: 'S3 / R2', desc: '兼容 S3 的对象存储，例如 Cloudflare R2、AWS S3、MinIO。', fields: [
+    S('backup_s3_endpoint', 'Endpoint', '', '例如 https://<账户 ID>.r2.cloudflarestorage.com'),
+    S('backup_s3_bucket', 'Bucket', '', ''),
+    S('backup_s3_region', 'Region', 'auto', 'R2 用 auto'),
+    S('backup_s3_access_key', 'Access Key', '', ''),
+    { k: 'backup_s3_secret', label: 'Secret Key', type: 'secret', def: '' },
+    S('backup_s3_prefix', '路径前缀', 'vps-panel', '备份放在 Bucket 里的这个目录下'),
+  ] },
+  targets.value.includes('webdav') && { title: 'WebDAV', desc: '坚果云、Nextcloud、群晖等支持 WebDAV 的网盘。', fields: [
+    S('backup_webdav_url', '地址', '', '备份上传到的目录，例如 https://dav.example.com/backup/'),
+    S('backup_webdav_user', '用户名', '', ''),
+    { k: 'backup_webdav_password', label: '密码', type: 'secret', def: '' },
+  ] },
+  targets.value.includes('telegram') && { title: 'Telegram', desc: '用告警渠道里配置的 Bot，把备份文件发到对应的 Chat。', fields: [
+    { k: 'backup_tg_channel', label: '发送到', type: 'tg', def: '', hint: '在「告警」页添加 Telegram 渠道' },
+  ] },
+].filter(Boolean))
 const backing = ref(false)
 async function backupNow() {
   backing.value = true
@@ -218,74 +238,115 @@ onMounted(() => {
     <div class="page-head"><h1>设置</h1></div>
     <n-tabs v-model:value="tab" type="line" animated>
       <n-tab-pane name="account" tab="账号与安全">
-        <div class="grid-2">
-          <div class="card">
-            <div class="card-title"><h2>登录密码</h2><span class="muted small">{{ state.me?.username }}<template v-if="state.me?.password_at && !state.me.password_at.startsWith('0001')"> · {{ ago(state.me.password_at) }}修改</template></span></div>
-            <div class="form">
-              <n-input v-model:value="pw.old" type="password" show-password-on="click" placeholder="当前密码" />
-              <n-input v-model:value="pw.new" type="password" show-password-on="click" placeholder="新密码（至少 10 位）" />
-              <n-input v-model:value="pw.again" type="password" show-password-on="click" placeholder="再输一次" @keyup.enter="changePw" />
-              <div><n-button type="primary" @click="changePw">修改密码</n-button></div>
-              <p class="small muted">修改后其他设备上的会话全部退出。忘记密码时在面板机器上执行 <code class="mono">vps-panel reset-admin</code>。</p>
+        <div class="settings">
+          <section class="s-group">
+            <div class="s-head">
+              <h2>登录密码</h2>
+              <p>修改后，其他设备上的登录会全部退出。</p>
             </div>
-          </div>
-          <div class="card">
-            <div class="card-title"><h2>两步验证</h2><span :class="['tag', state.me?.totp ? 'ok' : 'warn']">{{ state.me?.totp ? '已开启' : '未开启' }}</span></div>
-            <template v-if="totp.step === 'scan'">
-              <p class="small">用 Google Authenticator、1Password 等扫描二维码，然后输入 6 位验证码。</p>
-              <div class="row" style="align-items: flex-start">
-                <img :src="totp.qr" alt="两步验证二维码" width="160" height="160" />
-                <div class="form" style="flex: 1; min-width: 180px">
-                  <span class="small muted">无法扫码时手动输入：</span>
-                  <code class="mono small secret" @click="copy(totp.secret)">{{ totp.secret }}</code>
-                  <n-input v-model:value="totp.code" placeholder="6 位验证码" maxlength="6" @keyup.enter="confirmTotp" />
-                  <div class="row"><n-button type="primary" @click="confirmTotp">确认开启</n-button><n-button @click="totp.step = ''">取消</n-button></div>
+            <div class="card s-card">
+              <div class="field f-inline">
+                <div class="f-label"><span class="f-name">账号</span><span v-if="pwChanged" class="f-hint">{{ pwChanged }}修改过密码</span></div>
+                <div class="f-ctl"><span class="mono">{{ state.me?.username }}</span></div>
+              </div>
+              <div class="field">
+                <div class="f-label"><span class="f-name">当前密码</span></div>
+                <div class="f-ctl"><n-input v-model:value="pw.old" type="password" show-password-on="click" placeholder="当前密码" :input-props="{ autocomplete: 'current-password' }" /></div>
+              </div>
+              <div class="field">
+                <div class="f-label"><span class="f-name">新密码</span><span class="f-hint">至少 10 位</span></div>
+                <div class="f-ctl"><n-input v-model:value="pw.new" type="password" show-password-on="click" placeholder="新密码" :input-props="{ autocomplete: 'new-password' }" /></div>
+              </div>
+              <div class="field">
+                <div class="f-label"><span class="f-name">确认新密码</span></div>
+                <div class="f-ctl"><n-input v-model:value="pw.again" type="password" show-password-on="click" placeholder="再输一次" :input-props="{ autocomplete: 'new-password' }" @keyup.enter="changePw" /></div>
+              </div>
+              <div class="f-actions">
+                <span class="f-hint">忘记密码时，在面板所在机器上执行 <code class="mono">vps-panel reset-admin</code></span>
+                <span class="spacer" />
+                <n-button type="primary" :disabled="!pw.old || !pw.new || !pw.again" @click="changePw">修改密码</n-button>
+              </div>
+            </div>
+          </section>
+
+          <section class="s-group">
+            <div class="s-head">
+              <h2>两步验证</h2>
+              <p>面板能控制所有 VPS，强烈建议开启。开启后，登录和敏感操作（删除服务器、执行脚本、打开终端、恢复备份等）都要输入验证码。</p>
+            </div>
+            <div class="card s-card">
+              <div v-if="totp.step === 'scan'" class="field stacked">
+                <div class="f-label"><span class="f-name">扫描二维码</span><span class="f-hint">用 Google Authenticator、1Password 等扫描，然后输入 App 里显示的 6 位验证码。</span></div>
+                <div class="f-ctl totp-scan">
+                  <img :src="totp.qr" alt="两步验证二维码" width="160" height="160" />
+                  <div class="totp-side">
+                    <span class="f-hint">无法扫码时手动输入（点击复制）：</span>
+                    <code class="mono small secret" @click="copy(totp.secret)">{{ totp.secret }}</code>
+                    <n-input v-model:value="totp.code" placeholder="6 位验证码" maxlength="6" :input-props="{ inputmode: 'numeric', autocomplete: 'one-time-code' }" @keyup.enter="confirmTotp" />
+                    <div class="row"><n-button type="primary" :disabled="totp.code.length < 6" @click="confirmTotp">确认开启</n-button><n-button @click="totp.step = ''">取消</n-button></div>
+                  </div>
                 </div>
               </div>
-            </template>
-            <template v-else-if="totp.step === 'codes'">
-              <div class="banner warn">恢复码只显示这一次。手机丢失时可用其中任意一个登录，每个只能用一次。</div>
-              <div class="codes mono">
-                <span v-for="c in totp.codes" :key="c">{{ c }}</span>
+              <div v-else-if="totp.step === 'codes'" class="field stacked">
+                <div class="f-label"><span class="f-name">恢复码</span><span class="f-hint">只显示这一次。手机丢失时可用其中任意一个登录，每个只能用一次。</span></div>
+                <div class="f-ctl">
+                  <div class="codes mono"><span v-for="c in totp.codes" :key="c">{{ c }}</span></div>
+                  <div class="row"><n-button size="small" @click="copy(totp.codes.join('\n'))">复制全部</n-button><n-button size="small" type="primary" @click="totp.step = ''">我已保存</n-button></div>
+                </div>
               </div>
-              <div class="row"><n-button size="small" @click="copy(totp.codes.join('\n'))">复制全部</n-button><n-button size="small" type="primary" @click="totp.step = ''">我已保存</n-button></div>
-            </template>
-            <template v-else-if="state.me?.totp">
-              <p class="small">登录与敏感操作（删除服务器、执行脚本、打开终端、恢复备份等）都需要验证码。</p>
-              <p class="small muted">剩余恢复码：{{ state.me.recovery_left }} 个</p>
-              <div class="row">
-                <n-button size="small" @click="regenCodes">重新生成恢复码</n-button>
-                <span class="spacer" />
-                <n-input v-model:value="disableCode" size="small" placeholder="验证码" style="width: 110px" maxlength="6" />
-                <n-button size="small" type="error" ghost :disabled="disableCode.length < 6" @click="disableTotp">关闭</n-button>
-              </div>
-            </template>
-            <template v-else>
-              <p class="small">面板能控制所有 VPS，强烈建议开启。开启后登录与敏感操作都要输入验证码。</p>
-              <n-button type="primary" @click="beginTotp">开启两步验证</n-button>
-            </template>
-          </div>
-        </div>
-        <div class="card" style="margin-top: 16px">
-          <div class="card-title"><h2>登录会话</h2></div>
-          <div class="table-wrap hide-mobile">
-            <table class="plain">
-              <thead><tr><th>设备</th><th>IP</th><th>登录时间</th><th>最近活动</th><th /></tr></thead>
-              <tbody>
-                <tr v-for="s in sessions" :key="s.id">
-                  <td :title="s.ua">{{ uaShort(s.ua) }} <span v-if="s.current" class="tag ok">当前</span></td>
-                  <td class="mono">{{ s.ip }}</td><td class="nowrap">{{ dt(s.created_at) }}</td><td class="nowrap">{{ ago(s.last_seen) }}</td>
-                  <td style="text-align: right"><n-button v-if="!s.current" size="tiny" quaternary type="error" @click="kick(s)">踢下线</n-button></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div class="m-list only-mobile">
-            <div v-for="s in sessions" :key="s.id" class="m-item">
-              <div class="m-row"><b>{{ uaShort(s.ua) }}</b><span v-if="s.current" class="tag ok">当前</span><span class="spacer" /><n-button v-if="!s.current" size="small" quaternary type="error" @click="kick(s)">踢下线</n-button></div>
-              <div class="m-row small muted"><span class="mono">{{ s.ip }}</span><span>· {{ ago(s.last_seen) }}</span></div>
+              <template v-else>
+                <div class="field f-inline">
+                  <div class="f-label"><span class="f-name">状态</span><span v-if="state.me?.totp" class="f-hint">剩余恢复码 {{ state.me.recovery_left }} 个</span></div>
+                  <div class="f-ctl"><span :class="['tag', state.me?.totp ? 'ok' : 'warn']">{{ state.me?.totp ? '已开启' : '未开启' }}</span></div>
+                </div>
+                <template v-if="state.me?.totp">
+                  <div class="field f-inline">
+                    <div class="f-label"><span class="f-name">恢复码</span><span class="f-hint">重新生成后，旧的恢复码全部作废</span></div>
+                    <div class="f-ctl"><n-button @click="regenCodes">重新生成</n-button></div>
+                  </div>
+                  <div class="field">
+                    <div class="f-label"><span class="f-name">关闭两步验证</span><span class="f-hint">输入当前验证码确认。关闭后只凭密码即可登录</span></div>
+                    <div class="f-ctl ctl-row">
+                      <n-input v-model:value="disableCode" placeholder="6 位验证码" maxlength="6" :input-props="{ inputmode: 'numeric', autocomplete: 'one-time-code' }" />
+                      <n-button type="error" ghost :disabled="disableCode.length < 6" @click="disableTotp">关闭</n-button>
+                    </div>
+                  </div>
+                </template>
+                <div v-else class="f-actions">
+                  <span class="spacer" />
+                  <n-button type="primary" @click="beginTotp">开启两步验证</n-button>
+                </div>
+              </template>
             </div>
-          </div>
+          </section>
+
+          <section class="s-group">
+            <div class="s-head">
+              <h2>登录会话</h2>
+              <p>当前登录着这个面板的设备。不认识的设备请踢下线并修改密码。</p>
+            </div>
+            <div class="card s-card">
+              <div v-if="!sessions.length" class="empty">没有会话</div>
+              <div class="table-wrap hide-mobile">
+                <table class="plain">
+                  <thead><tr><th>设备</th><th>IP</th><th>登录时间</th><th>最近活动</th><th /></tr></thead>
+                  <tbody>
+                    <tr v-for="s in sessions" :key="s.id">
+                      <td :title="s.ua">{{ uaShort(s.ua) }} <span v-if="s.current" class="tag ok">当前</span></td>
+                      <td class="mono">{{ s.ip }}</td><td class="nowrap">{{ dt(s.created_at) }}</td><td class="nowrap">{{ ago(s.last_seen) }}</td>
+                      <td style="text-align: right"><n-button v-if="!s.current" size="tiny" quaternary type="error" @click="kick(s)">踢下线</n-button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="m-list only-mobile">
+                <div v-for="s in sessions" :key="s.id" class="m-item">
+                  <div class="m-row"><b>{{ uaShort(s.ua) }}</b><span v-if="s.current" class="tag ok">当前</span><span class="spacer" /><n-button v-if="!s.current" size="small" quaternary type="error" @click="kick(s)">踢下线</n-button></div>
+                  <div class="m-row small muted"><span class="mono">{{ s.ip }}</span><span>· {{ ago(s.last_seen) }}</span></div>
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
       </n-tab-pane>
 
@@ -335,95 +396,132 @@ onMounted(() => {
       </n-tab-pane>
 
       <n-tab-pane name="backup" tab="备份">
-        <div class="grid-2">
-          <div class="card">
-            <div class="card-title">
-              <h2>备份文件</h2><span class="spacer" />
-              <n-button size="small" @click="openRestore(null)">上传并恢复</n-button>
-              <n-button size="small" type="primary" :loading="backing" @click="backupNow">立即备份</n-button>
+        <div class="settings">
+          <section class="s-group">
+            <div class="s-head">
+              <h2>备份文件</h2>
+              <p>备份包含数据库和密钥，保存在面板所在的机器上。</p>
             </div>
-            <div v-if="bk.last_error" class="banner warn">上次远程备份失败：{{ bk.last_error }}</div>
-            <div v-if="!bk.encrypted" class="banner info">未设置备份密码：备份里的密钥是明文，建议在右侧设置。</div>
-            <div v-if="!bk.items?.length" class="empty">还没有备份</div>
-            <div v-for="b in bk.items" :key="b.name" class="b-item">
-              <div class="b-main">
-                <span class="mono small">{{ b.name }}</span>
-                <span class="small muted">{{ dt(b.at) }} · {{ bytes(b.size) }}{{ b.encrypted ? ' · 已加密' : '' }}</span>
+            <div class="card s-card">
+              <div class="s-card-head">
+                <span class="f-hint">{{ bk.items?.length || 0 }} 个备份<template v-if="bk.last"> · 上次备份 {{ ago(bk.last) }}</template></span>
+                <span class="spacer" />
+                <n-button size="small" @click="openRestore(null)">上传并恢复</n-button>
+                <n-button size="small" type="primary" :loading="backing" @click="backupNow">立即备份</n-button>
               </div>
-              <div class="row b-act">
-                <a class="link-btn" :href="`/api/backups/${encodeURIComponent(b.name)}`" download>下载</a>
-                <n-button size="tiny" quaternary @click="openRestore(b)">恢复</n-button>
-                <n-button size="tiny" quaternary type="error" @click="delBackup(b)">删除</n-button>
-              </div>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-title"><h2>自动备份</h2><span class="spacer" /><n-switch :value="boolVal({ k: 'backup_enabled', def: true })" @update:value="(v) => setVal('backup_enabled', v)" /></div>
-            <div class="form">
-              <div class="row">
-                <span class="small">每天</span><n-input :value="cfg.backup_time" placeholder="03:30" style="width: 90px" @update:value="(v) => setVal('backup_time', v)" />
-                <span class="small">保留</span><n-input-number :value="numVal({ k: 'backup_keep' })" placeholder="7" :min="1" style="width: 100px" @update:value="(v) => setVal('backup_keep', v)" /><span class="small muted">份</span>
-              </div>
-              <label>备份密码</label>
-              <n-input :value="cfg.backup_password" type="password" show-password-on="click" placeholder="留空 = 不加密" @update:value="(v) => setVal('backup_password', v)" />
-              <span class="small muted">恢复时需要这个密码，忘了就无法从加密备份恢复。</span>
-              <label>同时上传到</label>
-              <n-checkbox-group v-model:value="targets">
-                <div class="row"><n-checkbox value="s3">S3 / R2</n-checkbox><n-checkbox value="webdav">WebDAV</n-checkbox><n-checkbox value="telegram">Telegram</n-checkbox></div>
-              </n-checkbox-group>
-              <template v-if="targets.includes('s3')">
-                <label>S3 兼容存储</label>
-                <n-input :value="cfg.backup_s3_endpoint" placeholder="Endpoint，如 https://xxx.r2.cloudflarestorage.com" @update:value="(v) => setVal('backup_s3_endpoint', v)" />
-                <div class="row">
-                  <n-input :value="cfg.backup_s3_bucket" placeholder="Bucket" style="flex: 1" @update:value="(v) => setVal('backup_s3_bucket', v)" />
-                  <n-input :value="cfg.backup_s3_region" placeholder="Region（auto）" style="width: 130px" @update:value="(v) => setVal('backup_s3_region', v)" />
+              <div v-if="bk.last_error" class="banner warn">上次远程备份失败：{{ bk.last_error }}</div>
+              <div v-if="!bk.encrypted" class="banner info">未设置备份密码，备份里的密钥是明文。建议在下方「自动备份」里设置。</div>
+              <div v-if="!bk.items?.length" class="empty">还没有备份</div>
+              <div v-for="b in bk.items" :key="b.name" class="b-item">
+                <div class="b-main">
+                  <span class="mono small">{{ b.name }}</span>
+                  <span class="f-hint">{{ dt(b.at) }} · {{ bytes(b.size) }}{{ b.encrypted ? ' · 已加密' : '' }}</span>
                 </div>
-                <n-input :value="cfg.backup_s3_access_key" placeholder="Access Key" @update:value="(v) => setVal('backup_s3_access_key', v)" />
-                <n-input :value="cfg.backup_s3_secret" type="password" show-password-on="click" placeholder="Secret Key" @update:value="(v) => setVal('backup_s3_secret', v)" />
-                <n-input :value="cfg.backup_s3_prefix" placeholder="路径前缀（vps-panel）" @update:value="(v) => setVal('backup_s3_prefix', v)" />
-              </template>
-              <template v-if="targets.includes('webdav')">
-                <label>WebDAV</label>
-                <n-input :value="cfg.backup_webdav_url" placeholder="https://dav.example.com/backup/" @update:value="(v) => setVal('backup_webdav_url', v)" />
-                <div class="row">
-                  <n-input :value="cfg.backup_webdav_user" placeholder="用户名" style="flex: 1" @update:value="(v) => setVal('backup_webdav_user', v)" />
-                  <n-input :value="cfg.backup_webdav_password" type="password" show-password-on="click" placeholder="密码" style="flex: 1" @update:value="(v) => setVal('backup_webdav_password', v)" />
+                <div class="row b-act">
+                  <a class="link-btn" :href="`/api/backups/${encodeURIComponent(b.name)}`" download>下载</a>
+                  <n-button size="tiny" quaternary @click="openRestore(b)">恢复</n-button>
+                  <n-button size="tiny" quaternary type="error" @click="delBackup(b)">删除</n-button>
                 </div>
-              </template>
-              <template v-if="targets.includes('telegram')">
-                <label>Telegram</label>
-                <n-select :value="cfg.backup_tg_channel || ''" :options="[{ label: '第一个 Telegram 渠道', value: '' }, ...tgChannels.map((c) => ({ label: c.name, value: String(c.id) }))]" @update:value="(v) => setVal('backup_tg_channel', v)" />
-                <span class="small muted">用告警渠道里配置的 Bot 和 Chat 发送备份文件。</span>
-              </template>
-              <div class="row" style="margin-top: 8px">
-                <span class="small muted">{{ bk.last ? '上次备份 ' + ago(bk.last) : '' }}</span><span class="spacer" />
-                <n-button type="primary" :disabled="!backupDirty" @click="saveBackupSettings">保存</n-button>
               </div>
             </div>
-          </div>
+          </section>
+
+          <section class="s-group">
+            <div class="s-head">
+              <h2>自动备份</h2>
+              <p>每天定时备份一次，可以同时上传到远程存储。</p>
+            </div>
+            <div class="card s-card">
+              <div :class="['field', 'f-bool', { dirty: isDirty('backup_enabled') }]">
+                <div class="f-label"><span class="f-name">开启自动备份<i v-if="isDirty('backup_enabled')" class="f-dot" /></span></div>
+                <div class="f-ctl"><n-switch :value="boolVal({ k: 'backup_enabled', def: true })" aria-label="开启自动备份" @update:value="(v) => setVal('backup_enabled', v)" /></div>
+              </div>
+              <div class="field">
+                <div class="f-label"><span class="f-name">备份时间<i v-if="isDirty('backup_time')" class="f-dot" /></span><span class="f-hint">每天这个时间执行，24 小时制</span></div>
+                <div class="f-ctl"><n-input :value="cfg.backup_time" placeholder="默认 03:30" clearable @update:value="(v) => setVal('backup_time', v)" /></div>
+              </div>
+              <div class="field">
+                <div class="f-label"><span class="f-name">保留份数<i v-if="isDirty('backup_keep')" class="f-dot" /></span><span class="f-hint">面板本机保留最近的几份，更早的自动删除</span></div>
+                <div class="f-ctl">
+                  <n-input-number :value="numVal({ k: 'backup_keep' })" placeholder="默认 7" :min="1" :show-button="false" clearable @update:value="(v) => setVal('backup_keep', v)">
+                    <template #suffix><span class="f-unit">份</span></template>
+                  </n-input-number>
+                </div>
+              </div>
+              <div class="field">
+                <div class="f-label"><span class="f-name">备份密码<i v-if="isDirty('backup_password')" class="f-dot" /></span><span class="f-hint">恢复时需要这个密码，忘了就无法从加密备份恢复</span></div>
+                <div class="f-ctl"><n-input :value="cfg.backup_password" type="password" show-password-on="click" placeholder="留空 = 不加密" :input-props="{ autocomplete: 'new-password' }" @update:value="(v) => setVal('backup_password', v)" /></div>
+              </div>
+              <div class="field">
+                <div class="f-label"><span class="f-name">同时上传到<i v-if="isDirty('backup_target')" class="f-dot" /></span><span class="f-hint">勾选后在下方填写对应的配置</span></div>
+                <div class="f-ctl">
+                  <n-checkbox-group v-model:value="targets">
+                    <div class="row"><n-checkbox value="s3">S3 / R2</n-checkbox><n-checkbox value="webdav">WebDAV</n-checkbox><n-checkbox value="telegram">Telegram</n-checkbox></div>
+                  </n-checkbox-group>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section v-for="g in remoteGroups" :key="g.title" class="s-group">
+            <div class="s-head">
+              <h2>{{ g.title }}</h2>
+              <p>{{ g.desc }}</p>
+            </div>
+            <div class="card s-card">
+              <div v-for="f in g.fields" :key="f.k" :class="['field', { dirty: isDirty(f.k) }]">
+                <div class="f-label"><span class="f-name">{{ f.label }}<i v-if="isDirty(f.k)" class="f-dot" /></span><span v-if="f.hint" class="f-hint">{{ f.hint }}</span></div>
+                <div class="f-ctl">
+                  <n-select v-if="f.type === 'tg'" :value="cfg[f.k] || ''" :options="[{ label: '第一个 Telegram 渠道', value: '' }, ...tgChannels.map((c) => ({ label: c.name, value: String(c.id) }))]" @update:value="(v) => setVal(f.k, v)" />
+                  <n-input v-else-if="f.type === 'secret'" :value="cfg[f.k]" type="password" show-password-on="click" :placeholder="placeholder(f)" :input-props="{ autocomplete: 'off' }" @update:value="(v) => setVal(f.k, v)" />
+                  <n-input v-else :value="cfg[f.k]" :placeholder="placeholder(f)" clearable @update:value="(v) => setVal(f.k, v)" />
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+        <div class="savebar">
+          <span v-if="backupDirtyKeys.length" class="small dirty-note"><i class="f-dot" />{{ backupDirtyKeys.length }} 项未保存</span>
+          <span v-else class="small muted">留空的项使用默认值</span>
+          <span class="spacer" />
+          <n-button :disabled="!backupDirtyKeys.length" @click="resetKeys(backupKeys)">撤销</n-button>
+          <n-button type="primary" :disabled="!backupDirtyKeys.length" @click="saveBackupSettings">保存</n-button>
         </div>
       </n-tab-pane>
 
       <n-tab-pane name="audit" tab="审计日志">
-        <div class="card">
-          <div class="card-title">
-            <n-select v-model:value="audit.type" :options="auditTypes" size="small" style="width: 120px" />
-            <span class="spacer" />
-            <a class="link-btn" :href="`/api/audit?format=csv&type=${audit.type}`" download>导出 CSV</a>
+        <div class="audit-head">
+          <div class="s-head">
+            <h2>审计日志</h2>
+            <p>登录和面板上的修改操作都记录在这里。</p>
           </div>
+          <span class="spacer" />
+          <n-select v-model:value="audit.type" :options="auditTypes" aria-label="类别" style="width: 120px" />
+          <a class="link-btn" :href="`/api/audit?format=csv&type=${audit.type}`" download>导出 CSV</a>
+        </div>
+        <div class="card s-card">
           <div v-if="!audit.items.length" class="empty">暂无记录</div>
-          <div v-else class="table-wrap">
-            <table class="plain">
-              <thead><tr><th>时间</th><th>类别</th><th>操作</th><th>对象</th><th>详情</th><th>IP</th></tr></thead>
-              <tbody>
-                <tr v-for="l in audit.items" :key="l.id">
-                  <td class="nowrap">{{ dt(l.ts) }}</td><td class="nowrap">{{ typeLabel[l.type] || l.type }}</td><td class="mono small">{{ l.action }}</td>
-                  <td class="small">{{ l.target }}</td><td class="small muted">{{ l.detail }}</td><td class="mono small">{{ l.ip }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div v-if="audit.more" style="text-align: center; margin-top: 10px"><n-button size="small" @click="loadAudit(false)">加载更多</n-button></div>
+          <template v-else>
+            <div class="table-wrap hide-mobile">
+              <table class="plain audit">
+                <thead><tr><th>时间</th><th>类别</th><th>操作</th><th>对象</th><th>详情</th><th>IP</th></tr></thead>
+                <tbody>
+                  <tr v-for="l in audit.items" :key="l.id">
+                    <td>{{ dt(l.ts) }}</td><td>{{ typeLabel[l.type] || l.type }}</td><td class="mono small">{{ l.action }}</td>
+                    <td class="small">{{ l.target }}</td><td class="small muted detail" :title="l.detail">{{ l.detail }}</td><td class="mono small">{{ l.ip }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="m-list only-mobile">
+              <div v-for="l in audit.items" :key="l.id" class="m-item">
+                <div class="m-row"><span class="mono">{{ l.action }}</span><span class="tag">{{ typeLabel[l.type] || l.type }}</span></div>
+                <div v-if="l.target || l.detail" class="audit-text small">{{ [l.target, l.detail].filter(Boolean).join(' · ') }}</div>
+                <div class="m-row small"><span>{{ dt(l.ts) }}</span><span class="mono muted">{{ l.ip }}</span></div>
+              </div>
+            </div>
+          </template>
+          <div v-if="audit.more" class="f-actions" style="justify-content: center"><n-button size="small" @click="loadAudit(false)">加载更多</n-button></div>
         </div>
       </n-tab-pane>
     </n-tabs>
@@ -464,8 +562,25 @@ onMounted(() => {
 .f-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--c-primary); margin-left: 6px; vertical-align: 2px; }
 .f-ctl { min-width: 0; }
 .f-ctl > * { width: 100%; }
-.f-bool .f-ctl { justify-self: end; }
-.f-bool .f-ctl > * { width: auto; }
+.f-bool .f-ctl, .f-inline .f-ctl { justify-self: end; }
+.f-bool .f-ctl > *, .f-inline .f-ctl > * { width: auto; }
+.f-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 0; border-top: 1px solid var(--c-border); }
+.f-actions:first-child { border-top: 0; }
+.s-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 14px 0 12px; }
+.s-card .banner { margin-bottom: 10px; }
+.s-card > .empty { padding: 20px; }
+.f-ctl.ctl-row { display: flex; gap: 8px; }
+.f-ctl.ctl-row > * { width: auto; }
+.ctl-row > .n-input { flex: 1; min-width: 0; }
+.totp-scan { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+.totp-scan > * { width: auto; }
+.totp-side { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 8px; }
+.s-card .m-item { border: 0; border-top: 1px solid var(--c-border); border-radius: 0; padding: 12px 0; }
+.s-card .m-item:first-child { border-top: 0; }
+.audit-head { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; padding-top: 4px; }
+.audit-head .s-head { padding-top: 0; }
+.table-wrap td.detail { white-space: normal; min-width: 260px; overflow-wrap: anywhere; }
+.audit-text { color: var(--c-text-2); line-height: 1.55; overflow-wrap: anywhere; }
 .f-unit { color: var(--c-muted); font-size: 13px; }
 .fx { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .fx-code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; margin-right: 4px; }
@@ -486,7 +601,8 @@ p { line-height: 1.6; }
   .settings { gap: 22px; }
   .s-card { padding: 2px 16px; }
   .field { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-  .field.f-bool { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
+  .field.f-bool, .field.f-inline { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
+  .s-card .m-list { gap: 0; }
   .fx { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .savebar { bottom: calc(56px + env(safe-area-inset-bottom)); }
 }
