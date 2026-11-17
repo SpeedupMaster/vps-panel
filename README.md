@@ -30,11 +30,20 @@ make agent    # dist/vpsagent-linux-{amd64,arm64}
 ## 手机与 PWA
 
 - 宽度 ≤ 767px 时切换为手机布局：顶栏 + 底部 4 个常用入口（总览 / 线路 / 延迟 / 告警）+「更多」抽屉；表格改为卡片列表，适配刘海屏安全区，输入框不会触发 iOS 自动缩放；WebSSH 带一排常用按键（Esc、Tab、Ctrl+C、方向键…）。
-- 可「添加到主屏幕」作为独立 App 使用（manifest + Service Worker，图标由 `web/scripts/gen-icons.mjs` 生成）。
+- 可「添加到主屏幕」作为独立 App 使用（manifest + Service Worker，图标由 `web/scripts/gen-icons.mjs` 生成）。Chrome / Edge / Android 上侧栏会出现「安装应用」；iOS Safari 点它会提示从「分享 → 添加到主屏幕」安装。
 - Service Worker 只缓存界面文件；`/api`、实时事件、WebSSH、订阅（`/s/`）和安装/下载地址始终直连面板，不会读到过期数据。
 - 面板升级后，打开的页面会提示「面板已更新」，点「刷新」切换到新版本，不会在填写表单时被强制刷新。
 - 切到后台再回来、或网络恢复时，自动重连实时事件并刷新服务器状态；断网时底部显示提示。
 - PWA 需要 HTTPS（或 localhost）；按 `deploy/` 里的 Caddy 示例部署即可。
+
+## 卸载 Agent
+
+在 VPS 上以 root 执行：
+
+```bash
+bash <(curl -fsSL https://面板域名/install.sh) --uninstall          # 只卸载 Agent，Xray 继续运行，已有线路不受影响
+bash <(curl -fsSL https://面板域名/install.sh) --uninstall --purge  # 同时清除 Xray、落地防火墙规则、BBR 调优和 Agent 数据
+```
 
 ## 公开状态页
 

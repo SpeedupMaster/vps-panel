@@ -2,6 +2,8 @@
 # vps-panel agent installer.
 #   bash <(curl -fsSL https://panel.example.com/install.sh) --panel https://panel.example.com --token <token> --mode probe|node
 # Re-running upgrades the binary and keeps existing credentials unless --token is given.
+#   --uninstall          remove the agent only (Xray keeps serving existing routes)
+#   --uninstall --purge  also remove Xray, the firewall table, sysctl tuning and all agent data
 set -euo pipefail
 
 PANEL=""
@@ -23,6 +25,7 @@ while [ $# -gt 0 ]; do
     --token) TOKEN="$2"; shift 2 ;;
     --mode)  MODE="$2"; shift 2 ;;
     --uninstall) UNINSTALL=1; shift ;;
+    --purge) PURGE=1; shift ;;
     *) die "未知参数 $1" ;;
   esac
 done
@@ -41,7 +44,28 @@ uninstall() {
     rm -f /etc/init.d/vpsagent
   fi
   rm -f "$PREFIX/vpsagent"
-  green "已卸载（保留 $CONF_DIR，若不再需要请手动删除）"
+  if [ "${PURGE:-0}" != 1 ]; then
+    green "已卸载（保留 $CONF_DIR 和 Xray；加 --purge 可一并清除）"
+    exit 0
+  fi
+  step "清除 Xray、防火墙规则、系统调优和 Agent 数据"
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl disable --now xray 2>/dev/null || true
+    rm -f /etc/systemd/system/xray.service
+    systemctl daemon-reload
+  elif command -v rc-service >/dev/null 2>&1; then
+    rc-service xray stop 2>/dev/null || true
+    rc-update del xray 2>/dev/null || true
+    rm -f /etc/init.d/xray
+  fi
+  rm -rf /usr/local/bin/xray /usr/local/etc/xray /usr/local/share/xray
+  command -v nft >/dev/null 2>&1 && nft delete table inet vpspanel 2>/dev/null || true
+  if [ -f /etc/sysctl.d/99-vpspanel.conf ]; then
+    rm -f /etc/sysctl.d/99-vpspanel.conf
+    sysctl --system >/dev/null 2>&1 || true
+  fi
+  rm -rf "$CONF_DIR" "$DATA_DIR"
+  green "已完全清除"
   exit 0
 }
 [ "${UNINSTALL:-0}" = 1 ] && uninstall
