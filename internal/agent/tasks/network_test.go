@@ -1,0 +1,21 @@
+package tasks
+
+import (
+	"reflect"
+	"testing"
+)
+
+func TestParseHopsSkipsHeader(t *testing.T) {
+	text := `traceroute to sh-ct-v4.ip.zstaticcdn.com (101.226.101.195), 25 hops max, 60 byte packets
+ 1  172.30.208.1  0.250 ms
+ 2  192.168.1.1  0.386 ms
+ 3  *
+ 4  202.97.120.213  25.302 ms
+10  101.95.219.70  27.659 ms
+`
+	got := parseHops(text)
+	want := []string{"172.30.208.1", "192.168.1.1", "202.97.120.213", "101.95.219.70"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}

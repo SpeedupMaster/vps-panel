@@ -590,6 +590,12 @@ func (p *Panel) onXrayState(serverID uint, s *proto.XrayState) {
 	if s.Drift && !p.St.GetBool("drift_autofix", true) {
 		return
 	}
+	// A push that just failed would fail again: wait before retrying on our
+	// own (manual deploys still go through) instead of looping on every
+	// state report.
+	if p.recentFailedApply(serverID, 10*time.Minute) {
+		return
+	}
 	// Re-render in case the Xray version changed (dest vs target), then push.
 	go func() {
 		if _, err := p.Deploy(serverID, "同步配置", nil); err == nil {
@@ -606,6 +612,13 @@ func (p *Panel) hasActiveTask(serverID uint, typ string) bool {
 	p.St.DB.Model(&store.Task{}).Where("server_id = ? AND type = ? AND status IN ? AND created_at > ?",
 		serverID, typ, []string{"pending", "sent", "running"}, time.Now().Add(-15*time.Minute)).Count(&n)
 	return n > 0
+}
+
+func (p *Panel) recentFailedApply(serverID uint, within time.Duration) bool {
+	var t store.Task
+	err := p.St.DB.Where("server_id = ? AND type IN ? AND finished_at IS NOT NULL", serverID, []string{"apply_config", "xray_op"}).
+		Order("id DESC").Select("status, finished_at").First(&t).Error
+	return err == nil && t.Status != "success" && t.FinishedAt != nil && time.Since(*t.FinishedAt) < within
 }
 
 func (p *Panel) markApplied(serverID uint, ver int) {

@@ -282,6 +282,10 @@ type RouteView struct {
 	ShareLink    string   `json:"share_link"`
 	XrayRunning  bool     `json:"xray_running"`
 	EntryBlocked bool     `json:"entry_blocked"`
+	// ConfigSynced: every machine of the route runs the latest config
+	// version without drift. DeployError: why the last push failed, if it did.
+	ConfigSynced bool   `json:"config_synced"`
+	DeployError  string `json:"deploy_error,omitempty"`
 }
 
 func (p *Panel) RouteViews() []RouteView {
@@ -296,6 +300,18 @@ func (p *Panel) RouteViews() []RouteView {
 	now := time.Now()
 	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	month := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	latest := map[uint]int{}
+	var vers []struct {
+		ServerID uint
+		V        int
+	}
+	p.St.DB.Model(&store.ConfigVersion{}).Select("server_id, MAX(version) AS v").Group("server_id").Scan(&vers)
+	for _, x := range vers {
+		latest[x.ServerID] = x.V
+	}
+	synced := func(sv *store.Server) bool {
+		return sv != nil && latest[sv.ID] > 0 && sv.XrayConfigVer >= latest[sv.ID] && !sv.XrayDrift
+	}
 	out := make([]RouteView, 0, len(rs))
 	for _, r := range rs {
 		v := RouteView{Route: r, Status: "ok"}
@@ -336,6 +352,15 @@ func (p *Panel) RouteViews() []RouteView {
 		case r.Type == "chain" && byID[r.LandingServerID] != nil && byID[r.LandingServerID].Status == "offline":
 			v.Status = "down"
 		}
+		v.ConfigSynced = synced(e) && (r.Type != "chain" || synced(byID[r.LandingServerID]))
+		if !v.ConfigSynced {
+			for _, sid := range []uint{r.EntryServerID, r.LandingServerID} {
+				if msg := p.lastDeployError(sid); sid != 0 && msg != "" {
+					v.DeployError = msg
+					break
+				}
+			}
+		}
 		if e != nil {
 			var ri store.RealityInbound
 			if p.St.DB.First(&ri, "server_id = ?", e.ID).Error == nil {
@@ -345,6 +370,17 @@ func (p *Panel) RouteViews() []RouteView {
 		out = append(out, v)
 	}
 	return out
+}
+
+// lastDeployError is the last line of the most recent config push to the
+// server when that push failed, else "".
+func (p *Panel) lastDeployError(serverID uint) string {
+	var t store.Task
+	if p.St.DB.Where("server_id = ? AND type IN ? AND finished_at IS NOT NULL", serverID, []string{"apply_config", "xray_op"}).
+		Order("id DESC").First(&t).Error != nil || t.Status == "success" {
+		return ""
+	}
+	return lastLine(t.Output)
 }
 
 // ---------- topology ----------

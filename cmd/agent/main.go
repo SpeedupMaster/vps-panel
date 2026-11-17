@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"syscall"
 
@@ -25,7 +26,20 @@ import (
 	"vpspanel/internal/common/version"
 )
 
+// The agent must stay small on 256 MB VPSes (plan: under 20 MB). A tighter
+// GC and a soft memory limit keep the heap near its live size; GOGC /
+// GOMEMLIMIT in the environment still win.
+func tuneMemory() {
+	if os.Getenv("GOGC") == "" {
+		debug.SetGCPercent(50)
+	}
+	if os.Getenv("GOMEMLIMIT") == "" {
+		debug.SetMemoryLimit(16 << 20)
+	}
+}
+
 func main() {
+	tuneMemory()
 	if len(os.Args) < 2 {
 		usage()
 	}

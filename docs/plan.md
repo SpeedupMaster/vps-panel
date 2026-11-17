@@ -622,4 +622,4 @@ vps-panel/
 
 > 只有 1 台落地时，"备用落地自动切换"暂时用不上，但数据模型保留 `backup` 字段，以后加落地机可直接启用。
 
-UI/UX 设计稿见 `designs/vps-panel-ui/`。
+UI/UX 设计稿见 `docs/ui-design/`（`project/canvas.json` + 各画板 `.dc.html`），前端实现以它为准。

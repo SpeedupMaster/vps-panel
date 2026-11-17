@@ -81,7 +81,7 @@ func Build(n Node) ([]byte, error) {
 	}
 	cfg := obj{
 		"log":   obj{"loglevel": "warning", "access": access},
-		"api":   obj{"tag": "api", "services": []string{"HandlerService", "StatsService", "RoutingService", "ObservatoryService"}},
+		"api":   obj{"tag": "api", "services": []string{"HandlerService", "StatsService", "RoutingService"}},
 		"stats": obj{},
 		"policy": obj{
 			"levels": obj{"0": obj{"statsUserUplink": true, "statsUserDownlink": true}},
@@ -157,6 +157,10 @@ func Build(n Node) ([]byte, error) {
 			probe = "https://www.gstatic.com/generate_204"
 		}
 		cfg["observatory"] = obj{"subjectSelector": dedupe(subjects), "probeURL": probe, "probeInterval": "1m", "enableConcurrency": true}
+		// ObservatoryService only resolves when an observatory exists; Xray
+		// refuses to start ("not all dependencies are resolved") otherwise.
+		api := cfg["api"].(obj)
+		api["services"] = append(api["services"].([]string), "ObservatoryService")
 	}
 	cfg["routing"] = routing
 	return json.Marshal(cfg)

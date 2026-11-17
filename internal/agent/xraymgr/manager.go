@@ -192,7 +192,11 @@ func (m *Manager) Apply(ctx context.Context, ac *proto.ApplyConfig, out func(str
 		if err := firewall.Apply(ac.Firewall.Port, ac.Firewall.Allowed); err != nil {
 			out("防火墙白名单失败：" + err.Error() + "\n")
 		} else {
-			out(fmt.Sprintf("防火墙：端口 %d 仅允许 %d 个入口 IP\n", ac.Firewall.Port, len(ac.Firewall.Allowed)))
+			if ac.Firewall.Port == 0 {
+				out("防火墙：未启用落地白名单\n")
+			} else {
+				out(fmt.Sprintf("防火墙：端口 %d 仅允许 %d 个入口 IP\n", ac.Firewall.Port, len(ac.Firewall.Allowed)))
+			}
 		}
 	}
 	if len(ac.Config) == 0 {
@@ -206,7 +210,9 @@ func (m *Manager) Apply(ctx context.Context, ac *proto.ApplyConfig, out func(str
 		return nil
 	}
 	_ = os.MkdirAll(ConfDir, 0o755)
-	tmp := confPath() + ".new"
+	// Keep the .json extension: newer Xray picks the config format from it
+	// and rejects "config.json.new".
+	tmp := filepath.Join(ConfDir, "config.new.json")
 	if err := os.WriteFile(tmp, cfg, 0o600); err != nil {
 		return err
 	}

@@ -12,6 +12,8 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"vpspanel/internal/agent/prober"
@@ -26,7 +28,25 @@ type TraceResult struct {
 	Hops    []string `json:"hops"`
 }
 
-var ipRe = regexp.MustCompile(`\b(\d{1,3}\.){3}\d{1,3}\b`)
+var (
+	ipRe  = regexp.MustCompile(`\b(\d{1,3}\.){3}\d{1,3}\b`)
+	hopRe = regexp.MustCompile(`^\s*\d+\s`)
+)
+
+// parseHops returns the responding IP of each hop. Only numbered hop lines
+// count: the "traceroute to host (ip)" header names the target, not a hop.
+func parseHops(text string) []string {
+	var hops []string
+	for _, l := range strings.Split(text, "\n") {
+		if !hopRe.MatchString(l) {
+			continue
+		}
+		if ip := ipRe.FindString(l); ip != "" {
+			hops = append(hops, ip)
+		}
+	}
+	return hops
+}
 
 // classify guesses the carrier backbone from hop prefixes.
 func classify(carrier string, hops []string) string {
@@ -109,12 +129,7 @@ func Trace(ctx context.Context, args map[string]string, out func(string)) ([]Tra
 			out("失败：" + err.Error() + "\n")
 			continue
 		}
-		var hops []string
-		for _, l := range strings.Split(text, "\n") {
-			if ip := ipRe.FindString(l); ip != "" && ip != host {
-				hops = append(hops, ip)
-			}
-		}
+		hops := parseHops(text)
 		r := TraceResult{Carrier: carrier, Target: host, Hops: hops, Line: classify(carrier, hops)}
 		out(text + "线路：" + r.Line + "\n")
 		res = append(res, r)
@@ -140,34 +155,104 @@ func Speedtest(ctx context.Context, out func(string)) (*SpeedResult, error) {
 		}
 	}
 	r.PingMs = prober.Summarize("", rtts, 5).Avg
-	cl := &http.Client{Timeout: 60 * time.Second}
+	out(fmt.Sprintf("延迟 %.1f ms\n", r.PingMs))
 
-	const down = 200 << 20
-	req, _ := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("https://speed.cloudflare.com/__down?bytes=%d", down), nil)
-	start := time.Now()
-	resp, err := cl.Do(req)
+	down, err := speedPhase(ctx, func(ctx context.Context, count *countWriter) error {
+		req, _ := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("https://speed.cloudflare.com/__down?bytes=%d", speedChunkDown), nil)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("下载返回 HTTP %d", resp.StatusCode)
+		}
+		_, err = io.Copy(count, resp.Body)
+		return err
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("下行测速失败：%w", err)
 	}
-	n, _ := io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
-	r.DownMbps = float64(n*8) / time.Since(start).Seconds() / 1e6
-	out(fmt.Sprintf("下行 %.0f Mbps\n", r.DownMbps))
+	r.DownMbps = down
+	out(fmt.Sprintf("下行 %.1f Mbps\n", down))
 
-	const up = 50 << 20
-	body := io.LimitReader(rand.Reader, up)
-	req, _ = http.NewRequestWithContext(ctx, "POST", "https://speed.cloudflare.com/__up", body)
-	req.ContentLength = up
-	start = time.Now()
-	resp, err = cl.Do(req)
-	if err == nil {
+	up, err := speedPhase(ctx, func(ctx context.Context, count *countWriter) error {
+		body := io.TeeReader(io.LimitReader(rand.Reader, speedChunkUp), count)
+		req, _ := http.NewRequestWithContext(ctx, "POST", "https://speed.cloudflare.com/__up", body)
+		req.ContentLength = speedChunkUp
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return err
+		}
 		resp.Body.Close()
-		r.UpMbps = float64(up*8) / time.Since(start).Seconds() / 1e6
-		out(fmt.Sprintf("上行 %.0f Mbps\n", r.UpMbps))
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("上传返回 HTTP %d", resp.StatusCode)
+		}
+		return nil
+	})
+	if err != nil {
+		out("上行测速失败：" + err.Error() + "\n")
+	} else {
+		r.UpMbps = up
+		out(fmt.Sprintf("上行 %.1f Mbps\n", up))
 	}
-	r.DownMbps = float64(int(r.DownMbps*10)) / 10
-	r.UpMbps = float64(int(r.UpMbps*10)) / 10
 	return r, nil
+}
+
+// Cloudflare refuses single downloads somewhere under 100 MB, so the test
+// runs a few parallel streams of moderate chunks for a fixed time instead of
+// one big transfer.
+const (
+	speedChunkDown = 25_000_000
+	speedChunkUp   = 5_000_000
+	speedStreams   = 4
+	speedDuration  = 10 * time.Second
+)
+
+type countWriter struct{ n atomic.Int64 }
+
+func (c *countWriter) Write(p []byte) (int, error) { c.n.Add(int64(len(p))); return len(p), nil }
+
+// speedPhase runs one() in speedStreams parallel loops for speedDuration and
+// returns the measured Mbps. Stopping mid-chunk at the deadline is expected;
+// any other failure before data flowed is returned.
+func speedPhase(ctx context.Context, one func(context.Context, *countWriter) error) (float64, error) {
+	ctx, cancel := context.WithTimeout(ctx, speedDuration)
+	defer cancel()
+	var count countWriter
+	var wg sync.WaitGroup
+	var firstErr error
+	var mu sync.Mutex
+	start := time.Now()
+	for i := 0; i < speedStreams; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for ctx.Err() == nil {
+				if err := one(ctx, &count); err != nil {
+					if ctx.Err() == nil {
+						mu.Lock()
+						if firstErr == nil {
+							firstErr = err
+						}
+						mu.Unlock()
+						cancel()
+					}
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	n := count.n.Load()
+	if n == 0 && firstErr != nil {
+		return 0, firstErr
+	}
+	if n == 0 {
+		return 0, errors.New("没有收到数据")
+	}
+	mbps := float64(n*8) / time.Since(start).Seconds() / 1e6
+	return float64(int(mbps*10)) / 10, nil
 }
 
 // ---------- iperf3 between VPS ----------

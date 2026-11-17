@@ -123,14 +123,19 @@ async function pollStatus() {
   if (!id) return
   const rs = await api.get('/routes').catch(() => [])
   view.value = rs.find((x) => x.id === id) || null
-  if (++tries < 6 && (!view.value || !view.value.share_link || view.value.status !== 'ok')) setTimeout(pollStatus, 5000)
+  const v = view.value
+  const settled = v && v.share_link && v.status === 'ok' && (v.config_synced || v.deploy_error)
+  if (++tries < 12 && !settled) setTimeout(pollStatus, 5000)
 }
 const checks = computed(() => {
   const v = view.value
   const ok = (b) => (b ? 'ok' : 'wait')
   return [
     { text: '面板已保存线路', st: result.value ? 'ok' : 'wait' },
-    { text: '配置已下发并通过 xray run -test 校验', st: result.value?.warning ? 'bad' : ok(v) },
+    {
+      text: v?.deploy_error ? `配置下发失败：${v.deploy_error}` : '配置已下发并通过 xray run -test 校验',
+      st: result.value?.warning || v?.deploy_error ? 'bad' : ok(v?.config_synced),
+    },
     { text: `入口 ${v?.entry_name || ''} Xray 运行中`, st: v ? (v.xray_running ? 'ok' : 'bad') : 'wait' },
     ...(form.value.type === 'chain' ? [{ text: `入口 → 落地线路段可达${v?.segment_ms ? `（${Math.round(v.segment_ms)} ms）` : ''}`, st: v ? (v.segment_ms > 0 ? 'ok' : 'wait') : 'wait' }] : []),
     { text: '分享链接已生成', st: ok(v?.share_link) },

@@ -6,6 +6,7 @@ import Icon from './Icon.vue'
 import { navItems, mobileTabs } from '../nav'
 import { state, loadServers, connectEvents, disconnectEvents, refreshAlertCount } from '../store'
 import { api } from '../api'
+import { pwaInstall, installApp } from '../pwa'
 
 const route = useRoute()
 const router = useRouter()
@@ -82,6 +83,7 @@ onBeforeUnmount(() => {
       <div class="side-foot">
         <span class="row" style="gap: 6px"><span :class="['dot', state.live ? 'ok' : 'off']" />{{ state.live ? '实时连接' : '连接中…' }}</span>
         <span>面板 {{ version || '—' }} · {{ state.me?.username }}</span>
+        <button v-if="pwaInstall.can || pwaInstall.ios" class="link-btn" style="text-align: left" @click="installApp">安装应用</button>
         <button class="link-btn" style="text-align: left" @click="logout">退出登录</button>
       </div>
     </aside>
@@ -127,7 +129,8 @@ onBeforeUnmount(() => {
             <span v-if="it.id === 'alerts' && state.alertsFiring" class="badge">{{ state.alertsFiring }}</span>
           </a>
         </nav>
-        <n-button block secondary style="margin-top: 16px" @click="logout">退出登录</n-button>
+        <n-button v-if="pwaInstall.can || pwaInstall.ios" block secondary style="margin-top: 16px" @click="installApp">添加到主屏幕</n-button>
+        <n-button block secondary :style="{ marginTop: pwaInstall.can || pwaInstall.ios ? '8px' : '16px' }" @click="logout">退出登录</n-button>
         <p class="muted small" style="margin-top: 12px">面板 {{ version || '—' }}</p>
       </n-drawer-content>
     </n-drawer>

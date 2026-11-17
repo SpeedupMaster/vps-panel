@@ -193,7 +193,11 @@ func (a *API) getConfig(c *gin.Context) {
 		fail(c, 404, "版本不存在")
 		return
 	}
-	ok(c, gin.H{"version": v, "config": redactConfig(v.Config)})
+	// The stored config and diff carry the Reality private key and SS
+	// passwords: only the redacted text leaves the panel.
+	cfg := redactConfig(v.Config)
+	v.Config, v.Diff = "", ""
+	ok(c, gin.H{"version": v, "config": cfg})
 }
 
 func (a *API) rollbackConfig(c *gin.Context) {

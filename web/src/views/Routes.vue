@@ -120,7 +120,7 @@ function latency(r) {
                 <td class="mono small nowrap" :title="r.type === 'chain' ? `回程 ${Math.round(r.backhaul_ms)} ms + 线路段 ${Math.round(r.segment_ms)} ms` : ''">{{ latency(r) }}</td>
                 <td class="mono">{{ bytes(r.today_bytes) }}</td>
                 <td class="mono">{{ bytes(r.month_bytes) }}</td>
-                <td><span :class="['tag', stClass[r.status]]">{{ stText[r.status] || r.status }}</span></td>
+                <td class="nowrap"><span :class="['tag', stClass[r.status]]">{{ stText[r.status] || r.status }}</span><span v-if="r.enabled && r.deploy_error" class="tag bad" style="margin-left: 4px" :title="r.deploy_error">下发失败</span></td>
                 <td><n-switch size="small" :value="r.in_sub" :disabled="!r.enabled" @update:value="(v) => setSub(r, v)" /></td>
                 <td style="text-align: right"><n-dropdown :options="actions(r)" trigger="click" @select="(k) => onAction(k, r)"><n-button size="small" quaternary>操作</n-button></n-dropdown></td>
               </tr>
@@ -131,7 +131,7 @@ function latency(r) {
           <div v-for="r in list" :key="r.id" :class="['m-item', { dim: !r.enabled }]">
             <div class="row">
               <b>{{ r.name }}</b><span class="tag">{{ r.type === 'direct' ? '直连' : '链式' }}</span>
-              <span class="spacer" /><span :class="['tag', stClass[r.status]]">{{ stText[r.status] }}</span>
+              <span class="spacer" /><span v-if="r.enabled && r.deploy_error" class="tag bad" :title="r.deploy_error">下发失败</span><span :class="['tag', stClass[r.status]]">{{ stText[r.status] }}</span>
             </div>
             <div class="m-row"><span>路径</span><span>{{ r.entry_name }}{{ r.type === 'chain' ? ' → ' + r.landing_name : ' → 直连' }}</span></div>
             <div class="m-row"><span>估算延迟</span><span class="mono">{{ latency(r) }}</span></div>
