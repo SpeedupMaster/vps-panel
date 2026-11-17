@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -35,6 +36,12 @@ func env(k, def string) string {
 }
 
 func main() {
+	if handled, err := signCommand(os.Args[1:]); handled {
+		if err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	dataDir := flag.String("data", env("VPSPANEL_DATA", "./data"), "data directory")
 	listen := flag.String("listen", env("VPSPANEL_LISTEN", ":8080"), "listen address (HTTP + gRPC)")
 	adminUser := flag.String("admin", env("VPSPANEL_ADMIN", "admin"), "admin username on first start")
@@ -50,6 +57,9 @@ func main() {
 	}
 	log.Printf("vps-panel %s (%s)", version.Version, version.Commit)
 
+	if err := service.ApplyPendingRestore(*dataDir); err != nil {
+		log.Fatalf("restore: %v", err)
+	}
 	st, err := store.Open(*dataDir)
 	if err != nil {
 		log.Fatal(err)
@@ -67,6 +77,8 @@ func main() {
 	} else if pw != "" && *adminPass == "" {
 		log.Printf("首次启动：管理员 %s，初始密码 %s（登录后请立即修改并开启两步验证）", *adminUser, pw)
 	}
+
+	seedAgents(*dataDir, env("VPSPANEL_AGENT_DIR", ""))
 
 	h := hub.New(st, box)
 	p := service.New(st, box, au, h, *dataDir)
@@ -118,4 +130,32 @@ func main() {
 	grpcSrv.Stop()
 	_ = srv.Shutdown(sctx)
 	_ = st.Close()
+}
+
+// seedAgents copies bundled agent binaries into the data dir when missing,
+// so /install.sh works right after the first start.
+func seedAgents(dataDir, src string) {
+	if src == "" {
+		if exe, err := os.Executable(); err == nil {
+			src = filepath.Join(filepath.Dir(exe), "agent")
+		}
+	}
+	es, err := os.ReadDir(src)
+	if err != nil {
+		return
+	}
+	dst := filepath.Join(dataDir, "agent")
+	_ = os.MkdirAll(dst, 0o755)
+	for _, e := range es {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), "vpsagent-linux-") {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(dst, e.Name())); err == nil {
+			continue
+		}
+		if b, err := os.ReadFile(filepath.Join(src, e.Name())); err == nil {
+			_ = os.WriteFile(filepath.Join(dst, e.Name()), b, 0o755)
+			log.Printf("seeded %s", e.Name())
+		}
+	}
 }

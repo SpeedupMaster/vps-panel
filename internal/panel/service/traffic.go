@@ -169,3 +169,37 @@ func HumanBytes(b uint64) string {
 	}
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
+
+// CheckTrafficSpike runs hourly: the last full hour of a server is compared
+// with its trailing 24h hourly average (factor traffic_spike_factor, default
+// 5x, and at least traffic_spike_min_gb, default 2 GB).
+func (p *Panel) CheckTrafficSpike() {
+	factor := float64(p.St.GetInt("traffic_spike_factor", 5))
+	minBytes := uint64(p.St.GetInt("traffic_spike_min_gb", 2)) << 30
+	last := time.Now().Unix()/3600*3600 - 3600
+	var svs []store.Server
+	p.St.DB.Find(&svs)
+	for _, sv := range svs {
+		sid := strconv.FormatUint(uint64(sv.ID), 10)
+		var rows []store.TrafficHourly
+		p.St.DB.Where("scope = ? AND scope_id = ? AND hour >= ? AND hour <= ?", "server", sid, last-24*3600, last).Find(&rows)
+		var cur, sum uint64
+		n := 0
+		for _, r := range rows {
+			if r.Hour == last {
+				cur = r.Up + r.Down
+			} else {
+				sum += r.Up + r.Down
+				n++
+			}
+		}
+		if n < 6 || cur < minBytes {
+			continue
+		}
+		avg := float64(sum) / float64(n)
+		if float64(cur) > avg*factor {
+			p.Alert.Info("traffic_spike", sv.ID, fmt.Sprintf("%s 最近一小时流量 %s，是过去 24 小时均值（%s/小时）的 %.1f 倍",
+				sv.Name, HumanBytes(cur), HumanBytes(uint64(avg)), float64(cur)/avg))
+		}
+	}
+}

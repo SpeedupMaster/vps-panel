@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"vpspanel/internal/panel/auth"
+	"vpspanel/internal/panel/service"
 	"vpspanel/internal/panel/store"
 )
 
@@ -140,19 +142,36 @@ func (a *API) audit(c *gin.Context) {
 
 // Settings the UI may read and write. Secrets never go through here.
 var settingKeys = []string{
-	"panel_url", "panel_urls_backup", "sub_url", "admin_path", "allow_ips", "currency",
-	"agent_report_interval", "probe_interval", "offline_after_sec",
-	"retention_metrics_1m_days", "retention_metrics_1h_days", "retention_probe_days", "retention_probe_1h_days",
-	"backup_enabled", "backup_time", "backup_keep", "backup_target",
-	"sub_name_template", "sub_hide_unhealthy", "sub_update_interval", "sub_userinfo_server",
-	"alert_quiet_enabled", "alert_quiet_from", "alert_quiet_to", "alert_merge", "alert_recover",
-	"xray_auto_check", "geo_source", "fx_rates",
+	// panel & access
+	"panel_url", "panel_urls_backup", "sub_url", "admin_path", "allow_ips", "currency", "fx_rates",
+	// agents & probes
+	"agent_report_interval", "offline_after_sec", "probe_interval", "probe_count", "probe_peer", "block_rounds",
+	// retention
+	"retention_metrics_1m_days", "retention_metrics_1h_days", "retention_probe_raw_days", "retention_probe_1h_days", "config_versions_keep",
+	// xray
+	"auto_install_xray", "drift_autofix", "reality_default_target", "landing_firewall", "xray_access_log", "xray_block_bt",
+	"xray_probe_url", "xray_pinned_version", "xray_relay", "geo_source",
+	// subscriptions
+	"sub_name_tpl", "sub_profile_name", "sub_update_hours", "sub_userinfo", "sub_exclude_blocked", "sub_exclude_offline",
+	// alerts
+	"alert_quiet", "alert_recovery", "traffic_spike_factor", "traffic_spike_min_gb",
+	// updates & signing
+	"sign_pubkey", "panel_repo",
+	// backups
+	"backup_enabled", "backup_time", "backup_keep", "backup_target", "backup_s3_endpoint", "backup_s3_bucket", "backup_s3_region",
+	"backup_s3_access_key", "backup_s3_prefix", "backup_webdav_url", "backup_webdav_user", "backup_tg_channel",
 }
 
 func (a *API) getSettings(c *gin.Context) {
 	out := gin.H{}
 	for _, k := range settingKeys {
 		out[k] = a.P.St.Get(k, "")
+	}
+	for _, k := range service.SecretSettings {
+		out[k] = ""
+		if a.P.St.Get(k, "") != "" {
+			out[k] = service.SecretMask
+		}
 	}
 	ok(c, out)
 }
@@ -168,6 +187,21 @@ func (a *API) putSettings(c *gin.Context) {
 		allowed[k] = true
 	}
 	var changed []string
+	for _, k := range service.SecretSettings {
+		if v, has := in[k]; has {
+			if err := a.P.SetSecretSetting(k, fmt.Sprint(v)); err != nil {
+				bad(c, err)
+				return
+			}
+			changed = append(changed, k)
+		}
+	}
+	if v, has := in["sign_pubkey"]; has && fmt.Sprint(v) != "" {
+		if _, err := service.ParseEd25519Public(fmt.Sprint(v)); err != nil {
+			bad(c, errors.New("签名公钥无效："+err.Error()))
+			return
+		}
+	}
 	for k, v := range in {
 		if !allowed[k] {
 			continue

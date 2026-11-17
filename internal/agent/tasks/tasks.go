@@ -4,6 +4,8 @@ package tasks
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"os"
@@ -45,6 +47,12 @@ func Register(a *agent.Agent) {
 	a.Tasks[proto.TaskExec] = func(ctx context.Context, t *proto.Task, out func(string)) (any, error) {
 		if !a.Local.Switches.AllowRemoteExec {
 			return nil, errRemoteExecOff
+		}
+		if want := t.Args["sha256"]; want != "" {
+			sum := sha256.Sum256(t.Payload)
+			if hex.EncodeToString(sum[:]) != want {
+				return nil, errors.New("脚本哈希校验失败")
+			}
 		}
 		code, err := RunStream(ctx, out, "/bin/sh", "-c", string(t.Payload))
 		return map[string]int{"exit_code": code}, err

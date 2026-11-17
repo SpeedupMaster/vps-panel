@@ -1,0 +1,25 @@
+# /etc/systemd/system/vps-panel.service
+[Unit]
+Description=vps-panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=vpspanel
+Group=vpspanel
+WorkingDirectory=/opt/vps-panel
+EnvironmentFile=-/etc/vps-panel.env
+ExecStart=/opt/vps-panel/vps-panel -data /var/lib/vps-panel -listen 127.0.0.1:8080
+# Self-update and restore exit the process; systemd starts the new binary.
+Restart=always
+RestartSec=2
+# The panel replaces its own binary on self-update.
+ReadWritePaths=/var/lib/vps-panel /opt/vps-panel
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

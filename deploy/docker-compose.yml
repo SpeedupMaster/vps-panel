@@ -1,0 +1,31 @@
+services:
+  panel:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: vps-panel:latest
+    restart: unless-stopped
+    environment:
+      VPSPANEL_URL: https://panel.example.com
+      VPSPANEL_ADMIN: admin
+    volumes:
+      - ./data:/data
+    # Only Caddy talks to the panel.
+    expose:
+      - "8080"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile.docker:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - panel
+
+volumes:
+  caddy_data:

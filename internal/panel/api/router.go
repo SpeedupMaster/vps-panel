@@ -79,6 +79,7 @@ func (a *API) Router() *gin.Engine {
 
 	a.mountNodes(r, authed)
 	a.mountAlerts(authed)
+	a.mountOps(r, authed)
 	for _, f := range a.Extra {
 		f(r, authed)
 	}

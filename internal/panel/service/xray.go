@@ -619,6 +619,11 @@ func (p *Panel) xraySourceArgs(locked string) map[string]string {
 	if v == "" {
 		v = p.St.Get("xray_pinned_version", "latest")
 	}
+	if v == "latest" { // resolve from the release cache so the relay can serve it
+		if l := p.LatestXray(false); l != "" {
+			v = l
+		}
+	}
 	args := map[string]string{"version": v}
 	if p.St.GetBool("xray_relay", false) && v != "latest" {
 		base := strings.TrimRight(p.St.Get("panel_url", ""), "/")

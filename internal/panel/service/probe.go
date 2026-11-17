@@ -322,6 +322,7 @@ func (p *Panel) evalSegments(entryID uint, r *proto.ProbeResult) {
 		} else {
 			p.Alert.Resolve("segment_down", entryID, key)
 		}
+		p.evalFailover(entryID, uint(lid), s.Loss >= 100)
 	}
 }
 
@@ -503,4 +504,32 @@ func (p *Panel) TraceArgs() map[string]string {
 		}
 	}
 	return map[string]string{"targets": strings.Join(parts, ",")}
+}
+
+// evalFailover: when the primary landing of a route with backups is
+// unreachable from its entry, the leastPing balancer carries the traffic on
+// a backup; tell the user once and again when it switches back.
+func (p *Panel) evalFailover(entryID, landingID uint, down bool) {
+	var rs []store.Route
+	p.St.DB.Where("entry_server_id = ? AND landing_server_id = ? AND type = ? AND enabled = ? AND backup_ids <> ''", entryID, landingID, "chain", true).Find(&rs)
+	for _, r := range rs {
+		key := fmt.Sprintf("failover-r%d", r.ID)
+		if down {
+			var names []string
+			for _, b := range parseIDs(r.BackupIDs) {
+				if !p.segmentDown(entryID, b) {
+					names = append(names, p.ServerName(b))
+				}
+			}
+			text := fmt.Sprintf("%s → %s 主落地不通", p.ServerName(entryID), p.ServerName(landingID))
+			if len(names) > 0 {
+				text += "，已切换到备用落地 " + strings.Join(names, "/")
+			} else {
+				text += "，备用落地也不可用"
+			}
+			p.Alert.Fire("failover", entryID, key, "warning", text)
+		} else {
+			p.Alert.Resolve("failover", entryID, key)
+		}
+	}
 }

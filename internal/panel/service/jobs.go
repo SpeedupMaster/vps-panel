@@ -15,8 +15,21 @@ func (p *Panel) StartJobs(s *scheduler.Scheduler) {
 	s.Every("expiry", time.Hour, true, p.CheckExpiry)
 	s.Every("cleanup", 6*time.Hour, true, p.Cleanup)
 	s.Every("probe-rollup", time.Hour, false, p.RollupProbes)
+	s.Every("traffic-spike", time.Hour, false, p.CheckTrafficSpike)
 	s.Daily("zstatic-sync", func() string { return "04:20" }, func() { _, _ = p.SyncZstatic() })
 
+	s.Every("schedules", time.Minute, false, p.RunSchedules)
+	s.Daily("backup", func() string { return p.St.Get("backup_time", "03:30") }, p.DailyBackup)
+	s.Every("releases", 12*time.Hour, true, func() {
+		_ = p.SyncXrayReleases()
+		p.CheckAgentVersions()
+		p.PruneRelayCache()
+		if p.St.Get("panel_repo", "") != "" {
+			_, _ = p.CheckPanelVersion()
+		}
+	})
+
+	p.SeedScripts()
 	p.LoadProbeState()
 	var n int64
 	p.St.DB.Model(&store.ProbeTarget{}).Count(&n)

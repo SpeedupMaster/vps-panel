@@ -63,7 +63,7 @@ func (p *Panel) onTaskResult(serverID uint, r *proto.TaskResult) {
 		return
 	}
 	upd := map[string]any{"status": r.Status}
-	if r.Output != "" {
+	if r.Output != "" && t.Type != proto.TaskShell { // never persist terminal sessions
 		out := t.Output + r.Output
 		if len(out) > 256<<10 { // keep the tail
 			out = out[len(out)-256<<10:]
@@ -102,8 +102,11 @@ func (p *Panel) onTaskResult(serverID uint, r *proto.TaskResult) {
 }
 
 // WatchTask streams results for a task until it finishes.
-func (p *Panel) WatchTask(id uint64) chan *proto.TaskResult {
-	ch := make(chan *proto.TaskResult, 128)
+func (p *Panel) WatchTask(id uint64) chan *proto.TaskResult { return p.WatchTaskN(id, 128) }
+
+// WatchTaskN is WatchTask with a custom buffer (WebSSH output is chatty).
+func (p *Panel) WatchTaskN(id uint64, size int) chan *proto.TaskResult {
+	ch := make(chan *proto.TaskResult, size)
 	p.mu.Lock()
 	p.waiters[id] = append(p.waiters[id], ch)
 	p.mu.Unlock()

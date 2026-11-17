@@ -23,7 +23,7 @@ var KindLabels = map[string]string{
 	"traffic": "流量", "traffic_spike": "流量突增", "expire": "VPS 到期", "xray_crash": "Xray 崩溃", "xray_restart": "Xray 自动重启",
 	"config_drift": "配置漂移", "deploy_failed": "配置下发失败", "new_version": "新版本", "agent_outdated": "Agent 版本过旧",
 	"stranger_sub": "订阅陌生 IP", "login_failed": "登录失败过多", "login_new_ip": "新 IP 登录", "ip_changed": "IP 变化",
-	"rollback": "自动回滚", "update_result": "批量更新结果", "backup": "备份",
+	"rollback": "自动回滚", "failover": "切换到备用落地", "update_result": "批量更新结果", "backup": "备份",
 }
 
 var kindUnits = map[string]string{"cpu": "%", "mem": "%", "disk": "%", "steal": "%", "backhaul_loss": "%", "backhaul_latency": " ms", "load": ""}
@@ -40,6 +40,9 @@ var DefaultRules = []store.AlertRule{
 	{Name: "回程延迟过高", Kind: "backhaul_latency", Threshold: 300, Duration: 600, Cooldown: 3600, Severity: "warning", Scope: "node", Enabled: true},
 	{Name: "疑似 IP 被封", Kind: "blocked", Severity: "critical", Scope: "all", Enabled: true},
 	{Name: "入口→落地中断", Kind: "segment_down", Duration: 180, Cooldown: 3600, Severity: "warning", Scope: "entry", Enabled: true},
+	{Name: "切换到备用落地", Kind: "failover", Cooldown: 21600, Severity: "warning", Scope: "entry", Enabled: true},
+	{Name: "流量异常突增", Kind: "traffic_spike", Severity: "warning", Scope: "all", Enabled: true},
+	{Name: "Agent 版本过旧", Kind: "agent_outdated", Severity: "info", Scope: "all", Enabled: true},
 	{Name: "流量额度", Kind: "traffic", Severity: "warning", Scope: "all", Enabled: true},
 	{Name: "VPS 即将到期", Kind: "expire", Severity: "info", Scope: "all", Enabled: true},
 	{Name: "Xray 崩溃", Kind: "xray_crash", Duration: 30, Cooldown: 3600, Severity: "critical", Scope: "node", Enabled: true},
