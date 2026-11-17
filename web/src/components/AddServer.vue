@@ -76,7 +76,7 @@ function openDetail() { const id = created.value.server.id; close(); router.push
   <n-drawer :show="show" :width="drawerWidth(560)" placement="right" class="add-drawer" @update:show="(v) => !v && close()">
     <n-drawer-content title="添加服务器" closable :native-scrollbar="false">
       <template v-if="!created">
-        <h3 class="step">1 · 基本信息</h3>
+        <div class="step"><span class="step-n">1</span><div class="s-head"><h2>基本信息</h2><p>起个名字就行，其他信息在 Agent 连上后自动识别。</p></div></div>
         <div class="m-form">
           <div class="field">
             <div class="f-label"><span class="f-name">名称</span><span class="f-hint">必填</span></div>
@@ -86,10 +86,9 @@ function openDetail() { const id = created.value.server.id; close(); router.push
             <div class="f-label"><span class="f-name">分组</span><span class="f-hint">可选，总览里可以按分组筛选</span></div>
             <div class="f-ctl"><n-auto-complete v-model:value="form.group" :options="groups" placeholder="未分组" /></div>
           </div>
-          <p class="f-note">地区、IP、系统信息会在 Agent 连上后自动识别，无需填写。</p>
         </div>
 
-        <h3 class="step">2 · 安装模式</h3>
+        <div class="step"><span class="step-n">2</span><div class="s-head"><h2>安装模式</h2><p>只做监控选探针；要承载代理流量或做中转选节点。</p></div></div>
         <n-radio-group v-model:value="form.mode" style="width: 100%">
           <div class="mode-grid">
             <label :class="['mode', { on: form.mode === 'probe' }]">
@@ -112,22 +111,29 @@ function openDetail() { const id = created.value.server.id; close(); router.push
             <div class="f-ctl"><n-switch v-model:value="form.cap_landing" aria-label="SS2022 落地" /></div>
           </div>
         </div>
-        <n-button type="primary" block size="large" style="margin-top: 20px" :loading="busy" @click="create">创建并获取安装命令</n-button>
+        <n-button type="primary" block size="large" class="go" :loading="busy" @click="create">创建并获取安装命令</n-button>
       </template>
 
       <template v-else>
-        <h3 class="step">3 · 安装</h3>
+        <div class="created">
+          <span class="dot ok" />
+          <span>已创建 <b>{{ created.server.name }}</b> · {{ created.server.mode === 'probe' ? '探针' : [created.server.cap_reality && 'Reality', created.server.cap_landing && 'SS2022 落地'].filter(Boolean).join(' + ') }}</span>
+        </div>
+        <div class="step"><span class="step-n">3</span><div class="s-head"><h2>安装</h2><p>在 VPS 上执行一键命令，或让面板通过 SSH 代为安装。</p></div></div>
         <n-tabs type="segment" animated>
           <n-tab-pane name="cmd" tab="一键命令">
-            <p class="small">用 root 登录 VPS，执行下面的命令：</p>
-            <pre class="pre cmd">{{ created.command }}</pre>
-            <div class="row" style="margin-top: 8px">
-              <n-button type="primary" size="small" @click="doCopy">复制命令</n-button>
-              <span class="muted small">{{ left }} 后失效 · 只能使用一次</span>
-              <span class="spacer" />
-              <n-button size="small" quaternary @click="regen">重新生成</n-button>
+            <div class="m-form">
+              <div class="field stacked">
+                <div class="f-label"><span class="f-name">安装命令</span><span class="f-hint">用 root 登录 VPS 执行。{{ left }} 后失效，只能使用一次</span></div>
+                <div class="f-ctl"><pre class="pre cmd">{{ created.command }}</pre></div>
+              </div>
+              <div class="f-actions">
+                <n-button type="primary" @click="doCopy">复制命令</n-button>
+                <span class="spacer" />
+                <n-button quaternary @click="regen">重新生成</n-button>
+              </div>
+              <p class="f-note">支持 Debian 11+ / Ubuntu 20.04+ / Rocky·Alma 9 / Alpine 3.18+ · amd64 / arm64</p>
             </div>
-            <p class="muted small">支持 Debian 11+ / Ubuntu 20.04+ / Rocky·Alma 9 / Alpine 3.18+ · amd64 / arm64</p>
           </n-tab-pane>
           <n-tab-pane name="ssh" tab="SSH 一键安装">
             <div class="m-form">
@@ -150,26 +156,33 @@ function openDetail() { const id = created.value.server.id; close(); router.push
               </div>
               <p class="f-note">凭据只在本次安装时使用，安装结束后立即丢弃，不写入数据库或日志。</p>
             </div>
-            <n-button type="primary" block :disabled="!!sshTask" @click="sshInstall">连接并安装</n-button>
+            <n-button type="primary" block class="go" :disabled="!!sshTask" @click="sshInstall">连接并安装</n-button>
             <task-log v-if="sshTask" :task-id="sshTask" height="260px" style="margin-top: 12px" />
           </n-tab-pane>
         </n-tabs>
 
-        <h3 class="step">4 · 安装进度</h3>
-        <div class="progress">
-          <div class="row"><span :class="['dot', connected ? 'ok' : 'warn']" />
-            <span v-if="connected">Agent 已连接{{ live.ipv4 ? ' · ' + live.ipv4 : '' }}{{ live.agent_version ? ' · ' + live.agent_version : '' }}</span>
-            <span v-else>等待 Agent 连接…</span>
+        <div class="step"><span class="step-n">4</span><div class="s-head"><h2>安装进度</h2><p>这里会自动刷新，装好后就能为它新建线路。</p></div></div>
+        <div class="m-form">
+          <div class="field f-inline">
+            <div class="f-label">
+              <span class="f-name">Agent</span>
+              <span class="f-hint">{{ connected ? [live.ipv4, live.agent_version].filter(Boolean).join(' · ') || '已连接' : '执行安装命令后会自动连上' }}</span>
+            </div>
+            <div class="f-ctl"><span :class="['tag', connected ? 'ok' : 'warn']"><span :class="['dot', connected ? 'ok' : 'warn']" />{{ connected ? '已连接' : '等待连接' }}</span></div>
           </div>
-          <div v-if="created.server.mode === 'node'" class="row"><span :class="['dot', live?.xray_running ? 'ok' : 'off']" />
-            <span>{{ live?.xray_running ? 'Xray 已运行' : 'Xray 将在 Agent 连接后自动安装并下发配置' }}</span>
+          <div v-if="created.server.mode === 'node'" class="field f-inline">
+            <div class="f-label">
+              <span class="f-name">Xray</span>
+              <span class="f-hint">{{ live?.xray_running ? (live.xray_version || '运行中') : 'Agent 连上后自动安装并下发配置' }}</span>
+            </div>
+            <div class="f-ctl"><span :class="['tag', live?.xray_running ? 'ok' : '']"><span :class="['dot', live?.xray_running ? 'ok' : 'off']" />{{ live?.xray_running ? '运行中' : '未运行' }}</span></div>
           </div>
-        </div>
-        <div class="row" style="margin-top: 20px">
-          <n-button @click="close">稍后再说</n-button>
-          <n-button v-if="connected" @click="openDetail">查看详情</n-button>
-          <span class="spacer" />
-          <n-button v-if="created.server.mode === 'node' && created.server.cap_reality" type="primary" :disabled="!connected" @click="newRoute">为它新建线路</n-button>
+          <div class="f-actions">
+            <n-button @click="close">稍后再说</n-button>
+            <n-button v-if="connected" @click="openDetail">查看详情</n-button>
+            <span class="spacer" />
+            <n-button v-if="created.server.mode === 'node' && created.server.cap_reality" type="primary" :disabled="!connected" @click="newRoute">为它新建线路</n-button>
+          </div>
         </div>
       </template>
     </n-drawer-content>
@@ -177,14 +190,19 @@ function openDetail() { const id = created.value.server.id; close(); router.push
 </template>
 
 <style scoped>
-.step { font-size: 15px; margin: 4px 0 12px; }
-.step:not(:first-child) { margin-top: 24px; }
+.step { display: flex; gap: 12px; align-items: flex-start; margin: 2px 0 12px; }
+.step:not(:first-child) { margin-top: 28px; }
+.step .s-head { padding-top: 0; gap: 2px; }
+.step-n { flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--c-primary-soft); color: var(--c-primary); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; margin-top: 1px; }
+.created { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 6px; background: var(--c-primary-soft); font-size: 13px; margin-bottom: 4px; }
+.go { margin-top: 20px; }
+.cmd { margin: 0; }
 .mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .mode { border: 1px solid var(--c-border-strong); border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 6px; cursor: pointer; }
 .mode.on { border-color: var(--c-primary); background: var(--c-primary-soft); }
 .caps { margin-top: 14px; }
 .cmd { white-space: pre-wrap; word-break: break-all; user-select: all; }
+.f-ctl .tag { gap: 6px; }
 .ctl-row .port { flex: none; width: 88px; }
-.progress { display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
 @media (max-width: 767px) { .mode-grid { grid-template-columns: 1fr; } }
 </style>
