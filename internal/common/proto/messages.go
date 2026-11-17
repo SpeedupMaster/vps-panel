@@ -5,6 +5,8 @@
 // proto/agenthub.proto documents the same shapes for reference.
 package proto
 
+import "encoding/json"
+
 import "time"
 
 // ---------- Agent -> Panel ----------
@@ -179,6 +181,8 @@ type XrayOp struct {
 	Op     string    `json:"op"` // add_user | remove_user
 	Tag    string    `json:"tag"`
 	User   *XrayUser `json:"user,omitempty"`
+	// Rule is the routing rule (with ruleTag = user email) added alongside.
+	Rule json.RawMessage `json:"rule,omitempty"`
 	// FullConfig lets the agent fall back to a restart if the API call fails.
 	FullConfig []byte `json:"full_config,omitempty"`
 	Version    int    `json:"version"`

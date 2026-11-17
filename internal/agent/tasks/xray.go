@@ -70,6 +70,13 @@ func registerXray(a *agent.Agent) {
 		return nil, mgr.UpdateGeo(ctx, t.Args["source"], out)
 	}
 	a.Tasks[proto.TaskRestartXray] = func(ctx context.Context, t *proto.Task, out func(string)) (any, error) {
+		if t.Args["action"] == "stop" { // traffic quota exceeded
+			if err := xraymgr.StopService(ctx); err != nil {
+				return nil, err
+			}
+			out("Xray 已停止\n")
+			return mgr.State(), nil
+		}
 		if err := xraymgr.RestartService(ctx); err != nil {
 			return nil, errors.New(xraymgr.RecentLog(ctx, 10))
 		}

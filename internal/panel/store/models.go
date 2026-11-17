@@ -66,27 +66,30 @@ type Server struct {
 	XrayDrift         bool      `json:"xray_drift"`
 	SystemJSON        string    `json:"-"`
 	SwitchesJSON      string    `json:"-"`
-	Status            string    `json:"status"` // pending | online | suspect | offline
+	Status            string    `json:"status"`  // pending | online | suspect | offline
+	Blocked           bool      `json:"blocked"` // suspected GFW block (backhaul probes)
 	LastSeenAt        time.Time `json:"last_seen_at"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 type RealityInbound struct {
-	ServerID      uint `gorm:"primaryKey"`
-	Port          int
-	Target        string
-	ServerNames   string // comma separated
-	PrivateKeyEnc string
-	PublicKey     string
-	ShortIDs      string // comma separated
+	ServerID      uint   `gorm:"primaryKey" json:"server_id"`
+	Port          int    `json:"port"`
+	Target        string `json:"target"`       // host:port
+	ServerNames   string `json:"server_names"` // comma separated
+	PrivateKeyEnc string `json:"-"`
+	PublicKey     string `json:"public_key"`
+	ShortIDs      string `json:"short_ids"` // comma separated
+	Address       string `json:"address"`   // client-facing host; empty = server IPv4
+	Fingerprint   string `json:"fingerprint"`
 }
 
 type LandingInbound struct {
-	ServerID     uint `gorm:"primaryKey"`
-	Port         int
-	Method       string
-	ServerKeyEnc string
+	ServerID     uint   `gorm:"primaryKey" json:"server_id"`
+	Port         int    `json:"port"`
+	Method       string `json:"method"`
+	ServerKeyEnc string `json:"-"`
 }
 
 type LandingUser struct {

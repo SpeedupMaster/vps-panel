@@ -6,8 +6,6 @@ package xraymgr
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +19,7 @@ import (
 
 	"vpspanel/internal/agent/firewall"
 	"vpspanel/internal/common/proto"
+	"vpspanel/internal/common/xrayconf"
 )
 
 var (
@@ -68,10 +67,7 @@ func (m *Manager) saveState(hash string, ver int) {
 	_ = os.WriteFile(m.statePath(), b, 0o600)
 }
 
-func hashBytes(b []byte) string {
-	s := sha256.Sum256(b)
-	return hex.EncodeToString(s[:8])
-}
+func hashBytes(b []byte) string { return xrayconf.Hash(b) }
 
 func Installed() bool {
 	_, err := os.Stat(Bin)
@@ -275,6 +271,9 @@ func (m *Manager) hot(ctx context.Context, op *proto.XrayOp) error {
 	}
 	switch op.Op {
 	case "remove_user":
+		if len(op.Rule) > 0 {
+			_ = exec.CommandContext(ctx, Bin, "api", "rmrules", "--server="+APIAddr, op.User.Email).Run()
+		}
 		b, err := exec.CommandContext(ctx, Bin, "api", "rmu", "--server="+APIAddr, "-tag="+op.Tag, op.User.Email).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("%v %s", err, strings.TrimSpace(string(b)))
@@ -295,6 +294,21 @@ func (m *Manager) hot(ctx context.Context, op *proto.XrayOp) error {
 		b, err := exec.CommandContext(ctx, Bin, "api", "adu", "--server="+APIAddr, f.Name()).CombinedOutput()
 		if err != nil || strings.Contains(string(b), "failed") {
 			return fmt.Errorf("%v %s", err, strings.TrimSpace(string(b)))
+		}
+		if len(op.Rule) > 0 {
+			rf, err := os.CreateTemp("", "adrules-*.json")
+			if err != nil {
+				return err
+			}
+			defer os.Remove(rf.Name())
+			fmt.Fprintf(rf, `{"routing":{"rules":[%s]}}`, op.Rule)
+			rf.Close()
+			b, err := exec.CommandContext(ctx, Bin, "api", "adrules", "--server="+APIAddr, "-append", rf.Name()).CombinedOutput()
+			if err != nil || strings.Contains(string(b), "failed") {
+				// Undo the user so the fallback restart starts clean.
+				_ = exec.CommandContext(ctx, Bin, "api", "rmu", "--server="+APIAddr, "-tag="+op.Tag, op.User.Email).Run()
+				return fmt.Errorf("添加路由规则失败：%v %s", err, strings.TrimSpace(string(b)))
+			}
 		}
 		return nil
 	}
@@ -369,13 +383,7 @@ func (m *Manager) Watch(ctx context.Context, events chan<- *proto.Event) {
 	}
 }
 
-func pretty(b []byte) []byte {
-	var buf bytes.Buffer
-	if json.Indent(&buf, b, "", "  ") == nil {
-		return append(buf.Bytes(), '\n')
-	}
-	return b
-}
+func pretty(b []byte) []byte { return xrayconf.Pretty(b) }
 
 func lastLines(s string, n int) string {
 	l := strings.Split(strings.TrimSpace(s), "\n")
