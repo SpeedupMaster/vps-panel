@@ -365,7 +365,7 @@ function diffClass(line) {
                 <span>客户端地址</span><span class="mono">{{ xray.reality.address || sv.ipv4 }}</span>
                 <span>指纹</span><span>{{ xray.reality.fingerprint }}</span>
               </div>
-              <n-form v-else label-placement="top" size="small">
+              <n-form v-else @submit.prevent label-placement="top" size="small">
                 <div class="form-2">
                   <n-form-item label="端口"><n-input-number v-model:value="reality.port" :min="1" :max="65535" :show-button="false" /></n-form-item>
                   <n-form-item label="指纹"><n-select v-model:value="reality.fingerprint" :options="fps" /></n-form-item>
@@ -388,7 +388,7 @@ function diffClass(line) {
                 <span>加密</span><span class="mono small">{{ xray.landing.method }}</span>
                 <span>防火墙</span><span>只放行入口机 IP</span>
               </div>
-              <n-form v-else label-placement="top" size="small">
+              <n-form v-else @submit.prevent label-placement="top" size="small">
                 <n-form-item label="端口（1024–65535）"><n-input-number v-model:value="landing.port" :min="1024" :max="65535" :show-button="false" /></n-form-item>
                 <n-form-item label="加密方式"><n-select v-model:value="landing.method" :options="methods" /></n-form-item>
                 <n-button type="primary" @click="saveLanding">保存并下发</n-button>
@@ -463,7 +463,7 @@ function diffClass(line) {
             </div>
             <div class="card">
               <div class="card-title"><h2>编辑</h2></div>
-              <n-form label-placement="top" size="small">
+              <n-form @submit.prevent label-placement="top" size="small">
                 <div class="form-2">
                   <n-form-item label="名称"><n-input v-model:value="asset.name" /></n-form-item>
                   <n-form-item label="分组"><n-input v-model:value="asset.group" /></n-form-item>

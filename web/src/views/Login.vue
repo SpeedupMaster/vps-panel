@@ -17,6 +17,7 @@ const busy = ref(false)
 const codeRef = ref(null)
 
 async function submit() {
+  if (busy.value) return
   err.value = ''
   if (!username.value || !password.value) { err.value = '请输入账号和密码'; return }
   if (step.value === 'totp' && !code.value) { err.value = recovery.value ? '请输入恢复码' : '请输入 6 位动态码'; return }
@@ -57,10 +58,10 @@ function back() { step.value = 'password'; code.value = ''; err.value = ''; reco
           <n-input v-model:value="username" size="large" :input-props="{ autocomplete: 'username', autocapitalize: 'off' }" autofocus />
         </n-form-item>
         <n-form-item label="密码" :show-feedback="false" style="margin-bottom: 14px">
-          <n-input v-model:value="password" size="large" type="password" show-password-on="click" :input-props="{ autocomplete: 'current-password' }" @keyup.enter="submit" />
+          <n-input v-model:value="password" size="large" type="password" show-password-on="click" :input-props="{ autocomplete: 'current-password' }" />
         </n-form-item>
         <div v-if="err" class="banner" role="alert" style="margin-bottom: 14px">{{ err }}</div>
-        <n-button type="primary" size="large" block attr-type="submit" :loading="busy" @click="submit">登录</n-button>
+        <n-button type="primary" size="large" block attr-type="submit" :loading="busy">登录</n-button>
       </n-form>
 
       <form v-else @submit.prevent="submit">
@@ -69,11 +70,11 @@ function back() { step.value = 'password'; code.value = ''; err.value = ''; reco
         <n-input ref="codeRef" v-model:value="code" size="large" :maxlength="recovery ? 32 : 6" class="code-input"
           :placeholder="recovery ? 'xxxx-xxxx' : '000000'"
           :input-props="{ inputmode: recovery ? 'text' : 'numeric', autocomplete: 'one-time-code', 'aria-label': recovery ? '恢复码' : '动态码' }"
-          @keyup.enter="submit" />
+          />
         <div v-if="err" class="banner" role="alert" style="margin-top: 14px">{{ err }}</div>
         <div class="row" style="margin-top: 16px">
           <n-button size="large" @click="back">返回</n-button>
-          <n-button type="primary" size="large" style="flex: 1" :loading="busy" attr-type="submit" @click="submit">验证并进入</n-button>
+          <n-button type="primary" size="large" style="flex: 1" :loading="busy" attr-type="submit">验证并进入</n-button>
         </div>
         <button type="button" class="link-btn" style="margin-top: 14px" @click="recovery = !recovery; code = ''">
           {{ recovery ? '使用验证器动态码' : '无法使用验证器？用恢复码' }}

@@ -77,7 +77,7 @@ function openDetail() { const id = created.value.server.id; close(); router.push
     <n-drawer-content title="添加服务器" closable :native-scrollbar="false">
       <template v-if="!created">
         <h3 class="step">1 · 基本信息</h3>
-        <n-form label-placement="top">
+        <n-form @submit.prevent label-placement="top">
           <n-form-item label="名称" required>
             <n-input v-model:value="form.name" placeholder="如 HK-01" maxlength="40" />
           </n-form-item>
@@ -125,7 +125,7 @@ function openDetail() { const id = created.value.server.id; close(); router.push
             <p class="muted small">支持 Debian 11+ / Ubuntu 20.04+ / Rocky·Alma 9 / Alpine 3.18+ · amd64 / arm64</p>
           </n-tab-pane>
           <n-tab-pane name="ssh" tab="SSH 一键安装">
-            <n-form label-placement="top" size="small">
+            <n-form @submit.prevent label-placement="top" size="small">
               <div class="ssh-grid">
                 <n-form-item label="地址"><n-input v-model:value="ssh.host" placeholder="IP 或域名" /></n-form-item>
                 <n-form-item label="端口"><n-input-number v-model:value="ssh.port" :min="1" :max="65535" :show-button="false" /></n-form-item>

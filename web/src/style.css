@@ -78,3 +78,18 @@ table.plain tr:last-child td { border-bottom: none; }
   .m-item .m-row > :first-child { color: var(--c-muted); }
 }
 @media (min-width: 768px) { .only-mobile { display: none !important; } }
+/* Touch devices */
+@media (max-width: 767px) {
+  /* iOS zooms into inputs with font-size < 16px */
+  input, textarea, select, .n-input .n-input__input-el, .n-input .n-input__textarea-el, .n-base-selection-label, .n-base-selection-tags { font-size: 16px !important; }
+  .n-tabs .n-tabs-nav { overflow-x: auto; }
+  .n-modal.n-card { max-height: calc(100dvh - 24px - var(--safe-top)); overflow-y: auto; }
+  .n-data-table, .table-wrap { -webkit-overflow-scrolling: touch; }
+  .page-head { flex-wrap: wrap; }
+  .page-head .n-select { flex: 1; min-width: 160px; }
+}
+@media (hover: none) { .n-button { min-height: 32px; } }
+/* Installed app (standalone): no rubber-band on the shell */
+@media (display-mode: standalone) { html, body { overscroll-behavior-y: none; } }
+.offline-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(68px + var(--safe-bottom)); z-index: 30; background: #3d4248; color: #fff; font-size: 13px; padding: 8px 14px; border-radius: 18px; box-shadow: 0 4px 14px rgba(0, 0, 0, .18); white-space: nowrap; }
+@media (min-width: 768px) { .offline-bar { bottom: 20px; } }

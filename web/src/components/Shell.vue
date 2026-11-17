@@ -27,17 +27,44 @@ async function logout() {
   router.replace({ name: 'login' })
 }
 
+// Phones suspend the page (and its EventSource) in the background: on return,
+// reconnect right away and refetch what may have changed meanwhile.
+const online = ref(navigator.onLine)
+let hiddenAt = 0
+function resync() {
+  disconnectEvents()
+  connectEvents()
+  refreshAlertCount()
+  loadServers().catch(() => {})
+}
+function onVisibility() {
+  if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return }
+  if (hiddenAt && Date.now() - hiddenAt > 20000) resync()
+  hiddenAt = 0
+}
+function onOnline() { online.value = true; resync() }
+function onOffline() { online.value = false }
+
 onMounted(async () => {
   connectEvents()
   refreshAlertCount()
   loadServers().catch(() => {})
   api.get('/system/version').then((v) => { version.value = v.current || '' }).catch(() => {})
+  document.addEventListener('visibilitychange', onVisibility)
+  window.addEventListener('online', onOnline)
+  window.addEventListener('offline', onOffline)
 })
-onBeforeUnmount(disconnectEvents)
+onBeforeUnmount(() => {
+  disconnectEvents()
+  document.removeEventListener('visibilitychange', onVisibility)
+  window.removeEventListener('online', onOnline)
+  window.removeEventListener('offline', onOffline)
+})
 </script>
 
 <template>
   <div class="shell">
+    <div v-if="!online" class="offline-bar" role="status">网络已断开，显示的是断开前的数据</div>
     <aside class="side hide-mobile">
       <a class="brand" href="#/" @click.prevent="go('overview')">
         <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0f7b45" /><path d="M7 17h4l3-7 4 12 3-5h4" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" /></svg>

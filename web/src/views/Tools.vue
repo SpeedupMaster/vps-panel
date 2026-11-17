@@ -12,7 +12,7 @@ import WebShell from '../components/WebShell.vue'
 
 const route = useRoute()
 const router = useRouter()
-const server = ref(Number(route.query.server) || 0)
+const server = ref(Number(route.query.server) || null)
 const tab = ref(route.query.tab || 'check')
 const sv = computed(() => state.servers.find((s) => s.id === server.value))
 const serverOpts = computed(() => state.servers.filter((s) => s.status !== 'pending').map((s) => ({ label: `${s.name}${s.online ? '' : '（离线）'}`, value: s.id })))

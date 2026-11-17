@@ -99,6 +99,11 @@ func (a *API) events(c *gin.Context) {
 	c.Header("X-Accel-Buffering", "no")
 	ch := a.P.Bus.Subscribe()
 	defer a.P.Bus.Unsubscribe(ch)
+	// Send headers now so the browser's EventSource opens immediately
+	// instead of after the first event or keep-alive.
+	c.Status(http.StatusOK)
+	fmt.Fprint(c.Writer, ": hello\n\n")
+	c.Writer.Flush()
 	c.Stream(func(w io.Writer) bool {
 		select {
 		case e := <-ch:

@@ -139,10 +139,25 @@ func (a *API) mountSPA(r *gin.Engine) {
 		if name == "" {
 			name = "index.html"
 		}
-		if _, err := fs.Stat(a.Web, name); err != nil {
-			name = "index.html" // SPA fallback
+		if st, err := fs.Stat(a.Web, name); err != nil || st.IsDir() {
+			name = "index.html" // SPA fallback (and no directory listings)
 		}
-		if name == "index.html" || name == "sw.js" {
+		if name == "index.html" {
+			// Written directly: http.FileServer redirects /index.html to ./,
+			// which would loop with the rewrite below.
+			b, err := fs.ReadFile(a.Web, "index.html")
+			if err != nil {
+				c.Status(http.StatusNotFound)
+				return
+			}
+			c.Header("Cache-Control", "no-cache")
+			c.Data(http.StatusOK, "text/html; charset=utf-8", b)
+			return
+		}
+		if strings.HasSuffix(name, ".webmanifest") {
+			c.Header("Content-Type", "application/manifest+json")
+		}
+		if name == "sw.js" || strings.HasSuffix(name, ".webmanifest") {
 			c.Header("Cache-Control", "no-cache")
 		} else if strings.HasPrefix(name, "assets/") {
 			c.Header("Cache-Control", "public, max-age=31536000, immutable")

@@ -18,7 +18,7 @@ const matrix = ref([])
 const segs = ref([])
 const peers = ref([])
 const series = ref({})
-const server = ref(0)
+const server = ref(null)
 const range = ref(86400)
 const managing = ref(false)
 
@@ -150,7 +150,7 @@ function peerStyle(c) {
     <div class="card">
       <div class="card-title">
         <h2>回程</h2>
-        <n-select v-model:value="server" :options="serverOpts" size="small" style="width: 150px" filterable />
+        <n-select v-model:value="server" :options="serverOpts" size="small" style="width: 150px" filterable placeholder="选择服务器" />
         <n-select v-model:value="range" :options="ranges" size="small" style="width: 100px" />
         <span class="spacer" />
         <span class="legend small"><i class="band" />最小 ~ 最大 <i class="line" />中位数 <i class="pt warn" />丢包 1–20% <i class="pt bad" />丢包 &gt; 20%</span>
