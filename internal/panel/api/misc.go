@@ -160,6 +160,8 @@ var settingKeys = []string{
 	"sub_name_tpl", "sub_profile_name", "sub_update_hours", "sub_userinfo", "sub_exclude_blocked", "sub_exclude_offline",
 	// alerts
 	"alert_quiet", "alert_recovery", "traffic_spike_factor", "traffic_spike_min_gb",
+	// public status page
+	"status_enabled", "status_title", "status_servers", "status_show_latency",
 	// updates & signing
 	"sign_pubkey", "panel_repo",
 	// backups

@@ -79,6 +79,12 @@ const groups = {
       S('panel_repo', '面板发布仓库', '', 'GitHub owner/repo，用于检查面板新版本'),
       { k: 'sign_pubkey', label: 'Agent 签名公钥', type: 'text', def: '', hint: 'Ed25519 公钥（base64）。设置后 Agent 只接受签名正确的升级包' },
     ] },
+    { title: '公开状态页', link: 'status', fields: [
+      B('status_enabled', '开启', false, '任何人都能打开 /status 查看；页面不显示 IP、服务商、版本，也不链接到面板'),
+      S('status_title', '标题', '服务状态', ''),
+      { k: 'status_servers', label: '显示的服务器', type: 'servers', def: '', hint: '不选 = 全部' },
+      B('status_show_latency', '显示三网回程延迟', true, ''),
+    ] },
   ],
   agent: [
     { title: 'Agent', fields: [
@@ -273,7 +279,10 @@ onMounted(() => {
       <n-tab-pane v-for="t in settingsTabs" :key="t.name" :name="t.name" :tab="t.label">
         <div class="settings">
           <div v-for="g in groups[t.name]" :key="g.title" class="card">
-            <div class="card-title"><h2>{{ g.title }}</h2></div>
+            <div class="card-title">
+              <h2>{{ g.title }}</h2><span class="spacer" />
+              <a v-if="g.link === 'status' && orig.status_enabled === '1'" class="small" href="/status" target="_blank" rel="noopener">打开</a>
+            </div>
             <div v-for="f in g.fields" :key="f.k" class="field">
               <div class="f-label"><span>{{ f.label }}</span><span v-if="f.hint" class="small muted">{{ f.hint }}</span></div>
               <div class="f-ctl">
@@ -283,6 +292,10 @@ onMounted(() => {
                   <span v-if="f.unit" class="small muted">{{ f.unit }}</span>
                 </div>
                 <n-select v-else-if="f.type === 'select'" :value="cfg[f.k] || f.def" :options="f.options.map((o) => ({ label: o, value: o }))" style="width: 180px" @update:value="(v) => setVal(f.k, v)" />
+                <n-select v-else-if="f.type === 'servers'" multiple clearable placeholder="全部" style="width: 280px; max-width: 100%"
+                  :value="(cfg[f.k] || '').split(',').filter((x) => x && x !== 'all').map(Number)"
+                  :options="state.servers.map((s) => ({ label: s.name, value: s.id }))"
+                  @update:value="(v) => setVal(f.k, v.join(','))" />
                 <n-input v-else-if="f.type === 'text'" :value="cfg[f.k]" type="textarea" :rows="2" class="mono" :placeholder="f.def" @update:value="(v) => setVal(f.k, v)" />
                 <n-input v-else :value="cfg[f.k]" :placeholder="f.def || '未设置'" clearable @update:value="(v) => setVal(f.k, v)" />
               </div>

@@ -44,6 +44,7 @@ func (a *API) Router() *gin.Engine {
 	r.GET("/install.sh", a.installScript)
 	r.GET("/dl/agent/:file", a.downloadAgent)
 	r.GET("/healthz", func(c *gin.Context) { c.String(200, "ok") })
+	r.GET("/status", a.statusPage) // public status page, off unless status_enabled
 
 	api := r.Group("/api", a.ipAllow)
 	api.POST("/auth/login", a.login)
