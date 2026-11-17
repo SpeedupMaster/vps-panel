@@ -249,6 +249,7 @@ const routeTotal = computed(() => (traffic.value?.routes || []).reduce((a, r) =>
 // ---------- asset ----------
 const asset = ref({})
 const assetOrig = ref({})
+const xrayOutdated = computed(() => !!(releases.value.xray && sv.value?.xray_version && releases.value.xray.replace(/^v/, '') !== sv.value.xray_version.replace(/^v/, '')))
 const assetDirty = (k) => (asset.value[k] ?? null) !== (assetOrig.value[k] ?? null)
 const assetDirtyCount = computed(() => Object.keys(asset.value).filter(assetDirty).length)
 function fillAsset() {
@@ -306,7 +307,7 @@ function diffClass(line) {
             <span v-for="r in roleText" :key="r" class="tag info">{{ r }}</span>
             <span :class="['tag', statusTag[0]]">{{ statusTag[1] }}</span>
           </div>
-          <div class="muted small">
+          <div class="page-desc">
             {{ sv.region || '地区未知' }}
             <template v-if="sv.latest?.uptime"> · 已运行 {{ dur(sv.latest.uptime) }}</template>
             · 最后心跳 {{ ago(sv.last_seen_at) }}
@@ -324,70 +325,157 @@ function diffClass(line) {
 
       <n-tabs v-model:value="tab" type="line" animated :tab-style="isMobile ? 'padding: 8px 4px' : ''">
         <n-tab-pane name="overview" tab="概览">
-          <div class="detail-grid">
-            <div class="card span2">
-              <div class="card-title"><h2>监控</h2><span class="spacer" /><n-select v-model:value="range" :options="ranges" size="small" style="width: 110px" /></div>
-              <div v-if="!metrics.length" class="empty">暂无数据</div>
-              <div v-else class="charts">
-                <div><div class="chart-h">CPU</div><chart :option="cpuOpt" height="180px" /></div>
-                <div><div class="chart-h">内存</div><chart :option="memOpt" height="180px" /></div>
-                <div><div class="chart-h">网络</div><chart :option="netOpt" height="180px" /></div>
-                <div><div class="chart-h">连接数 / 负载</div><chart :option="connOpt" height="180px" /></div>
+          <div class="sections">
+            <section class="s-group">
+              <div class="s-head">
+                <h2>监控</h2>
+                <p>CPU、内存、网络和连接数，按所选时间范围显示。</p>
               </div>
-            </div>
-            <div class="card span2">
-              <div class="card-title">
-                <h2>回程延迟</h2><span class="muted small">近 24 小时，三网各自的中位数</span><span class="spacer" />
-                <router-link :to="{ name: 'latency', query: { server: id } }" class="small">详细</router-link>
+              <div class="card s-card">
+                <div class="s-card-head">
+                  <span class="f-hint">时间范围</span>
+                  <span class="spacer" />
+                  <n-select v-model:value="range" :options="ranges" size="small" style="width: 110px" aria-label="时间范围" />
+                </div>
+                <div v-if="!metrics.length" class="empty">暂无数据</div>
+                <div v-else class="charts">
+                  <div><div class="chart-h">CPU</div><chart :option="cpuOpt" height="180px" /></div>
+                  <div><div class="chart-h">内存</div><chart :option="memOpt" height="180px" /></div>
+                  <div><div class="chart-h">网络</div><chart :option="netOpt" height="180px" /></div>
+                  <div><div class="chart-h">连接数 / 负载</div><chart :option="connOpt" height="180px" /></div>
+                </div>
               </div>
-              <div v-if="!bhOpt" class="empty">还没有探测数据</div>
-              <chart v-else :option="bhOpt" height="200px" />
-            </div>
-            <div class="card">
-              <div class="card-title"><h2>系统信息</h2></div>
-              <div class="kv">
-                <span>IPv4</span><span class="mono">{{ sv.ipv4 || '—' }}</span>
-                <span>IPv6</span><span class="mono">{{ sv.ipv6 || '—' }}</span>
-                <span>系统</span><span>{{ sys.os || '—' }}{{ sys.kernel ? ' · 内核 ' + sys.kernel : '' }}</span>
-                <span>虚拟化</span><span>{{ sys.virt || '—' }} · {{ sys.arch || '' }}</span>
-                <span>配置</span><span>{{ sys.cpu_cores || '?' }} vCPU · {{ bytes(sys.mem_total, 0) }} · {{ bytes(sys.disk_total, 0) }}</span>
-                <span>CPU</span><span class="small">{{ sys.cpu_model || '—' }}</span>
-                <span>连接数</span><span>TCP {{ sv.latest?.tcp ?? '—' }} · UDP {{ sv.latest?.udp ?? '—' }}</span>
-                <span>磁盘</span><span>{{ bytes(sv.latest?.disk_used) }} / {{ bytes(sys.disk_total, 0) }}</span>
+            </section>
+
+            <section class="s-group">
+              <div class="s-head">
+                <h2>回程延迟</h2>
+                <p>近 24 小时到国内三网的延迟中位数。<router-link :to="{ name: 'latency', query: { server: id } }">查看详细</router-link></p>
               </div>
-            </div>
-            <div class="card">
-              <div class="card-title"><h2>本周期流量</h2><span class="muted small">{{ date(usage.cycle_start).slice(5) }} → {{ date(usage.cycle_end).slice(5) }}</span></div>
-              <div class="big">{{ bytes(usage.counted) }}<small v-if="sv.quota_bytes"> / {{ bytes(sv.quota_bytes, 0) }}</small></div>
-              <n-progress v-if="sv.quota_bytes" type="line" :percentage="Math.min(100, usage.percent || 0)" :show-indicator="false" :height="6" :color="usage.percent >= 90 ? '#b4233a' : '#0f7b45'" style="margin: 8px 0" />
-              <p class="small muted">计费口径：{{ countModeText[sv.count_mode] || '只计出站' }} · 每月 {{ sv.reset_day || 1 }} 日重置</p>
-              <p v-if="sv.quota_bytes" class="small">
-                <template v-if="usage.forecast_at">按当前速度，预计 <b class="bad-text">{{ date(usage.forecast_at) }}</b> 用完额度</template>
-                <template v-else>按当前速度，本周期不会超额</template>
-              </p>
-              <p class="small muted">↑ 出站 {{ bytes(usage.up) }} · ↓ 入站 {{ bytes(usage.down) }}</p>
-              <p class="small muted">超额动作：{{ sv.on_exceeded === 'stop_xray' ? '告警并停止 Xray' : '仅告警（80% / 90% / 100%）' }}</p>
-            </div>
-            <div class="card">
-              <div class="card-title"><h2>网络优化</h2><span class="spacer" />
-                <n-button size="small" :disabled="!sv.online || !sv.switches?.allow_system_tune" @click="router.push({ name: 'tools', query: { server: sv.id, tab: 'bbr' } })">调整</n-button>
+              <div class="card s-card">
+                <div v-if="!bhOpt" class="empty">还没有探测数据</div>
+                <div v-else class="chart-pad"><chart :option="bhOpt" height="200px" /></div>
               </div>
-              <div class="row">
-                <span :class="['tag', sys.congestion === 'bbr' ? 'ok' : 'warn']">{{ sys.congestion === 'bbr' ? 'BBR 已开启' : '拥塞控制 ' + (sys.congestion || '未知') }}</span>
-                <span class="tag">队列 {{ sys.qdisc || '—' }}</span>
+            </section>
+
+            <section class="s-group">
+              <div class="s-head">
+                <h2>本周期流量</h2>
+                <p>{{ date(usage.cycle_start) }} 至 {{ date(usage.cycle_end) }}，每月 {{ sv.reset_day || 1 }} 日重置。额度和计费口径在「资产」里修改。</p>
               </div>
-              <p v-if="!sv.switches?.allow_system_tune" class="small muted">这台机器的 Agent 关闭了系统调优开关（本地配置 allow_system_tune）。</p>
-              <button v-else class="link-btn small" style="margin-top: 10px" :disabled="!sv.online" @click="runTool('restore_net', '恢复网络参数')">恢复调优前的参数</button>
-            </div>
-            <div class="card">
-              <div class="card-title"><h2>版本</h2><span class="spacer" /><router-link :to="{ name: 'updates' }" class="small">更新中心</router-link></div>
-              <div class="kv">
-                <span>Agent</span><span>{{ sv.agent_version || '—' }} <span v-if="releases.agent && sv.agent_version && releases.agent !== sv.agent_version" class="tag warn">可更新到 {{ releases.agent }}</span></span>
-                <template v-if="sv.mode === 'node'">
-                  <span>Xray</span><span>{{ sv.xray_version || '—' }} <span v-if="releases.xray && sv.xray_version && releases.xray.replace(/^v/, '') !== sv.xray_version.replace(/^v/, '')" class="tag warn">可更新到 {{ releases.xray }}</span><span v-if="sv.xray_locked_version" class="tag">锁定 {{ sv.xray_locked_version }}</span></span>
-                </template>
+              <div class="card s-card">
+                <div class="usage">
+                  <div class="big">{{ bytes(usage.counted) }}<small v-if="sv.quota_bytes"> / {{ bytes(sv.quota_bytes, 0) }}</small><small v-else> · 不限额</small></div>
+                  <n-progress v-if="sv.quota_bytes" type="line" :percentage="Math.min(100, usage.percent || 0)" :show-indicator="false" :height="6" :color="usage.percent >= 90 ? '#b4233a' : '#0f7b45'" />
+                  <span v-if="sv.quota_bytes" :class="['small', usage.forecast_at ? 'bad-text' : 'muted']">
+                    {{ usage.forecast_at ? '按当前速度，预计 ' + date(usage.forecast_at) + ' 用完额度' : '按当前速度，本周期不会超额' }}
+                  </span>
+                </div>
+                <div class="field f-inline">
+                  <div class="f-label"><span class="f-name">出站 / 入站</span></div>
+                  <div class="f-ctl"><span class="f-val">↑ {{ bytes(usage.up) }} · ↓ {{ bytes(usage.down) }}</span></div>
+                </div>
+                <div class="field f-inline">
+                  <div class="f-label"><span class="f-name">计费口径</span></div>
+                  <div class="f-ctl"><span class="f-val">{{ countModeText[sv.count_mode] || '只计出站' }}</span></div>
+                </div>
+                <div class="field f-inline">
+                  <div class="f-label"><span class="f-name">超额动作</span></div>
+                  <div class="f-ctl"><span class="f-val">{{ sv.on_exceeded === 'stop_xray' ? '告警并停止 Xray' : '仅告警（80% / 90% / 100%）' }}</span></div>
+                </div>
               </div>
-            </div>
+            </section>
+
+            <section class="s-group">
+              <div class="s-head">
+                <h2>系统信息</h2>
+                <p>由 Agent 自动上报。</p>
+              </div>
+              <div class="card s-card">
+                <div class="field f-inline">
+                  <div class="f-label"><span class="f-name">IPv4</span></div>
+                  <div class="f-ctl"><span class="f-val mono">{{ sv.ipv4 || '—' }}</span></div>
+                </div>
+                <div class="field f-inline">
+                  <div class="f-label"><span class="f-name">IPv6</span></div>
+                  <div class="f-ctl"><span class="f-val mono">{{ sv.ipv6 || '—' }}</span></div>
+                </div>
+                <div class="field f-inline">
+                  <div class="f-label"><span class="f-name">系统</span><span v-if="sys.kernel" class="f-hint">内核 {{ sys.kernel }}</span></div>
+                  <div class="f-ctl"><span class="f-val">{{ sys.os || '—' }}</span></div>
+                </div>
+                <div class="field f-inline">
+                  <div class="f-label"><span class="f-name">配置</span><span v-if="sys.cpu_model" class="f-hint">{{ sys.cpu_model }}</span></div>
+                  <div class="f-ctl"><span class="f-val">{{ sys.cpu_cores ? sys.cpu_cores + ' vCPU · ' + bytes(sys.mem_total, 0) + ' · ' + bytes(sys.disk_total, 0) : '—' }}</span></div>
+                </div>
+                <div class="field f-inline">
+                  <div class="f-label"><span class="f-name">虚拟化</span></div>
+                  <div class="f-ctl"><span class="f-val">{{ [sys.virt, sys.arch].filter(Boolean).join(' · ') || '—' }}</span></div>
+                </div>
+                <div class="field f-inline">
+                  <div class="f-label"><span class="f-name">磁盘</span></div>
+                  <div class="f-ctl"><span class="f-val">{{ sys.disk_total ? bytes(sv.latest?.disk_used) + ' / ' + bytes(sys.disk_total, 0) : '—' }}</span></div>
+                </div>
+                <div class="field f-inline">
+                  <div class="f-label"><span class="f-name">连接数</span></div>
+                  <div class="f-ctl"><span class="f-val">TCP {{ sv.latest?.tcp ?? '—' }} · UDP {{ sv.latest?.udp ?? '—' }}</span></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="s-group">
+              <div class="s-head">
+                <h2>网络优化</h2>
+                <p>TCP 拥塞控制与队列算法。调整在「工具 → 网络优化」里进行。</p>
+              </div>
+              <div class="card s-card">
+                <div class="field f-inline">
+                  <div class="f-label"><span class="f-name">拥塞控制</span></div>
+                  <div class="f-ctl"><span :class="['tag', sys.congestion === 'bbr' ? 'ok' : 'warn']">{{ sys.congestion === 'bbr' ? 'BBR 已开启' : (sys.congestion || '未知') }}</span></div>
+                </div>
+                <div class="field f-inline">
+                  <div class="f-label"><span class="f-name">队列</span></div>
+                  <div class="f-ctl"><span class="f-val mono">{{ sys.qdisc || '—' }}</span></div>
+                </div>
+                <div v-if="!sv.switches?.allow_system_tune" class="banner warn">这台机器的 Agent 关闭了系统调优（本地配置 allow_system_tune），不能在面板里调整。</div>
+                <div class="f-actions">
+                  <button v-if="sv.switches?.allow_system_tune" class="link-btn small" :disabled="!sv.online" @click="runTool('restore_net', '恢复网络参数')">恢复调优前的参数</button>
+                  <span class="spacer" />
+                  <n-button :disabled="!sv.online || !sv.switches?.allow_system_tune" @click="router.push({ name: 'tools', query: { server: sv.id, tab: 'bbr' } })">调整</n-button>
+                </div>
+              </div>
+            </section>
+
+            <section class="s-group">
+              <div class="s-head">
+                <h2>版本</h2>
+                <p>批量更新在<router-link :to="{ name: 'updates' }">更新中心</router-link>。</p>
+              </div>
+              <div class="card s-card">
+                <div class="field f-inline">
+                  <div class="f-label">
+                    <span class="f-name">Agent</span>
+                    <span v-if="releases.agent && sv.agent_version && releases.agent !== sv.agent_version" class="f-hint">最新 {{ releases.agent }}</span>
+                  </div>
+                  <div class="f-ctl ver">
+                    <span class="f-val mono">{{ sv.agent_version || '—' }}</span>
+                    <span v-if="releases.agent && sv.agent_version && releases.agent !== sv.agent_version" class="tag warn">可更新</span>
+                  </div>
+                </div>
+                <div v-if="sv.mode === 'node'" class="field f-inline">
+                  <div class="f-label">
+                    <span class="f-name">Xray</span>
+                    <span v-if="sv.xray_locked_version" class="f-hint">已锁定在 {{ sv.xray_locked_version }}，批量更新会跳过</span>
+                    <span v-else-if="xrayOutdated" class="f-hint">最新 {{ releases.xray }}</span>
+                  </div>
+                  <div class="f-ctl ver">
+                    <span class="f-val mono">{{ sv.xray_version || '—' }}</span>
+                    <span v-if="sv.xray_locked_version" class="tag">锁定</span>
+                    <span v-else-if="xrayOutdated" class="tag warn">可更新</span>
+                  </div>
+                </div>
+              </div>
+            </section>
           </div>
         </n-tab-pane>
 
@@ -723,6 +811,12 @@ function diffClass(line) {
 .title h1 { font-size: 22px; }
 .detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding-top: 8px; }
 .span2 { grid-column: span 2; }
+.chart-pad { padding: 12px 0; }
+.usage { display: flex; flex-direction: column; gap: 8px; padding: 16px 0 14px; }
+.f-val { font-size: 13.5px; text-align: right; overflow-wrap: anywhere; }
+.f-ctl.ver { display: flex; align-items: center; gap: 8px; }
+.s-card > .charts { padding: 4px 0 16px; }
+.s-card > .banner { margin: 4px 0 0; }
 .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px; }
 .chart-h { font-size: 12px; color: var(--c-muted); }
 .big { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
