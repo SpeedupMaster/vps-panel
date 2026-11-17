@@ -126,9 +126,13 @@ async function activate(t, v) {
       <n-button @click="rotateAll">一键轮换</n-button>
     </div>
 
-    <div class="card">
-      <div class="card-title"><h2>设备订阅</h2><span class="spacer" /><n-button size="small" type="primary" @click="adding.show = true">添加设备</n-button></div>
-      <p class="muted small" style="margin-top: -6px">每台设备一个独立链接，可单独重置或停用。所有设备看到的线路相同。</p>
+    <section class="l-sec">
+    <div class="sec-head">
+      <div class="s-head"><h2>设备订阅</h2><p>每台设备一个独立链接，可单独重置或停用。所有设备看到的线路相同。</p></div>
+      <span class="spacer" />
+      <n-button type="primary" @click="adding.show = true">添加设备</n-button>
+    </div>
+    <div class="card s-card">
       <div v-if="!tokens.length" class="empty">还没有订阅链接</div>
       <template v-else>
         <div class="table-wrap hide-mobile">
@@ -167,10 +171,12 @@ async function activate(t, v) {
         </div>
       </template>
     </div>
+    </section>
 
     <div class="grid-2">
+      <section class="l-sec">
+      <div class="sec-head"><div class="s-head"><h2>订阅设置</h2><p>节点命名、要剔除的线路和客户端拉取方式，对所有设备生效。</p></div></div>
       <div class="card s-card">
-        <div class="s-card-head"><h2>订阅设置</h2></div>
         <div class="field">
           <div class="f-label"><span class="f-name">节点命名模板<i v-if="subDirty('sub_name_tpl')" class="f-dot" /></span><span class="f-hint">可用 {flag} {name} {entry} {landing}<template v-if="nameExample">。示例：{{ nameExample }}</template></span></div>
           <div class="f-ctl"><n-input v-model:value="settings.sub_name_tpl" placeholder="默认 {flag} {name}" /></div>
@@ -206,20 +212,30 @@ async function activate(t, v) {
           <n-button type="primary" :disabled="!subDirtyAny" @click="saveSettings">保存</n-button>
         </div>
       </div>
-      <div class="card">
-        <div class="card-title"><h2>内容预览</h2>
-          <n-select v-model:value="preview.target" :options="targets.slice(1)" size="small" style="width: 130px" />
-          <span class="muted small">{{ preview.nodes }} 个节点</span>
-          <span class="spacer" /><n-button size="small" @click="copyPreview">复制</n-button>
+      </section>
+      <section class="l-sec">
+        <div class="sec-head">
+          <div class="s-head"><h2>内容预览</h2><p>按所选格式生成的订阅内容，共 {{ preview.nodes }} 个节点。</p></div>
+          <span class="spacer" />
+          <n-select v-model:value="preview.target" :options="targets.slice(1)" aria-label="格式" style="width: 130px" />
+          <n-button @click="copyPreview">复制</n-button>
         </div>
-        <pre class="pre light preview">{{ preview.content }}</pre>
-      </div>
+        <div class="card s-card">
+          <div class="s-pad"><pre class="pre light preview">{{ preview.content }}</pre></div>
+        </div>
+      </section>
     </div>
 
-    <div class="card">
-      <div class="card-title"><h2>规则模板</h2><span class="muted small">内置：国内直连 + AI / 流媒体分组</span><span class="spacer" /><n-button size="small" @click="editTemplate(null)">自定义模板</n-button></div>
-      <div v-if="!templates.length" class="muted small">正在使用内置模板。</div>
-      <table v-else class="plain">
+    <section class="l-sec">
+    <div class="sec-head">
+      <div class="s-head"><h2>规则模板</h2><p>分流规则模板。没有启用自定义模板时，使用内置的国内直连 + AI / 流媒体分组。</p></div>
+      <span class="spacer" />
+      <n-button @click="editTemplate(null)">自定义模板</n-button>
+    </div>
+    <div class="card s-card">
+      <div v-if="!templates.length" class="empty">正在使用内置模板</div>
+      <div v-else class="table-wrap">
+      <table class="plain">
         <thead><tr><th>名称</th><th>格式</th><th>启用</th><th /></tr></thead>
         <tbody>
           <tr v-for="t in templates" :key="t.id">
@@ -229,10 +245,17 @@ async function activate(t, v) {
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
+    </section>
 
-    <div class="card">
-      <div class="card-title"><h2>访问日志</h2><span class="muted small">保留 30 天</span><span class="spacer" /><n-select v-model:value="logToken" :options="tokenOpts" size="small" style="width: 140px" /></div>
+    <section class="l-sec">
+    <div class="sec-head">
+      <div class="s-head"><h2>访问日志</h2><p>客户端每次拉取订阅的记录，保留 30 天。</p></div>
+      <span class="spacer" />
+      <n-select v-model:value="logToken" :options="tokenOpts" aria-label="设备" style="width: 140px" />
+    </div>
+    <div class="card s-card">
       <div v-if="!logs.length" class="empty">暂无记录</div>
       <div v-else class="table-wrap">
         <table class="plain">
@@ -247,6 +270,7 @@ async function activate(t, v) {
         </table>
       </div>
     </div>
+    </section>
 
     <n-modal v-model:show="adding.show" preset="card" title="添加设备" style="width: min(420px, 94vw)">
       <div class="m-form">

@@ -130,20 +130,19 @@ const botCmds = [['/status', '所有服务器在线状态与告警概况'], ['/v
   <div class="page">
     <div class="page-head">
       <div class="ph"><h1>告警</h1><p class="page-desc"><template v-if="firing">{{ firing }} 条告警进行中。</template><template v-else>没有进行中的告警。</template>在这里管理触发规则和通知渠道。</p></div>
-      <span class="spacer" />
-      <n-button @click="tab = 'rules'; editRule(null)">新建规则</n-button>
     </div>
 
     <n-tabs v-model:value="tab" type="line" animated>
       <n-tab-pane name="events" tab="事件">
-        <div class="card">
-          <div class="card-title">
-            <n-select v-model:value="fStatus" :options="statusOpts" size="small" style="width: 100px" />
-            <n-select v-model:value="fSev" :options="sevOpts" size="small" style="width: 110px" />
-            <n-select v-model:value="fServer" :options="serverOpts" size="small" style="width: 140px" filterable />
-            <span class="spacer" />
-            <n-button size="small" :disabled="!firing" @click="ackAll">全部确认</n-button>
-          </div>
+        <div class="sec-head">
+          <div class="s-head"><h2>告警事件</h2><p>进行中的告警可以确认或静默一段时间，条件恢复后自动关闭。</p></div>
+          <span class="spacer" />
+          <n-select v-model:value="fStatus" :options="statusOpts" aria-label="状态" style="width: 100px" />
+          <n-select v-model:value="fSev" :options="sevOpts" aria-label="严重度" style="width: 110px" />
+          <n-select v-model:value="fServer" :options="serverOpts" aria-label="服务器" style="width: 140px" filterable />
+          <n-button :disabled="!firing" @click="ackAll">全部确认</n-button>
+        </div>
+        <div class="card s-card">
           <div v-if="!events.length" class="empty">没有告警</div>
           <template v-else>
             <div class="table-wrap hide-mobile">
@@ -196,8 +195,14 @@ const botCmds = [['/status', '所有服务器在线状态与告警概况'], ['/v
       </n-tab-pane>
 
       <n-tab-pane name="rules" tab="规则">
-        <div class="card">
-          <div class="table-wrap">
+        <div class="sec-head">
+          <div class="s-head"><h2>告警规则</h2><p>条件持续满足时按严重度通知所选渠道，冷却时间内同一规则不重复通知。</p></div>
+          <span class="spacer" />
+          <n-button type="primary" @click="editRule(null)">新建规则</n-button>
+        </div>
+        <div class="card s-card">
+          <div v-if="!rules.length" class="empty">还没有告警规则</div>
+          <div v-else class="table-wrap">
             <table class="plain">
               <thead><tr><th>规则</th><th>条件</th><th>范围</th><th>冷却</th><th>严重度</th><th>渠道</th><th>启用</th><th /></tr></thead>
               <tbody>
@@ -214,7 +219,6 @@ const botCmds = [['/status', '所有服务器在线状态与告警概况'], ['/v
               </tbody>
             </table>
           </div>
-          <n-button size="small" style="margin-top: 12px" @click="editRule(null)">新建规则</n-button>
         </div>
       </n-tab-pane>
 

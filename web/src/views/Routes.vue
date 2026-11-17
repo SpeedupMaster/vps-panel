@@ -94,11 +94,17 @@ function latency(r) {
       <n-button type="primary" @click="router.push({ name: 'route-new' })">新建线路</n-button>
     </div>
 
-    <div class="card">
-      <div class="card-title">
-        <n-select v-model:value="entry" :options="entries" size="small" style="width: 140px" />
-        <n-select v-model:value="status" :options="statuses" size="small" style="width: 120px" />
+    <section class="l-sec">
+    <div class="sec-head">
+      <div class="s-head">
+        <h2>全部线路</h2>
+        <p>估算延迟 = 入口回程（三网平均）+ 入口到落地线路段。疑似被封的线路会自动移出订阅，恢复后自动加回。</p>
       </div>
+      <span class="spacer" />
+      <n-select v-model:value="entry" :options="entries" aria-label="入口" style="width: 140px" />
+      <n-select v-model:value="status" :options="statuses" aria-label="状态" style="width: 120px" />
+    </div>
+    <div class="card s-card">
       <div v-if="!loaded" class="empty">加载中…</div>
       <div v-else-if="!routes.length" class="empty">还没有线路。先添加一台开启 Reality 的节点，再<router-link :to="{ name: 'route-new' }">新建线路</router-link>。</div>
       <template v-else>
@@ -144,16 +150,21 @@ function latency(r) {
           </div>
         </div>
       </template>
-      <p class="small muted foot">估算延迟 = 入口回程（三网平均）+ 入口到落地线路段。疑似被封的线路会自动移出订阅，恢复后自动加回。</p>
     </div>
+    </section>
 
-    <div v-for="l in landings" :key="l.server.id" class="card">
-      <div class="card-title"><h2>落地 {{ l.server.name }} · SS2022 入站</h2></div>
-      <p v-if="l.landing" class="small muted" style="margin-top: -6px">端口 {{ l.landing.port }} · {{ l.landing.method }} · tcp,udp · {{ l.landing_firewall ? `防火墙只放行 ${l.landing_users?.length || 0} 个入口` : '防火墙白名单未启用' }}</p>
-      <div v-if="!l.landing_users?.length" class="muted small">还没有入口机使用这台落地</div>
+    <section v-for="l in landings" :key="l.server.id" class="l-sec">
+      <div class="sec-head">
+        <div class="s-head">
+          <h2>落地 {{ l.server.name }} · SS2022 入站</h2>
+          <p v-if="l.landing">端口 {{ l.landing.port }} · {{ l.landing.method }} · tcp,udp。{{ l.landing_firewall ? `防火墙只放行 ${l.landing_users?.length || 0} 个入口。` : '防火墙白名单未启用。' }}每个入口机在这台落地上有一个独立用户。</p>
+        </div>
+      </div>
+      <div class="card s-card">
+      <div v-if="!l.landing_users?.length" class="empty">还没有入口机使用这台落地</div>
       <div class="table-wrap" v-else>
         <table class="plain">
-          <thead><tr><th>用户（每个入口一个）</th><th>来源</th><th>本月上行</th><th>本月下行</th><th v-if="l.landing_firewall">白名单</th></tr></thead>
+          <thead><tr><th>用户</th><th>来源</th><th>本月上行</th><th>本月下行</th><th v-if="l.landing_firewall">白名单</th></tr></thead>
           <tbody>
             <tr v-for="u in l.landing_users" :key="u.id">
               <td class="mono small">{{ u.email }}</td>
@@ -165,7 +176,8 @@ function latency(r) {
           </tbody>
         </table>
       </div>
-    </div>
+      </div>
+    </section>
 
     <qr-modal v-model:show="qr.show" :text="qr.text" :title="qr.title" hint="用客户端扫码导入（单条线路）" />
   </div>
@@ -173,6 +185,5 @@ function latency(r) {
 
 <style scoped>
 .dim { opacity: .55; }
-.foot { margin: 12px 0 0; }
 @media (max-width: 767px) { .page-head .n-button { flex: 1; } }
 </style>

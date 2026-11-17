@@ -112,14 +112,18 @@ const shareTotal = computed(() => (ov.value?.traffic_share || []).reduce((a, b) 
       <n-button size="small" quaternary @click="dismiss(s.id)">忽略</n-button>
     </div>
 
-    <div class="card">
-      <div class="card-title">
+    <section class="l-sec">
+    <div class="sec-head">
+      <div class="s-head">
         <h2>服务器</h2>
-        <span class="spacer" />
-        <n-input v-model:value="q" placeholder="搜索" clearable size="small" class="only-mobile" style="width: 120px" />
-        <n-select v-model:value="group" :options="groups" size="small" style="width: 130px" />
-        <n-select v-model:value="sortBy" :options="sorts" size="small" style="width: 110px" />
+        <p>{{ state.serversLoaded ? (q || group ? `筛选出 ${list.length} 台，共 ${state.servers.length} 台。` : `共 ${state.servers.length} 台。`) : '' }}点击一行查看监控、Xray 和流量详情。</p>
       </div>
+      <span class="spacer" />
+      <n-input v-model:value="q" placeholder="搜索" clearable class="only-mobile" style="width: 120px" />
+      <n-select v-model:value="group" :options="groups" aria-label="分组" style="width: 130px" />
+      <n-select v-model:value="sortBy" :options="sorts" aria-label="排序" style="width: 110px" />
+    </div>
+    <div class="card s-card">
       <div v-if="!state.serversLoaded" class="empty">加载中…</div>
       <div v-else-if="!state.servers.length" class="empty">
         还没有服务器。<button class="link-btn" @click="adding = true">添加第一台</button>
@@ -178,33 +182,47 @@ const shareTotal = computed(() => (ov.value?.traffic_share || []).reduce((a, b) 
         </div>
       </template>
     </div>
+    </section>
 
     <div class="grid-2">
-      <div class="card">
-        <div class="card-title"><h2>最近告警</h2><span class="spacer" /><router-link :to="{ name: 'alerts' }" class="small">全部告警</router-link></div>
-        <div v-if="!ov?.recent_alerts?.length" class="empty">暂无告警</div>
-        <div v-for="a in ov?.recent_alerts || []" :key="a.id" class="alert-row">
-          <span :class="['tag', a.status === 'firing' ? sevClass[a.severity] : 'ok']">{{ a.status === 'firing' ? sevLabel[a.severity] : '已恢复' }}</span>
-          <span class="alert-text">{{ a.text }}</span>
-          <span class="muted small nowrap">{{ ago(a.started_at) }}</span>
+      <section class="l-sec">
+        <div class="sec-head">
+          <div class="s-head"><h2>最近告警</h2><p>最近触发和恢复的告警。</p></div>
+          <span class="spacer" />
+          <router-link :to="{ name: 'alerts' }" class="small">全部告警</router-link>
         </div>
-      </div>
-      <div class="card">
-        <div class="card-title"><h2>本周期流量占比</h2><span class="muted small">按各自计费口径</span></div>
-        <div v-if="!shareTotal" class="empty">暂无流量数据</div>
-        <div v-for="t in (ov?.traffic_share || []).filter((x) => x.used > 0).slice(0, 8)" :key="t.id" class="share-row">
-          <span class="share-name">{{ t.name }}</span>
-          <div class="share-bar"><div :style="{ width: (t.used / shareTotal * 100) + '%' }" /></div>
-          <span class="mono small nowrap">{{ bytes(t.used) }}</span>
-        </div>
-        <template v-if="ov?.expiring?.length">
-          <h3 class="sub-h">即将到期</h3>
-          <div v-for="e in ov.expiring" :key="e.id" class="row small" style="padding: 4px 0">
-            <router-link :to="{ name: 'server', params: { id: e.id } }">{{ e.name }}</router-link>
-            <span class="spacer" />
-            <span :class="e.days <= 7 ? 'bad-text' : 'muted'">{{ date(e.at) }} · {{ e.days < 0 ? '已过期' : e.days + ' 天' }}</span>
+        <div class="card s-card">
+          <div v-if="!ov?.recent_alerts?.length" class="empty">暂无告警</div>
+          <div v-for="a in ov?.recent_alerts || []" :key="a.id" class="alert-row">
+            <span :class="['tag', a.status === 'firing' ? sevClass[a.severity] : 'ok']">{{ a.status === 'firing' ? sevLabel[a.severity] : '已恢复' }}</span>
+            <span class="alert-text">{{ a.text }}</span>
+            <span class="muted small nowrap">{{ ago(a.started_at) }}</span>
           </div>
-        </template>
+        </div>
+      </section>
+      <div class="l-col">
+        <section class="l-sec">
+          <div class="sec-head"><div class="s-head"><h2>本周期流量占比</h2><p>按各台的计费口径统计，显示用量最多的 8 台。</p></div></div>
+          <div class="card s-card">
+            <div v-if="!shareTotal" class="empty">暂无流量数据</div>
+            <div v-else class="s-pad share">
+              <div v-for="t in (ov?.traffic_share || []).filter((x) => x.used > 0).slice(0, 8)" :key="t.id" class="share-row">
+                <span class="share-name">{{ t.name }}</span>
+                <div class="share-bar"><div :style="{ width: (t.used / shareTotal * 100) + '%' }" /></div>
+                <span class="mono small nowrap">{{ bytes(t.used) }}</span>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section v-if="ov?.expiring?.length" class="l-sec">
+          <div class="sec-head"><div class="s-head"><h2>即将到期</h2><p>30 天内到期的服务器，到期日在「资产」里修改。</p></div></div>
+          <div class="card s-card">
+            <div v-for="e in ov.expiring" :key="e.id" class="field f-inline">
+              <div class="f-label"><router-link class="f-name" :to="{ name: 'server', params: { id: e.id } }">{{ e.name }}</router-link></div>
+              <div class="f-ctl"><span :class="['small', e.days <= 7 ? 'bad-text' : 'muted']">{{ date(e.at) }} · {{ e.days < 0 ? '已过期' : e.days + ' 天' }}</span></div>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
 
@@ -224,14 +242,14 @@ const shareTotal = computed(() => (ov.value?.traffic_share || []).reduce((a, b) 
 .flag { font-size: 18px; }
 table.hover tbody tr { cursor: pointer; }
 table.hover tbody tr:hover td { background: #fafbfc; }
-.alert-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--c-border); font-size: 13px; }
-.alert-row:last-child { border-bottom: none; }
+.alert-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-top: 1px solid var(--c-border); font-size: 13px; }
+.alert-row:first-child { border-top: none; }
 .alert-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.share-row { display: grid; grid-template-columns: 90px 1fr 80px; gap: 10px; align-items: center; padding: 5px 0; font-size: 13px; }
+.share { display: flex; flex-direction: column; gap: 4px; }
+.share-row { display: grid; grid-template-columns: 110px 1fr 80px; gap: 10px; align-items: center; padding: 5px 0; font-size: 13px; }
 .share-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .share-bar { height: 8px; background: var(--c-surface); border-radius: 4px; overflow: hidden; }
 .share-bar div { height: 100%; background: var(--c-primary); border-radius: 4px; }
-.sub-h { font-size: 14px; margin: 18px 0 6px; }
 .m-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; font-size: 13px; font-family: var(--mono); color: var(--c-text); }
 .m-stats i { display: block; font-style: normal; font-size: 11px; color: var(--c-muted); font-family: var(--font); }
 .fab { position: fixed; right: 16px; bottom: calc(72px + var(--safe-bottom)); width: 52px; height: 52px; border-radius: 50%; border: none; background: var(--c-primary); color: #fff; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(15, 123, 69, .35); z-index: 15; }

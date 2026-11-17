@@ -186,21 +186,22 @@ function cronText(c) {
               <div class="row"><n-select v-model:value="iperfTo" size="small" :options="serverOpts.filter((o) => o.value !== server)" placeholder="对端" style="flex: 1" /><n-button size="small" :disabled="!sv?.online" @click="runIperf">开始</n-button></div>
             </div>
           </div>
-          <div class="card out">
-            <div class="card-title"><h2>{{ current.tool ? toolName(current.tool) : '输出' }}</h2><span class="muted small">{{ sv?.name }}</span></div>
+          <div class="card s-card out">
+            <div class="s-card-head"><h3>{{ current.tool ? toolName(current.tool) : '输出' }}</h3><span class="f-hint">{{ sv?.name }}</span></div>
             <div v-if="!current.task" class="empty">{{ sv?.online ? '选择左侧的工具开始' : '服务器离线' }}</div>
-            <template v-else>
+            <div v-else class="out-body">
               <task-log :task-id="current.task" height="300px" @done="onDone" />
-              <div v-if="current.data" style="margin-top: 14px"><tool-result :tool="current.tool" :data="current.data" /></div>
-            </template>
+              <tool-result v-if="current.data" :tool="current.tool" :data="current.data" />
+            </div>
           </div>
         </div>
       </n-tab-pane>
 
       <n-tab-pane name="bbr" tab="网络优化">
-        <div class="grid-2">
+        <div class="sections">
+          <section class="s-group">
+          <div class="s-head"><h2>BBR 与 TCP 缓冲区</h2><p>开启 BBR，并按带宽和回程延迟设置 TCP 缓冲区上限。改动写入 /etc/sysctl.d/99-vpspanel.conf，应用前自动备份原值。</p></div>
           <div class="card s-card">
-            <div class="s-card-head"><h2>BBR 与 TCP 缓冲区</h2></div>
             <div v-if="sv && !sv.switches?.allow_system_tune" class="banner warn">此机器的 Agent 关闭了系统调优：在 VPS 上执行 <code class="mono">vpsagent config set allow_system_tune true</code> 后重启 Agent。</div>
             <div v-else-if="sv?.system?.virt && ['openvz', 'lxc'].includes(sv.system.virt)" class="banner warn">此机器是 {{ sv.system.virt }} 容器，无法修改拥塞控制。</div>
             <div class="field f-inline">
@@ -220,32 +221,35 @@ function cronText(c) {
               </div>
             </div>
             <div class="f-actions">
-              <span class="f-hint">改动写入 /etc/sysctl.d/99-vpspanel.conf，应用前自动备份原值。「还原」把所有项改回优化前的数值并删除此文件。</span>
-              <div class="row tune-btns">
-                <n-button :disabled="!sv?.online" @click="previewTune">预览改动</n-button>
-                <n-button :disabled="!sv?.online || !sv?.switches?.allow_system_tune" @click="restoreTune">还原到优化前</n-button>
-                <n-button type="primary" :disabled="!sv?.online || !sv?.switches?.allow_system_tune" @click="applyTune">应用优化</n-button>
-              </div>
+              <n-button :disabled="!sv?.online || !sv?.switches?.allow_system_tune" @click="restoreTune">还原到优化前</n-button>
+              <span class="spacer" />
+              <n-button :disabled="!sv?.online" @click="previewTune">预览改动</n-button>
+              <n-button type="primary" :disabled="!sv?.online || !sv?.switches?.allow_system_tune" @click="applyTune">应用优化</n-button>
+            </div>
+            <p class="f-note">「还原」把所有项改回优化前的数值，并删除上面的配置文件。</p>
+          </div>
+          </section>
+          <section class="s-group">
+          <div class="s-head"><h2>改动预览</h2><p>预览、应用或还原时的输出，列出会修改哪些参数。</p></div>
+          <div class="card s-card">
+            <div v-if="!current.task || !['tune_net', 'restore_net'].includes(current.tool)" class="empty">点「预览改动」查看会修改哪些参数</div>
+            <div v-else class="out-body">
+              <task-log :task-id="current.task" height="260px" @done="onDone" />
+              <tool-result v-if="current.data" tool="tune_net" :data="current.data" />
             </div>
           </div>
-          <div class="card">
-            <div class="card-title"><h2>改动预览 / 输出</h2></div>
-            <div v-if="!current.task || !['tune_net', 'restore_net'].includes(current.tool)" class="empty">点「预览改动」查看会修改哪些参数</div>
-            <template v-else>
-              <task-log :task-id="current.task" height="260px" @done="onDone" />
-              <div v-if="current.data" style="margin-top: 12px"><tool-result tool="tune_net" :data="current.data" /></div>
-            </template>
-          </div>
+          </section>
         </div>
       </n-tab-pane>
 
       <n-tab-pane name="history" tab="历史结果">
-        <div class="card">
-          <div class="card-title">
-            <n-select v-model:value="hTool" :options="hToolOpts" size="small" style="width: 140px" />
-            <span class="spacer" />
-            <n-button size="small" :disabled="compare.size < 2" @click="showCompare">对比所选（{{ compare.size }}）</n-button>
-          </div>
+        <div class="sec-head">
+          <div class="s-head"><h2>历史结果</h2><p>{{ sv?.name || '所选服务器' }} 的检测记录。勾选两条以上可以并排对比。</p></div>
+          <span class="spacer" />
+          <n-select v-model:value="hTool" :options="hToolOpts" aria-label="工具" style="width: 140px" />
+          <n-button :disabled="compare.size < 2" @click="showCompare">对比所选（{{ compare.size }}）</n-button>
+        </div>
+        <div class="card s-card">
           <div v-if="!history.length" class="empty">暂无结果</div>
           <div v-else class="table-wrap">
             <table class="plain">
@@ -262,56 +266,69 @@ function cronText(c) {
       </n-tab-pane>
 
       <n-tab-pane name="shell" tab="终端">
-        <div class="card">
+        <div class="sec-head"><div class="s-head"><h2>终端</h2><p>打开终端需要二次验证。每次会话写入审计日志（不记录终端内容），关闭页面即断开。</p></div></div>
+        <div class="card s-card">
           <div v-if="!sv" class="empty">选择服务器</div>
           <template v-else-if="!sv.switches?.allow_remote_exec">
-            <p>为了防止面板被攻破后控制所有 VPS，远程命令默认关闭，只能在 VPS 本机上开启。SSH 登录这台机器后执行：</p>
-            <pre class="pre">vpsagent config set allow_remote_exec true &amp;&amp; systemctl restart vpsagent</pre>
-            <p class="small muted">开启后刷新本页即可使用；关闭方法相同，把 true 改为 false。</p>
+            <div class="field stacked">
+              <div class="f-label"><span class="f-name">远程命令未开启</span><span class="f-hint">为了防止面板被攻破后控制所有 VPS，远程命令默认关闭，只能在 VPS 本机上开启。SSH 登录这台机器后执行：</span></div>
+              <div class="f-ctl"><pre class="pre">vpsagent config set allow_remote_exec true &amp;&amp; systemctl restart vpsagent</pre></div>
+            </div>
+            <p class="f-note">开启后刷新本页即可使用；关闭方法相同，把 true 改为 false。</p>
           </template>
-          <template v-else>
-            <web-shell :key="sv.id" :server-id="sv.id" />
-            <p class="small muted">打开终端需要二次验证；每次会话写入审计日志（不记录终端内容），关闭页面即断开。</p>
-          </template>
+          <div v-else class="s-pad"><web-shell :key="sv.id" :server-id="sv.id" /></div>
         </div>
       </n-tab-pane>
 
       <n-tab-pane name="scripts" tab="脚本">
+        <div class="sec-head"><div class="s-head"><h2>脚本</h2><p>在多台服务器上批量执行脚本。脚本按 sha256 校验后执行，输出按机器分栏显示。</p></div></div>
         <div class="scripts">
-          <div class="card">
-            <div class="card-title"><h2>脚本库</h2><span class="spacer" /><n-button size="small" @click="pickScript(null)">新建</n-button></div>
-            <div v-for="s in scripts" :key="s.id" :class="['s-item', { on: script.id === s.id }]" @click="pickScript(s)">
-              <span>{{ s.name }}</span><span class="spacer" />
-              <n-button size="tiny" quaternary type="error" @click.stop="delScript(s)">删除</n-button>
+          <div class="card s-card">
+            <div class="s-card-head"><h3>脚本库</h3><span class="spacer" /><n-button size="small" @click="pickScript(null)">新建</n-button></div>
+            <div v-if="!scripts.length" class="empty">还没有脚本</div>
+            <div v-else class="s-list">
+              <div v-for="s in scripts" :key="s.id" :class="['s-item', { on: script.id === s.id }]" @click="pickScript(s)">
+                <span>{{ s.name }}</span><span class="spacer" />
+                <n-button size="tiny" quaternary type="error" @click.stop="delScript(s)">删除</n-button>
+              </div>
             </div>
           </div>
-          <div class="card">
-            <div class="form">
-              <n-input v-model:value="script.name" placeholder="脚本名称" />
-              <n-input v-model:value="script.content" type="textarea" :rows="12" class="mono" placeholder="#!/bin/sh" />
-              <div class="row"><n-button size="small" @click="saveScript">保存到脚本库</n-button><span v-if="dirty" class="small muted">有未保存的修改，执行时用脚本库里的版本</span></div>
-              <label>在这些服务器上执行（仅显示在线的；未开启远程执行的会被拒绝）</label>
-              <n-select v-model:value="targets" multiple :options="execServers.map((s) => ({ label: s.name + (s.switches?.allow_remote_exec ? '' : '（未开启远程执行）'), value: s.id, disabled: !s.switches?.allow_remote_exec }))" />
-              <div class="row">
-                <span class="small">超时</span><n-input-number v-model:value="timeout" :min="10" :max="3600" size="small" style="width: 120px" /><span class="small muted">秒</span>
-                <span class="spacer" />
-                <n-button type="primary" :disabled="!targets.length" @click="runScript">执行</n-button>
-              </div>
-              <p class="small muted">脚本按 sha256 校验后执行，输出按机器分栏显示。</p>
+          <div class="card s-card">
+            <div class="field">
+              <div class="f-label"><span class="f-name">名称<i v-if="dirty" class="f-dot" /></span><span v-if="dirty" class="f-hint">有未保存的修改，执行时用脚本库里的版本</span></div>
+              <div class="f-ctl"><n-input v-model:value="script.name" placeholder="脚本名称" /></div>
             </div>
+            <div class="field stacked">
+              <div class="f-label"><span class="f-name">内容</span></div>
+              <div class="f-ctl"><n-input v-model:value="script.content" type="textarea" :rows="12" class="mono" placeholder="#!/bin/sh" aria-label="脚本内容" /></div>
+            </div>
+            <div class="f-actions"><span class="spacer" /><n-button @click="saveScript">保存到脚本库</n-button></div>
+            <div class="field">
+              <div class="f-label"><span class="f-name">执行的服务器</span><span class="f-hint">只列出在线的；未开启远程执行的不能选</span></div>
+              <div class="f-ctl"><n-select v-model:value="targets" multiple placeholder="选择服务器" :options="execServers.map((s) => ({ label: s.name + (s.switches?.allow_remote_exec ? '' : '（未开启远程执行）'), value: s.id, disabled: !s.switches?.allow_remote_exec }))" /></div>
+            </div>
+            <div class="field">
+              <div class="f-label"><span class="f-name">超时</span><span class="f-hint">10–3600 秒</span></div>
+              <div class="f-ctl"><n-input-number v-model:value="timeout" :min="10" :max="3600" :show-button="false"><template #suffix><span class="f-unit">秒</span></template></n-input-number></div>
+            </div>
+            <div class="f-actions"><span class="spacer" /><n-button type="primary" :disabled="!targets.length" @click="runScript">执行</n-button></div>
           </div>
         </div>
         <div v-if="scriptRun.tasks.length" class="outs">
-          <div v-for="t in scriptRun.tasks" :key="t.id" class="card">
-            <div class="card-title"><h3>{{ state.servers.find((s) => s.id === t.server)?.name }}</h3></div>
-            <task-log :task-id="t.id" height="300px" />
+          <div v-for="t in scriptRun.tasks" :key="t.id" class="card s-card">
+            <div class="s-card-head"><h3>{{ state.servers.find((s) => s.id === t.server)?.name }}</h3></div>
+            <div class="out-body"><task-log :task-id="t.id" height="300px" /></div>
           </div>
         </div>
       </n-tab-pane>
 
       <n-tab-pane name="schedules" tab="定时任务">
-        <div class="card">
-          <div class="card-title"><span class="spacer" /><n-button size="small" type="primary" @click="editSched(null)">新建定时任务</n-button></div>
+        <div class="sec-head">
+          <div class="s-head"><h2>定时任务</h2><p>按面板所在时区定时执行检测、更新或脚本。</p></div>
+          <span class="spacer" />
+          <n-button type="primary" @click="editSched(null)">新建定时任务</n-button>
+        </div>
+        <div class="card s-card">
           <div v-if="!schedules.length" class="empty">没有定时任务</div>
           <div v-else class="table-wrap">
             <table class="plain">
@@ -384,10 +401,9 @@ function cronText(c) {
 .tool .last { color: var(--c-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .seg { display: flex; }
 .seg :deep(.n-radio-button) { flex: 1; text-align: center; }
-.tune-btns { gap: 8px; margin-left: auto; }
-.form { display: flex; flex-direction: column; gap: 8px; }
-.form label { font-size: 13px; color: var(--c-text-2); margin-top: 6px; }
-.scripts { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; }
+.out-body { display: flex; flex-direction: column; gap: 14px; padding-bottom: 16px; }
+.scripts { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; align-items: start; }
+.s-list { display: flex; flex-direction: column; gap: 2px; padding-bottom: 12px; margin: 0 -8px; }
 .s-item { display: flex; align-items: center; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; min-height: 40px; }
 .s-item:hover { background: var(--c-surface); }
 .s-item.on { background: var(--c-primary-soft); color: var(--c-primary); }

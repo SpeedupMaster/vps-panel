@@ -122,8 +122,9 @@ async function selfUpdate() {
       <n-button v-if="panel.available" size="small" type="primary" @click="selfUpdate">更新面板</n-button>
     </div>
 
+    <section class="l-sec">
+    <div class="sec-head"><div class="s-head"><h2>批量更新</h2><p>选择组件和目标版本，再勾选要更新的服务器。</p></div></div>
     <div class="card s-card">
-      <div class="s-card-head"><h2>批量更新</h2><span class="f-hint">选择组件和目标版本，再勾选要更新的服务器</span></div>
       <div class="field">
         <div class="f-label"><span class="f-name">组件</span></div>
         <div class="f-ctl"><n-select v-model:value="comp" :options="comps" /></div>
@@ -185,15 +186,18 @@ async function selfUpdate() {
         </div>
       </div>
     </div>
+    </section>
 
     <n-tabs type="line" animated>
       <n-tab-pane name="xray" tab="Xray 版本">
-        <div class="card">
-          <p class="small muted" style="margin-top: 0">版本与更新日志从 GitHub Release 同步。{{ data.latest_xray ? '最新稳定版 ' + data.latest_xray : '' }}</p>
+        <div class="sec-head"><div class="s-head"><h2>Xray 版本</h2><p>版本与更新日志从 GitHub Release 同步。{{ data.latest_xray ? '最新稳定版 ' + data.latest_xray + '。' : '' }}</p></div></div>
+        <div class="card s-card">
+          <div v-if="comp === 'agent'" class="empty">切换到上方的 Xray 组件查看版本列表</div>
+          <div v-else class="table-wrap">
           <table class="plain">
             <thead><tr><th>版本</th><th>通道</th><th>发布时间</th><th /></tr></thead>
             <tbody>
-              <tr v-for="r in (comp === 'agent' ? [] : data.items).filter((x) => pre || x.channel !== 'pre').slice(0, 15)" :key="r.id">
+              <tr v-for="r in data.items.filter((x) => pre || x.channel !== 'pre').slice(0, 15)" :key="r.id">
                 <td class="mono">{{ r.version }}</td>
                 <td><span :class="['tag', r.channel === 'pre' ? 'warn' : 'ok']">{{ r.channel === 'pre' ? '预发布' : '稳定' }}</span></td>
                 <td>{{ date(r.published_at) }}</td>
@@ -201,17 +205,19 @@ async function selfUpdate() {
               </tr>
             </tbody>
           </table>
-          <p v-if="comp === 'agent'" class="small muted">切换到上方的 Xray 组件查看版本列表。</p>
+          </div>
         </div>
       </n-tab-pane>
       <n-tab-pane name="agent" tab="Agent 版本">
-        <div class="card">
-          <div class="card-title">
-            <span class="small muted">已发布：{{ data.agent_published || '—' }} · {{ data.signing ? '已配置签名公钥，上传需附带签名' : '未配置签名公钥（设置 → 更新）' }}</span>
-            <span class="spacer" /><n-button size="small" @click="up.show = true">上传新版本</n-button>
-          </div>
-          <div v-if="comp !== 'agent'" class="small muted">切换到上方的 Agent 组件查看版本列表。</div>
-          <table v-else class="plain">
+        <div class="sec-head">
+          <div class="s-head"><h2>Agent 版本</h2><p>当前发布 {{ data.agent_published || '—' }}。{{ data.signing ? '已配置签名公钥，上传需附带签名。' : '未配置签名公钥（设置 → 更新）。' }}</p></div>
+          <span class="spacer" />
+          <n-button @click="up.show = true">上传新版本</n-button>
+        </div>
+        <div class="card s-card">
+          <div v-if="comp !== 'agent'" class="empty">切换到上方的 Agent 组件查看版本列表</div>
+          <div v-else class="table-wrap">
+          <table class="plain">
             <thead><tr><th>版本</th><th>架构</th><th>上传时间</th><th>状态</th><th /></tr></thead>
             <tbody>
               <tr v-for="r in data.items" :key="r.id">
@@ -225,10 +231,12 @@ async function selfUpdate() {
               </tr>
             </tbody>
           </table>
+          </div>
         </div>
       </n-tab-pane>
       <n-tab-pane name="history" tab="更新记录">
-        <div class="card">
+        <div class="sec-head"><div class="s-head"><h2>更新记录</h2><p>Agent、Xray 和规则文件的更新任务及最后一行输出。</p></div></div>
+        <div class="card s-card">
           <div v-if="!history.length" class="empty">暂无记录</div>
           <div v-else class="table-wrap">
             <table class="plain">
@@ -282,6 +290,6 @@ async function selfUpdate() {
 <style scoped>
 .strategy { display: flex; flex-direction: column; gap: 6px; }
 .pick-table { border-top: 1px solid var(--c-border); }
-.batch { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--c-border); display: flex; flex-direction: column; gap: 6px; }
+.batch { padding: 12px 0 14px; border-top: 1px solid var(--c-border); display: flex; flex-direction: column; gap: 6px; }
 .out { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

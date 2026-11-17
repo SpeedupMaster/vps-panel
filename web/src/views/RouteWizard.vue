@@ -157,10 +157,9 @@ async function copyLink() { if (view.value?.share_link && (await copy(view.value
       <n-step title="自检" />
     </n-steps>
 
-    <div class="card">
+    <div class="card s-card">
       <template v-if="step === 1">
-        <h2>选择入口机</h2>
-        <p class="muted small">客户端会连接这台机器的 Reality 端口。新线路只在它的 Reality 入站里新增一个 UUID，不会新开端口。</p>
+        <div class="s-head step-h"><h2>选择入口机</h2><p>客户端会连接这台机器的 Reality 端口。新线路只在它的 Reality 入站里新增一个 UUID，不会新开端口。</p></div>
         <div v-if="!entries.length" class="empty">没有开启 Reality 的节点。先在总览里添加节点，或把已有机器升级为节点。</div>
         <div class="pick-grid">
           <button v-for="s in entries" :key="s.id" type="button" :class="['pick', { on: form.entry_server_id === s.id }]" @click="form.entry_server_id = s.id">
@@ -172,7 +171,7 @@ async function copyLink() { if (view.value?.share_link && (await copy(view.value
       </template>
 
       <template v-else-if="step === 2">
-        <h2>线路类型</h2>
+        <div class="s-head step-h"><h2>线路类型</h2><p>直连用入口机的 IP 出网；链式经落地机转发，出口 IP 是落地机的。</p></div>
         <div class="pick-grid two">
           <button type="button" :class="['pick', { on: form.type === 'direct' }]" @click="form.type = 'direct'">
             <b>直连</b><span class="muted small">客户端 → {{ entrySv?.name }} → 目标网站。出口 IP 是入口机的 IP。</span>
@@ -182,7 +181,7 @@ async function copyLink() { if (view.value?.share_link && (await copy(view.value
           </button>
         </div>
         <template v-if="form.type === 'chain'">
-          <h3>落地机</h3>
+          <div class="s-head sub-h"><h2>落地机</h2><p>入口机到各落地的线路段延迟和解锁检测结果。</p></div>
           <div class="pick-grid">
             <button v-for="l in landings" :key="l.id" type="button" :class="['pick', { on: form.landing_server_id === l.id }]" @click="form.landing_server_id = l.id">
               <span class="row"><span class="flag">{{ flag(l.country_code) }}</span><b>{{ l.name }}</b><span class="spacer" /><span :class="['dot', l.online ? 'ok' : 'off']" /></span>
@@ -195,54 +194,78 @@ async function copyLink() { if (view.value?.share_link && (await copy(view.value
               <span v-else-if="unlocks[l.id]" class="small muted">还没做过解锁检测</span>
             </button>
           </div>
-          <h3>备用落地</h3>
-          <p v-if="landings.length < 2" class="muted small">目前只有 1 台落地机，暂不可用。以后添加第二台落地后，可在这里设置自动切换。</p>
+          <div class="s-head sub-h"><h2>备用落地</h2><p>主落地不可达时，入口机的 Xray 会按 Observatory 探活结果自动切到可用的备用落地，并发送告警。</p></div>
+          <div v-if="landings.length < 2" class="empty">目前只有 1 台落地机。添加第二台落地后，可以在这里设置自动切换。</div>
           <div v-else class="col">
             <n-checkbox v-for="l in landings.filter((x) => x.id !== form.landing_server_id)" :key="l.id"
               :checked="form.backup_ids.includes(l.id)" @update:checked="(v) => form.backup_ids = v ? [...form.backup_ids, l.id] : form.backup_ids.filter((b) => b !== l.id)">
               {{ l.name }}<span class="muted small" v-if="segment(form.entry_server_id, l.id)"> · {{ Math.round(segment(form.entry_server_id, l.id).ms) }} ms</span>
             </n-checkbox>
-            <p class="muted small">主落地不可达时，入口机的 Xray 会按 Observatory 探活结果自动切到可用的备用落地，并发送告警。</p>
           </div>
         </template>
       </template>
 
       <template v-else-if="step === 3">
-        <h2>名称与选项</h2>
-        <div class="field"><label>名称</label>
-          <n-input v-model:value="form.name" maxlength="60" @update:value="nameTouched = true" />
-          <span class="muted small">默认按「入口 → 落地」生成，可以修改。订阅里显示的名字按订阅设置里的命名模板生成。</span>
+        <div class="s-head step-h"><h2>名称与选项</h2><p>订阅里显示的名字按订阅设置里的命名模板生成，这里的名称用于面板内识别。</p></div>
+        <div class="m-form">
+          <div class="field">
+            <div class="f-label"><span class="f-name">名称</span><span class="f-hint">默认按「入口 → 落地」生成，可以修改</span></div>
+            <div class="f-ctl"><n-input v-model:value="form.name" maxlength="60" placeholder="" @update:value="nameTouched = true" /></div>
+          </div>
+          <div class="field">
+            <div class="f-label"><span class="f-name">标签</span><span class="f-hint">可选，逗号分隔</span></div>
+            <div class="f-ctl"><n-input v-model:value="form.tags" placeholder="" /></div>
+          </div>
+          <div class="field f-bool">
+            <div class="f-label"><span class="f-name">加入订阅</span><span class="f-hint">关闭后线路照常下发，只是不出现在订阅里</span></div>
+            <div class="f-ctl"><n-switch v-model:value="form.in_sub" aria-label="加入订阅" /></div>
+          </div>
+          <div v-if="editId" class="field f-bool">
+            <div class="f-label"><span class="f-name">启用</span><span class="f-hint">停用后从入口机配置中移除</span></div>
+            <div class="f-ctl"><n-switch v-model:value="form.enabled" aria-label="启用" /></div>
+          </div>
         </div>
-        <div class="field"><label>标签</label><n-input v-model:value="form.tags" placeholder="可选，逗号分隔" /></div>
-        <div class="row field"><n-switch v-model:value="form.in_sub" /><span>加入订阅</span></div>
-        <div v-if="editId" class="row field"><n-switch v-model:value="form.enabled" /><span>启用</span></div>
       </template>
 
       <template v-else-if="step === 4">
-        <h2>预览变更</h2>
-        <div class="kv" style="margin-bottom: 14px">
-          <span>名称</span><span>{{ form.name }}</span>
-          <span>路径</span><span>客户端 → {{ entrySv?.name }}{{ form.type === 'chain' ? ' → ' + landingSv?.name : '' }} → 互联网</span>
-          <span>估算延迟</span><span>{{ estimate ? Math.round(estimate) + ' ms' : '—' }}<span class="muted small">（入口回程{{ form.type === 'chain' ? ' + 线路段' : '' }}）</span></span>
-          <span>同入口线路</span><span>{{ sameEntryRoutes.length }} 条</span>
+        <div class="s-head step-h"><h2>预览变更</h2><p>确认后才会下发。每台机器下发前都会先用 xray run -test 校验配置，失败会自动保留旧配置。</p></div>
+        <div class="m-form">
+          <div class="field f-inline">
+            <div class="f-label"><span class="f-name">名称</span></div>
+            <div class="f-ctl"><span class="f-val">{{ form.name }}</span></div>
+          </div>
+          <div class="field f-inline">
+            <div class="f-label"><span class="f-name">路径</span></div>
+            <div class="f-ctl"><span class="f-val">客户端 → {{ entrySv?.name }}{{ form.type === 'chain' ? ' → ' + landingSv?.name : '' }} → 互联网</span></div>
+          </div>
+          <div class="field f-inline">
+            <div class="f-label"><span class="f-name">估算延迟</span><span class="f-hint">入口回程{{ form.type === 'chain' ? ' + 线路段' : '' }}</span></div>
+            <div class="f-ctl"><span class="f-val mono">{{ estimate ? Math.round(estimate) + ' ms' : '—' }}</span></div>
+          </div>
+          <div class="field f-inline">
+            <div class="f-label"><span class="f-name">同入口线路</span></div>
+            <div class="f-ctl"><span class="f-val">{{ sameEntryRoutes.length }} 条</span></div>
+          </div>
+          <div class="field stacked">
+            <div class="f-label"><span class="f-name">将要执行的变更</span></div>
+            <div class="f-ctl"><ul class="changes"><li v-for="(c, i) in changes" :key="i">{{ c }}</li></ul></div>
+          </div>
+          <p class="f-note">路由规则优先通过 Xray 的路由 API 热添加；当前 Xray 版本不支持时，会改为重启 Xray（约 1 秒断流）。</p>
         </div>
-        <ul class="changes"><li v-for="(c, i) in changes" :key="i">{{ c }}</li></ul>
-        <p class="muted small">确认后才会下发。每台机器下发前都会先用 xray run -test 校验配置；失败会自动保留旧配置。</p>
-        <p class="muted small">路由规则优先通过 Xray 的路由 API 热添加；当前 Xray 版本不支持时，会改为重启 Xray（约 1 秒断流）。</p>
       </template>
 
       <template v-else>
-        <h2>自检</h2>
+        <div class="s-head step-h"><h2>自检</h2><p>下发完成后逐项检查配置是否生效、端口是否可达。</p></div>
         <ul class="checks">
           <li v-for="(c, i) in checks" :key="i"><span :class="['ck', c.st]">{{ c.st === 'ok' ? '✓' : c.st === 'bad' ? '✕' : '…' }}</span>{{ c.text }}</li>
         </ul>
-        <div class="row" style="margin-top: 14px">
+        <div class="row share-btns">
           <n-button :disabled="!view?.share_link" @click="copyLink">复制分享链接</n-button>
           <n-button :disabled="!view?.share_link" @click="qr = true">二维码</n-button>
         </div>
       </template>
 
-      <div class="row actions">
+      <div class="f-actions actions">
         <template v-if="step < 5">
           <n-button @click="router.push({ name: 'routes' })">取消</n-button>
           <span class="spacer" />
@@ -264,8 +287,9 @@ async function copyLink() { if (view.value?.share_link && (await copy(view.value
 .wizard { max-width: 920px; }
 .crumb a { color: var(--c-muted); }
 .steps { margin: 4px 0; }
-h2 { font-size: 17px; margin: 0 0 6px; }
-h3 { font-size: 14px; margin: 20px 0 8px; }
+.s-card { padding: 2px 20px; }
+.step-h { padding: 18px 0 4px; }
+.sub-h { padding: 22px 0 0; }
 .pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 12px; }
 .pick-grid.two { grid-template-columns: 1fr 1fr; }
 .pick { text-align: left; font: inherit; color: inherit; background: #fff; border: 1px solid var(--c-border-strong); border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 4px; cursor: pointer; min-height: 44px; }
@@ -274,16 +298,17 @@ h3 { font-size: 14px; margin: 20px 0 8px; }
 .pick:disabled { opacity: .5; cursor: not-allowed; }
 .flag { font-size: 18px; }
 .bad-text { color: var(--c-danger); }
-.col { display: flex; flex-direction: column; gap: 8px; }
-.field { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
-.field.row { flex-direction: row; }
-.field label { font-size: 13px; color: var(--c-text-2); }
-.changes { margin: 0 0 12px; padding-left: 20px; line-height: 1.9; font-size: 13px; }
-.checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; font-size: 14px; }
+.col { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.empty { padding: 20px 0 4px; text-align: left; }
+.m-form { margin-top: 8px; }
+.f-val { font-size: 13.5px; text-align: right; overflow-wrap: anywhere; }
+.changes { margin: 0; padding-left: 20px; line-height: 1.9; font-size: 13px; }
+.share-btns { margin-top: 14px; }
+.checks { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; font-size: 14px; }
 .ck { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; align-items: center; justify-content: center; margin-right: 10px; font-size: 12px; background: var(--c-surface); color: var(--c-muted); }
 .ck.ok { background: var(--c-primary-soft); color: var(--c-primary); }
 .ck.bad { background: var(--c-danger-soft); color: var(--c-danger); }
-.actions { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--c-border); }
+.actions { margin-top: 24px; padding: 16px 0; }
 @media (max-width: 767px) { .pick-grid.two { grid-template-columns: 1fr; } }
 .unlock { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
 .unlock .tag { font-size: 11px; }

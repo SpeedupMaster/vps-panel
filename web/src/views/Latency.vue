@@ -150,25 +150,30 @@ function peerStyle(c) {
       没有国内探测点：下面是各台 VPS 访问国内目标（zstaticcdn.com 三网节点）的回程数据，能反映线路质量和 IP 是否被封，测不出封端口或协议干扰。
     </div>
 
-    <div class="card">
-      <div class="card-title">
-        <h2>回程</h2>
-        <n-select v-model:value="server" :options="serverOpts" size="small" style="width: 150px" filterable placeholder="选择服务器" />
-        <n-select v-model:value="range" :options="ranges" size="small" style="width: 100px" />
+    <section class="l-sec">
+      <div class="sec-head">
+        <div class="s-head"><h2>回程</h2><p>所选服务器到电信、联通、移动目标的延迟分布和丢包。</p></div>
         <span class="spacer" />
-        <span class="legend small"><i class="band" />最小 ~ 最大 <i class="line" />中位数 <i class="pt warn" />丢包 1–20% <i class="pt bad" />丢包 &gt; 20%</span>
+        <n-select v-model:value="server" :options="serverOpts" aria-label="服务器" style="width: 150px" filterable placeholder="选择服务器" />
+        <n-select v-model:value="range" :options="ranges" aria-label="时间范围" style="width: 100px" />
       </div>
-      <div v-if="!enabled.length" class="empty">还没有启用拨测目标。<button class="link-btn" @click="managing = true">选择目标</button></div>
-      <div v-else class="smokes">
-        <div v-for="c in carriers" :key="c">
-          <div class="chart-h">{{ carrierLabel[c] }} <span class="muted">· {{ enabled.filter((t) => t.carrier === c).length }} 个目标</span></div>
-          <chart :option="smokeOpt(c)" height="170px" />
-        </div>
+      <div class="card s-card">
+        <div v-if="!enabled.length" class="empty">还没有启用拨测目标。<button class="link-btn" @click="managing = true">选择目标</button></div>
+        <template v-else>
+          <div class="s-card-head"><span class="legend small"><i class="band" />最小 ~ 最大 <i class="line" />中位数 <i class="pt warn" />丢包 1–20% <i class="pt bad" />丢包 &gt; 20%</span></div>
+          <div class="smokes">
+            <div v-for="c in carriers" :key="c">
+              <div class="chart-h">{{ carrierLabel[c] }} <span class="muted">· {{ enabled.filter((t) => t.carrier === c).length }} 个目标</span></div>
+              <chart :option="smokeOpt(c)" height="170px" />
+            </div>
+          </div>
+        </template>
       </div>
-    </div>
+    </section>
 
-    <div class="card">
-      <div class="card-title"><h2>现在</h2><span class="muted small">最近一轮，三网各自平均</span></div>
+    <section class="l-sec">
+      <div class="sec-head"><div class="s-head"><h2>现在</h2><p>最近一轮的结果，三网各自平均。点击一行查看这台的回程图。</p></div></div>
+      <div class="card s-card">
       <div v-if="!summary.length" class="empty">暂无数据</div>
       <div v-else class="table-wrap">
         <table class="plain">
@@ -189,14 +194,16 @@ function peerStyle(c) {
           </tbody>
         </table>
       </div>
-    </div>
+      </div>
+    </section>
 
     <div class="grid-2">
-      <div class="card">
-        <div class="card-title"><h2>线路段 · 入口 → 落地</h2></div>
-        <p class="small muted" style="margin-top: -6px">入口机对落地 SS 端口做 TCP 探测；Xray Observatory 同时每分钟探活，用于备用落地切换。</p>
+      <section class="l-sec">
+        <div class="sec-head"><div class="s-head"><h2>线路段 · 入口 → 落地</h2><p>入口机对落地 SS 端口做 TCP 探测；Xray Observatory 同时每分钟探活，用于备用落地切换。</p></div></div>
+        <div class="card s-card">
         <div v-if="!segRows.length" class="empty">没有链式线路</div>
-        <table v-else class="plain">
+        <div v-else class="table-wrap">
+        <table class="plain">
           <thead><tr><th>入口</th><th>落地</th><th>延迟</th><th>丢包</th></tr></thead>
           <tbody>
             <tr v-for="r in segRows" :key="r.server_id + r.target">
@@ -206,11 +213,14 @@ function peerStyle(c) {
             </tr>
           </tbody>
         </table>
-      </div>
-      <div class="card">
-        <div class="card-title"><h2>VPS 互测矩阵（ms）</h2><span class="muted small">颜色越深延迟越高；行 = 发起方</span></div>
+        </div>
+        </div>
+      </section>
+      <section class="l-sec">
+        <div class="sec-head"><div class="s-head"><h2>VPS 互测矩阵</h2><p>单位 ms，颜色越深延迟越高。每行是发起方，每列是目标。</p></div></div>
+        <div class="card s-card">
         <div v-if="peerServers.length < 2" class="empty">需要在设置里开启 VPS 互测，且至少两台在线</div>
-        <div v-else class="table-wrap">
+        <div v-else class="table-wrap s-pad">
           <table class="peer">
             <thead><tr><th /><th v-for="b in peerServers" :key="b.id" class="small">{{ b.name }}</th></tr></thead>
             <tbody>
@@ -223,7 +233,8 @@ function peerStyle(c) {
             </tbody>
           </table>
         </div>
-      </div>
+        </div>
+      </section>
     </div>
 
     <target-manager v-model:show="managing" @changed="loadAll" />
@@ -231,10 +242,11 @@ function peerStyle(c) {
 </template>
 
 <style scoped>
-.smokes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.smokes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; padding: 4px 0 16px; }
 .chart-h { font-size: 13px; font-weight: 600; }
 .legend { display: inline-flex; align-items: center; gap: 6px; color: var(--c-muted); flex-wrap: wrap; }
 .legend i { display: inline-block; margin-left: 8px; }
+.legend i:first-child { margin-left: 0; }
 .band { width: 16px; height: 10px; background: rgba(15, 123, 69, .2); }
 .line { width: 16px; height: 0; border-top: 2px solid #0f7b45; }
 .pt { width: 8px; height: 8px; border-radius: 50%; }
