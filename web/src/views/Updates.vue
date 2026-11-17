@@ -252,20 +252,29 @@ async function selfUpdate() {
     </n-modal>
 
     <n-modal v-model:show="up.show" preset="card" title="上传 Agent 版本" style="width: min(560px, 96vw)">
-      <div class="form">
-        <label>版本号</label><n-input v-model:value="up.version" placeholder="v0.3.3" />
-        <label>更新说明</label><n-input v-model:value="up.notes" type="textarea" :rows="3" />
-        <template v-for="a in ['amd64', 'arm64']" :key="a">
-          <label>{{ a }} 二进制{{ data.signing ? ' + 签名（.sig）' : '' }}</label>
-          <div class="row">
-            <n-upload :default-upload="false" :max="1" @before-upload="(e) => pickFile('files', a, e)"><n-button size="small">{{ up.files[a] ? up.files[a].name : '选择文件' }}</n-button></n-upload>
-            <n-upload v-if="data.signing" :default-upload="false" :max="1" accept=".sig" @before-upload="(e) => pickFile('sigs', a, e)"><n-button size="small">{{ up.sigs[a] ? up.sigs[a].name : '选择签名' }}</n-button></n-upload>
+      <div class="m-form">
+        <div class="field">
+          <div class="f-label"><span class="f-name">版本号</span></div>
+          <div class="f-ctl"><n-input v-model:value="up.version" placeholder="例如 v0.3.3" /></div>
+        </div>
+        <div class="field stacked">
+          <div class="f-label"><span class="f-name">更新说明</span></div>
+          <div class="f-ctl"><n-input v-model:value="up.notes" type="textarea" :rows="3" placeholder="可选" aria-label="更新说明" /></div>
+        </div>
+        <div v-for="a in ['amd64', 'arm64']" :key="a" class="field f-inline">
+          <div class="f-label"><span class="f-name">{{ a }} 二进制</span><span v-if="data.signing" class="f-hint">同时选择对应的签名文件（.sig）</span></div>
+          <div class="f-ctl ctl-row">
+            <n-upload :default-upload="false" :max="1" :show-file-list="false" @before-upload="(e) => pickFile('files', a, e)"><n-button size="small">{{ up.files[a] ? up.files[a].name : '选择文件' }}</n-button></n-upload>
+            <n-upload v-if="data.signing" :default-upload="false" :max="1" :show-file-list="false" accept=".sig" @before-upload="(e) => pickFile('sigs', a, e)"><n-button size="small">{{ up.sigs[a] ? up.sigs[a].name : '选择签名' }}</n-button></n-upload>
           </div>
-        </template>
-        <div class="row"><n-switch v-model:value="up.publish" /><span class="small">上传后立即发布（新安装与自动更新使用此版本）</span></div>
-        <p class="small muted">签名用 <code class="mono">vps-panel sign &lt;私钥&gt; &lt;文件&gt;</code> 生成。</p>
+        </div>
+        <div class="field f-bool">
+          <div class="f-label"><span class="f-name">上传后立即发布</span><span class="f-hint">新安装与自动更新使用此版本</span></div>
+          <div class="f-ctl"><n-switch v-model:value="up.publish" aria-label="上传后立即发布" /></div>
+        </div>
+        <p class="f-note">签名用 <code class="mono">vps-panel sign &lt;私钥&gt; &lt;文件&gt;</code> 生成。</p>
       </div>
-      <template #footer><div class="row" style="justify-content: flex-end"><n-button @click="up.show = false">取消</n-button><n-button type="primary" :loading="busy" @click="upload">上传</n-button></div></template>
+      <template #footer><div class="m-foot"><n-button @click="up.show = false">取消</n-button><n-button type="primary" :loading="busy" @click="upload">上传</n-button></div></template>
     </n-modal>
   </div>
 </template>
@@ -275,6 +284,4 @@ async function selfUpdate() {
 .pick-table { border-top: 1px solid var(--c-border); }
 .batch { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--c-border); display: flex; flex-direction: column; gap: 6px; }
 .out { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.form { display: flex; flex-direction: column; gap: 8px; }
-.form label { font-size: 13px; color: var(--c-text-2); margin-top: 6px; }
 </style>

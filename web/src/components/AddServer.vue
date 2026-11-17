@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { NDrawer, NDrawerContent, NInput, NButton, NForm, NFormItem, NRadioGroup, NRadio, NCheckbox, NTabs, NTabPane, NInputNumber, NAutoComplete } from 'naive-ui'
+import { NDrawer, NDrawerContent, NInput, NButton, NRadioGroup, NRadio, NSwitch, NTabs, NTabPane, NInputNumber, NAutoComplete } from 'naive-ui'
 import { api } from '../api'
 import { state, loadServers, ui } from '../store'
 import { run } from '../helpers'
@@ -77,15 +77,17 @@ function openDetail() { const id = created.value.server.id; close(); router.push
     <n-drawer-content title="添加服务器" closable :native-scrollbar="false">
       <template v-if="!created">
         <h3 class="step">1 · 基本信息</h3>
-        <n-form @submit.prevent label-placement="top">
-          <n-form-item label="名称" required>
-            <n-input v-model:value="form.name" placeholder="如 HK-01" maxlength="40" />
-          </n-form-item>
-          <n-form-item label="分组">
-            <n-auto-complete v-model:value="form.group" :options="groups" placeholder="可选，例如 亚洲入口" />
-          </n-form-item>
-        </n-form>
-        <p class="muted small" style="margin-top: -8px">地区、IP、系统信息会在 Agent 连上后自动识别，无需填写。</p>
+        <div class="m-form">
+          <div class="field">
+            <div class="f-label"><span class="f-name">名称</span><span class="f-hint">必填</span></div>
+            <div class="f-ctl"><n-input v-model:value="form.name" placeholder="如 HK-01" maxlength="40" /></div>
+          </div>
+          <div class="field">
+            <div class="f-label"><span class="f-name">分组</span><span class="f-hint">可选，总览里可以按分组筛选</span></div>
+            <div class="f-ctl"><n-auto-complete v-model:value="form.group" :options="groups" placeholder="未分组" /></div>
+          </div>
+          <p class="f-note">地区、IP、系统信息会在 Agent 连上后自动识别，无需填写。</p>
+        </div>
 
         <h3 class="step">2 · 安装模式</h3>
         <n-radio-group v-model:value="form.mode" style="width: 100%">
@@ -100,12 +102,15 @@ function openDetail() { const id = created.value.server.id; close(); router.push
             </label>
           </div>
         </n-radio-group>
-        <div v-if="form.mode === 'node'" class="caps">
-          <div class="muted small" style="margin-bottom: 6px">节点能力（可多选）</div>
-          <n-checkbox v-model:checked="form.cap_reality">Reality 入站（直连 / 入口）</n-checkbox>
-          <p class="muted small cap-note">客户端连接的节点，默认端口 443。创建后可在「线路」里添加直连或链式线路。</p>
-          <n-checkbox v-model:checked="form.cap_landing">SS2022 落地</n-checkbox>
-          <p class="muted small cap-note">只接收入口机流量，端口随机，防火墙只放行入口机 IP。</p>
+        <div v-if="form.mode === 'node'" class="m-form caps">
+          <div class="field f-bool">
+            <div class="f-label"><span class="f-name">Reality 入站</span><span class="f-hint">直连或入口：客户端连接的节点，默认端口 443。创建后可在「线路」里添加线路</span></div>
+            <div class="f-ctl"><n-switch v-model:value="form.cap_reality" aria-label="Reality 入站" /></div>
+          </div>
+          <div class="field f-bool">
+            <div class="f-label"><span class="f-name">SS2022 落地</span><span class="f-hint">只接收入口机流量，端口随机，防火墙只放行入口机 IP</span></div>
+            <div class="f-ctl"><n-switch v-model:value="form.cap_landing" aria-label="SS2022 落地" /></div>
+          </div>
         </div>
         <n-button type="primary" block size="large" style="margin-top: 20px" :loading="busy" @click="create">创建并获取安装命令</n-button>
       </template>
@@ -125,16 +130,26 @@ function openDetail() { const id = created.value.server.id; close(); router.push
             <p class="muted small">支持 Debian 11+ / Ubuntu 20.04+ / Rocky·Alma 9 / Alpine 3.18+ · amd64 / arm64</p>
           </n-tab-pane>
           <n-tab-pane name="ssh" tab="SSH 一键安装">
-            <n-form @submit.prevent label-placement="top" size="small">
-              <div class="ssh-grid">
-                <n-form-item label="地址"><n-input v-model:value="ssh.host" placeholder="IP 或域名" /></n-form-item>
-                <n-form-item label="端口"><n-input-number v-model:value="ssh.port" :min="1" :max="65535" :show-button="false" /></n-form-item>
+            <div class="m-form">
+              <div class="field">
+                <div class="f-label"><span class="f-name">地址</span><span class="f-hint">IP 或域名，后面是 SSH 端口</span></div>
+                <div class="f-ctl ctl-row"><n-input v-model:value="ssh.host" placeholder="IP 或域名" aria-label="地址" />
+                <n-input-number v-model:value="ssh.port" :min="1" :max="65535" :show-button="false" class="port" aria-label="端口" /></div>
               </div>
-              <n-form-item label="用户"><n-input v-model:value="ssh.user" /></n-form-item>
-              <n-form-item label="密码"><n-input v-model:value="ssh.password" type="password" show-password-on="click" :input-props="{ autocomplete: 'off' }" /></n-form-item>
-              <n-form-item label="或私钥（PEM）"><n-input v-model:value="ssh.key" type="textarea" :rows="3" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" /></n-form-item>
-            </n-form>
-            <p class="muted small">凭据只在本次安装时使用，安装结束后立即丢弃，不写入数据库或日志。</p>
+              <div class="field">
+                <div class="f-label"><span class="f-name">用户</span></div>
+                <div class="f-ctl"><n-input v-model:value="ssh.user" placeholder="默认 root" /></div>
+              </div>
+              <div class="field">
+                <div class="f-label"><span class="f-name">密码</span><span class="f-hint">密码和私钥填一个</span></div>
+                <div class="f-ctl"><n-input v-model:value="ssh.password" type="password" show-password-on="click" placeholder="未设置" :input-props="{ autocomplete: 'off' }" /></div>
+              </div>
+              <div class="field stacked">
+                <div class="f-label"><span class="f-name">私钥（PEM）</span></div>
+                <div class="f-ctl"><n-input v-model:value="ssh.key" type="textarea" :rows="3" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" aria-label="私钥" /></div>
+              </div>
+              <p class="f-note">凭据只在本次安装时使用，安装结束后立即丢弃，不写入数据库或日志。</p>
+            </div>
             <n-button type="primary" block :disabled="!!sshTask" @click="sshInstall">连接并安装</n-button>
             <task-log v-if="sshTask" :task-id="sshTask" height="260px" style="margin-top: 12px" />
           </n-tab-pane>
@@ -167,10 +182,9 @@ function openDetail() { const id = created.value.server.id; close(); router.push
 .mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .mode { border: 1px solid var(--c-border-strong); border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 6px; cursor: pointer; }
 .mode.on { border-color: var(--c-primary); background: var(--c-primary-soft); }
-.caps { margin-top: 14px; display: flex; flex-direction: column; }
-.cap-note { margin: 2px 0 10px 24px; }
+.caps { margin-top: 14px; }
 .cmd { white-space: pre-wrap; word-break: break-all; user-select: all; }
-.ssh-grid { display: grid; grid-template-columns: 1fr 110px; gap: 10px; }
+.ctl-row .port { flex: none; width: 88px; }
 .progress { display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
 @media (max-width: 767px) { .mode-grid { grid-template-columns: 1fr; } }
 </style>

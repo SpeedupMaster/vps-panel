@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { NButton, NTabs, NTabPane, NSelect, NInput, NInputNumber, NForm, NFormItem, NDatePicker, NCheckbox, NDropdown, NModal, NSwitch, NProgress } from 'naive-ui'
+import { NButton, NTabs, NTabPane, NSelect, NInput, NInputNumber, NDatePicker, NDropdown, NModal, NSwitch, NProgress } from 'naive-ui'
 import { api } from '../api'
 import { state, loadServers, on, ui } from '../store'
 import { run, ask } from '../helpers'
@@ -682,10 +682,18 @@ function diffClass(line) {
     <task-modal v-model:show="task.show" :task-id="task.id" :title="task.title" @done="load" />
 
     <n-modal v-model:show="upgrade.show" preset="card" title="升级为节点" style="width: min(460px, 94vw)">
-      <p class="small muted" style="margin-top: 0">会在这台机器上安装 Xray，并由面板生成配置。</p>
-      <n-checkbox v-model:checked="upgrade.cap_reality">Reality 入站（直连 / 入口）</n-checkbox><br>
-      <n-checkbox v-model:checked="upgrade.cap_landing" style="margin-top: 8px">SS2022 落地</n-checkbox>
-      <template #footer><div class="row" style="justify-content: flex-end"><n-button @click="upgrade.show = false">取消</n-button><n-button type="primary" @click="doUpgrade">升级</n-button></div></template>
+      <div class="m-form">
+        <p class="f-note first">会在这台机器上安装 Xray，并由面板生成配置。至少选择一种能力。</p>
+        <div class="field f-bool">
+          <div class="f-label"><span class="f-name">Reality 入站</span><span class="f-hint">直连或入口：客户端连接的节点，默认端口 443</span></div>
+          <div class="f-ctl"><n-switch v-model:value="upgrade.cap_reality" aria-label="Reality 入站" /></div>
+        </div>
+        <div class="field f-bool">
+          <div class="f-label"><span class="f-name">SS2022 落地</span><span class="f-hint">只接收入口机流量，端口随机，防火墙只放行入口机 IP</span></div>
+          <div class="f-ctl"><n-switch v-model:value="upgrade.cap_landing" aria-label="SS2022 落地" /></div>
+        </div>
+      </div>
+      <template #footer><div class="m-foot"><n-button @click="upgrade.show = false">取消</n-button><n-button type="primary" :disabled="!upgrade.cap_reality && !upgrade.cap_landing" @click="doUpgrade">升级</n-button></div></template>
     </n-modal>
 
     <n-modal v-model:show="install.show" preset="card" title="安装命令" style="width: min(640px, 96vw)">

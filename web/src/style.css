@@ -154,3 +154,12 @@ table.plain tr:last-child td { border-bottom: none; }
 .s-form { container-type: inline-size; }
 /* naive animated tabs set overflow:hidden on the pane wrapper, which breaks the sticky save bar; clip keeps the slide clipped without making a scroll container */
 .n-tabs .n-tabs-pane-wrapper { overflow: clip; }
+/* modal and drawer forms: the same field rows; narrow dialogs stack label over control */
+.m-form { container-type: inline-size; display: flex; flex-direction: column; }
+.m-form > .field { padding: 12px 0; }
+.m-form > .field:first-child, .m-form > .f-note.first + .field { border-top: 0; padding-top: 2px; }
+.m-form .f-ctl.ctl-col { display: flex; flex-direction: column; gap: 8px; }
+.m-form > .banner { margin-top: 12px; }
+.f-note { margin: 4px 0 0; padding-top: 12px; border-top: 1px solid var(--c-border); color: var(--c-muted); font-size: 12.5px; line-height: 1.6; }
+.f-note.first { margin: 0 0 6px; padding-top: 0; border-top: 0; }
+.m-foot { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }

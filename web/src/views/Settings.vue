@@ -527,17 +527,23 @@ onMounted(() => {
     </n-tabs>
 
     <n-modal v-model:show="restore.show" preset="card" title="恢复备份" style="width: min(460px, 96vw)">
-      <div class="form">
-        <template v-if="restore.name"><span class="small">从 <code class="mono">{{ restore.name }}</code> 恢复</span></template>
-        <template v-else>
-          <n-upload :max="1" :default-upload="false" accept=".vpb,.gz" @change="({ fileList }) => (restore.file = fileList[0]?.file || null)">
+      <div class="m-form">
+        <div v-if="restore.name" class="field">
+          <div class="f-label"><span class="f-name">备份</span><span class="f-hint mono">{{ restore.name }}</span></div>
+        </div>
+        <div class="field f-inline" v-else>
+          <div class="f-label"><span class="f-name">备份文件</span><span class="f-hint">.vpb 或 .gz</span></div>
+          <div class="f-ctl"><n-upload :max="1" :default-upload="false" accept=".vpb,.gz" @change="({ fileList }) => (restore.file = fileList[0]?.file || null)">
             <n-button>选择备份文件</n-button>
-          </n-upload>
-        </template>
-        <n-input v-model:value="restore.password" type="password" show-password-on="click" placeholder="备份密码（加密备份需要）" />
-        <p class="small muted">恢复会覆盖数据库与密钥，面板随后自动重启。</p>
+          </n-upload></div>
+        </div>
+        <div class="field">
+          <div class="f-label"><span class="f-name">备份密码</span><span class="f-hint">加密备份需要，未加密的留空</span></div>
+          <div class="f-ctl"><n-input v-model:value="restore.password" type="password" show-password-on="click" placeholder="未设置" :input-props="{ autocomplete: 'off' }" /></div>
+        </div>
+        <div class="banner warn">恢复会覆盖数据库与密钥，面板随后自动重启。</div>
       </div>
-      <template #footer><div class="row" style="justify-content: flex-end"><n-button @click="restore.show = false">取消</n-button><n-button type="error" @click="doRestore">恢复</n-button></div></template>
+      <template #footer><div class="m-foot"><n-button @click="restore.show = false">取消</n-button><n-button type="error" @click="doRestore">恢复</n-button></div></template>
     </n-modal>
   </div>
 </template>

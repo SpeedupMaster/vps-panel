@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import { NButton, NSelect, NSwitch, NModal, NInput, NInputNumber, NDropdown, NCheckbox, NTabs, NTabPane, NTimePicker } from 'naive-ui'
+import { NButton, NSelect, NSwitch, NModal, NInput, NInputNumber, NDropdown, NTabs, NTabPane, NTimePicker } from 'naive-ui'
 import { api } from '../api'
 import { state, loadServers, on, refreshAlertCount, ui } from '../store'
 import { run, ask } from '../helpers'
@@ -97,7 +97,9 @@ const chName = (ids) => (ids ? ids.split(',').map((id) => channels.value.find((c
 
 // ---- channels ----
 const chTypes = { telegram: 'Telegram', bark: 'Bark', wecom: '企业微信', feishu: '飞书', email: '邮件', webhook: 'Webhook' }
-const fieldLabel = { bot_token: 'Bot Token', chat_id: 'Chat ID', api_base: 'API 地址（可选，反代用）', bot_commands: '响应 Bot 命令（1 = 开启）', server: '服务器（默认 https://api.day.app）', device_key: 'Device Key', webhook: 'Webhook 地址', secret: '签名密钥（可选）', host: 'SMTP 主机', port: '端口', username: '用户名', password: '密码', from: '发件人', to: '收件人', url: 'URL' }
+const fieldLabel = { bot_token: 'Bot Token', chat_id: 'Chat ID', api_base: 'API 地址', bot_commands: '响应 Bot 命令', server: '服务器', device_key: 'Device Key', webhook: 'Webhook 地址', secret: '签名密钥', host: 'SMTP 主机', port: '端口', username: '用户名', password: '密码', from: '发件人', to: '收件人', url: 'URL' }
+const fieldHint = { api_base: '可选，通过反代访问 Telegram 时填写', bot_commands: '开启后可以在 Telegram 里发命令查询状态', secret: '可选', to: '多个收件人用逗号分隔' }
+const fieldPh = { api_base: '默认 https://api.telegram.org', server: '默认 https://api.day.app', port: '默认 465' }
 const secretFields = ['bot_token', 'password', 'secret', 'device_key', 'webhook']
 const chEdit = ref({ show: false, c: {} })
 function editChannel(c) {
@@ -294,52 +296,87 @@ const botCmds = [['/status', '所有服务器在线状态与告警概况'], ['/v
     </n-tabs>
 
     <n-modal v-model:show="editing.show" preset="card" :title="editing.r.id ? '编辑规则' : '新建规则'" style="width: min(560px, 96vw)">
-      <div class="form">
-        <label>类型</label><n-select v-model:value="editing.r.kind" :options="kindOpts" filterable />
-        <label>名称</label><n-input v-model:value="editing.r.name" :placeholder="kinds[editing.r.kind]" />
-        <div class="form-2">
-          <div v-if="thresholdKinds[editing.r.kind] !== undefined"><label>阈值 {{ thresholdKinds[editing.r.kind] }}</label><n-input-number v-model:value="editing.r.threshold" :min="0" /></div>
-          <div><label>持续（秒）</label><n-input-number v-model:value="editing.r.duration" :min="0" :step="60" /></div>
-          <div><label>重复提醒间隔（秒）</label><n-input-number v-model:value="editing.r.cooldown" :min="0" :step="600" /></div>
-          <div><label>严重度</label><n-select v-model:value="editing.r.severity" :options="sevOptsRule" /></div>
+      <div class="m-form">
+        <div class="field">
+          <div class="f-label"><span class="f-name">类型</span></div>
+          <div class="f-ctl"><n-select v-model:value="editing.r.kind" :options="kindOpts" filterable /></div>
         </div>
-        <label>范围</label><n-select v-model:value="editing.r.scopeKind" :options="scopeOpts" />
-        <n-select v-if="editing.r.scopeKind === 'ids'" v-model:value="editing.r.ids" multiple :options="serverOpts.slice(1)" placeholder="选择服务器" />
-        <label>渠道（不选 = 全部启用的渠道）</label>
-        <n-select v-model:value="editing.r.chIds" multiple :options="channels.map((c) => ({ label: c.name, value: c.id }))" placeholder="全部渠道" />
-        <n-checkbox v-model:checked="editing.r.enabled">启用</n-checkbox>
+        <div class="field">
+          <div class="f-label"><span class="f-name">名称</span></div>
+          <div class="f-ctl"><n-input v-model:value="editing.r.name" :placeholder="'默认 ' + (kinds[editing.r.kind] || '')" /></div>
+        </div>
+        <div class="field" v-if="thresholdKinds[editing.r.kind] !== undefined">
+          <div class="f-label"><span class="f-name">阈值</span><span class="f-hint">超过这个值算异常</span></div>
+          <div class="f-ctl"><n-input-number v-model:value="editing.r.threshold" :min="0" :show-button="false"><template #suffix><span class="f-unit">{{ thresholdKinds[editing.r.kind] }}</span></template></n-input-number></div>
+        </div>
+        <div class="field">
+          <div class="f-label"><span class="f-name">持续</span><span class="f-hint">异常持续这么久才告警，0 = 立即</span></div>
+          <div class="f-ctl"><n-input-number v-model:value="editing.r.duration" :min="0" :step="60" :show-button="false" placeholder="0"><template #suffix><span class="f-unit">秒</span></template></n-input-number></div>
+        </div>
+        <div class="field">
+          <div class="f-label"><span class="f-name">重复提醒间隔</span><span class="f-hint">告警未恢复时，隔多久再提醒一次</span></div>
+          <div class="f-ctl"><n-input-number v-model:value="editing.r.cooldown" :min="0" :step="600" :show-button="false" placeholder="0"><template #suffix><span class="f-unit">秒</span></template></n-input-number></div>
+        </div>
+        <div class="field">
+          <div class="f-label"><span class="f-name">严重度</span></div>
+          <div class="f-ctl"><n-select v-model:value="editing.r.severity" :options="sevOptsRule" /></div>
+        </div>
+        <div class="field">
+          <div class="f-label"><span class="f-name">范围</span></div>
+          <div class="f-ctl ctl-col"><n-select v-model:value="editing.r.scopeKind" :options="scopeOpts" />
+          <n-select v-if="editing.r.scopeKind === 'ids'" v-model:value="editing.r.ids" multiple :options="serverOpts.slice(1)" placeholder="选择服务器" /></div>
+        </div>
+        <div class="field">
+          <div class="f-label"><span class="f-name">通知渠道</span><span class="f-hint">不选 = 全部启用的渠道</span></div>
+          <div class="f-ctl"><n-select v-model:value="editing.r.chIds" multiple :options="channels.map((c) => ({ label: c.name, value: c.id }))" placeholder="全部渠道" /></div>
+        </div>
+        <div class="field f-bool">
+          <div class="f-label"><span class="f-name">启用</span></div>
+          <div class="f-ctl"><n-switch v-model:value="editing.r.enabled" aria-label="启用" /></div>
+        </div>
       </div>
-      <template #footer><div class="row" style="justify-content: flex-end"><n-button @click="editing.show = false">取消</n-button><n-button type="primary" @click="saveRule">保存</n-button></div></template>
+      <template #footer><div class="m-foot"><n-button @click="editing.show = false">取消</n-button><n-button type="primary" @click="saveRule">保存</n-button></div></template>
     </n-modal>
 
     <n-modal v-model:show="chEdit.show" preset="card" :title="chEdit.c.id ? '编辑渠道' : '添加渠道'" style="width: min(520px, 96vw)">
-      <div class="form">
-        <label>类型</label>
-        <n-select v-model:value="chEdit.c.type" :options="Object.entries(chTypes).map(([value, label]) => ({ label, value }))" :disabled="!!chEdit.c.id" />
-        <label>名称</label><n-input v-model:value="chEdit.c.name" :placeholder="chTypes[chEdit.c.type]" />
+      <div class="m-form">
+        <div class="field">
+          <div class="f-label"><span class="f-name">类型</span><span v-if="chEdit.c.id" class="f-hint">创建后不能修改</span></div>
+          <div class="f-ctl"><n-select v-model:value="chEdit.c.type" :options="Object.entries(chTypes).map(([value, label]) => ({ label, value }))" :disabled="!!chEdit.c.id" /></div>
+        </div>
+        <div class="field">
+          <div class="f-label"><span class="f-name">名称</span></div>
+          <div class="f-ctl"><n-input v-model:value="chEdit.c.name" :placeholder="'默认 ' + (chTypes[chEdit.c.type] || '')" /></div>
+        </div>
         <template v-for="f in fields[chEdit.c.type] || []" :key="f">
-          <label>{{ fieldLabel[f] || f }}</label>
-          <n-switch v-if="f === 'bot_commands'" :value="chEdit.c.config[f] === '1'" @update:value="(v) => chEdit.c.config[f] = v ? '1' : '0'" />
-          <n-input v-else v-model:value="chEdit.c.config[f]" :type="secretFields.includes(f) ? 'password' : 'text'" show-password-on="click"
-            :placeholder="chEdit.c.id && secretFields.includes(f) ? '留空 = 不修改' : ''" :input-props="{ autocomplete: 'off' }" />
+          <div :class="['field', { 'f-bool': f === 'bot_commands' }]">
+            <div class="f-label"><span class="f-name">{{ fieldLabel[f] || f }}</span><span v-if="fieldHint[f] || (chEdit.c.id && secretFields.includes(f))" class="f-hint">{{ chEdit.c.id && secretFields.includes(f) ? '已保存，留空 = 不修改' : fieldHint[f] }}</span></div>
+            <div class="f-ctl">
+              <n-switch v-if="f === 'bot_commands'" :value="chEdit.c.config[f] === '1'" :aria-label="fieldLabel[f]" @update:value="(v) => chEdit.c.config[f] = v ? '1' : '0'" />
+              <n-input v-else v-model:value="chEdit.c.config[f]" :type="secretFields.includes(f) ? 'password' : 'text'" show-password-on="click"
+                :placeholder="chEdit.c.id && secretFields.includes(f) ? '留空 = 不修改' : fieldPh[f] || ''" :input-props="{ autocomplete: 'off' }" />
+            </div>
+          </div>
         </template>
-        <label>最低级别</label><n-select v-model:value="chEdit.c.min_level" :options="sevOptsRule" />
-        <n-checkbox v-model:checked="chEdit.c.enabled">启用</n-checkbox>
+        <div class="field">
+          <div class="f-label"><span class="f-name">最低级别</span><span class="f-hint">低于这个级别的告警不发到这里</span></div>
+          <div class="f-ctl"><n-select v-model:value="chEdit.c.min_level" :options="sevOptsRule" /></div>
+        </div>
+        <div class="field f-bool">
+          <div class="f-label"><span class="f-name">启用</span></div>
+          <div class="f-ctl"><n-switch v-model:value="chEdit.c.enabled" aria-label="启用" /></div>
+        </div>
       </div>
-      <template #footer><div class="row" style="justify-content: flex-end"><n-button @click="chEdit.show = false">取消</n-button><n-button type="primary" @click="saveChannel">保存</n-button></div></template>
+      <template #footer><div class="m-foot"><n-button @click="chEdit.show = false">取消</n-button><n-button type="primary" @click="saveChannel">保存</n-button></div></template>
     </n-modal>
   </div>
 </template>
 
 <style scoped>
-.form { display: flex; flex-direction: column; gap: 6px; }
-.form label { font-size: 13px; color: var(--c-text-2); margin-top: 6px; display: block; margin-bottom: 4px; }
-.form-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
 .ch-row { display: flex; align-items: center; gap: 8px 12px; padding: 12px 0; border-top: 1px solid var(--c-border); flex-wrap: wrap; }
 .ch-main { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 3px; }
 .ch-act { gap: 4px; flex-wrap: nowrap; }
 .cmd-row { display: flex; align-items: baseline; gap: 12px; padding: 10px 0; border-top: 1px solid var(--c-border); }
 .cmd-row:first-child { border-top: 0; }
 .cmd { background: var(--c-surface); padding: 2px 6px; border-radius: 4px; min-width: 76px; flex: none; }
-@media (max-width: 767px) { .form-2 { grid-template-columns: 1fr; } }
 </style>

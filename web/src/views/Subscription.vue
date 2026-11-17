@@ -249,26 +249,40 @@ async function activate(t, v) {
     </div>
 
     <n-modal v-model:show="adding.show" preset="card" title="添加设备" style="width: min(420px, 94vw)">
-      <div class="form">
-        <label>设备名</label><n-input v-model:value="adding.name" placeholder="如 iPhone / 笔记本" @keyup.enter="addToken" />
-        <label>默认格式</label><n-select v-model:value="adding.target" :options="targets" />
-        <span class="muted small">「自动识别」会按客户端 User-Agent 选择格式。</span>
+      <div class="m-form">
+        <div class="field">
+          <div class="f-label"><span class="f-name">设备名</span></div>
+          <div class="f-ctl"><n-input v-model:value="adding.name" placeholder="如 iPhone / 笔记本" @keyup.enter="addToken" /></div>
+        </div>
+        <div class="field">
+          <div class="f-label"><span class="f-name">默认格式</span><span class="f-hint">「自动识别」会按客户端 User-Agent 选择格式</span></div>
+          <div class="f-ctl"><n-select v-model:value="adding.target" :options="targets" /></div>
+        </div>
       </div>
-      <template #footer><div class="row" style="justify-content: flex-end"><n-button @click="adding.show = false">取消</n-button><n-button type="primary" @click="addToken">创建</n-button></div></template>
+      <template #footer><div class="m-foot"><n-button @click="adding.show = false">取消</n-button><n-button type="primary" @click="addToken">创建</n-button></div></template>
     </n-modal>
 
     <n-modal v-model:show="tpl.show" preset="card" :title="tpl.id ? '编辑模板' : '自定义模板'" style="width: min(860px, 96vw)">
-      <div class="form">
-        <div class="row">
-          <n-input v-model:value="tpl.name" placeholder="名称" style="flex: 1" />
-          <n-select v-model:value="tpl.target" :options="targets.slice(1, 3)" style="width: 130px" :disabled="!!tpl.id" />
-          <n-button @click="loadBuiltin">载入内置模板</n-button>
+      <div class="m-form">
+        <div class="field">
+          <div class="f-label"><span class="f-name">名称</span></div>
+          <div class="f-ctl"><n-input v-model:value="tpl.name" placeholder="例如 我的分流规则" /></div>
         </div>
-        <n-input v-model:value="tpl.content" type="textarea" :rows="18" class="mono" placeholder="模板内容" />
-        <span class="muted small" v-text="tplHint" />
-        <div class="row"><n-switch v-model:value="tpl.active" /><span>保存后启用（同一格式只能启用一个）</span></div>
+        <div class="field">
+          <div class="f-label"><span class="f-name">格式</span><span v-if="tpl.id" class="f-hint">创建后不能修改</span></div>
+          <div class="f-ctl ctl-row"><n-select v-model:value="tpl.target" :options="targets.slice(1, 3)" :disabled="!!tpl.id" aria-label="格式" />
+          <n-button @click="loadBuiltin">载入内置模板</n-button></div>
+        </div>
+        <div class="field stacked">
+          <div class="f-label"><span class="f-name">模板内容</span><span class="f-hint">{{ tplHint }}</span></div>
+          <div class="f-ctl"><n-input v-model:value="tpl.content" type="textarea" :rows="16" class="mono" placeholder="模板内容" aria-label="模板内容" /></div>
+        </div>
+        <div class="field f-bool">
+          <div class="f-label"><span class="f-name">保存后启用</span><span class="f-hint">同一格式只能启用一个模板</span></div>
+          <div class="f-ctl"><n-switch v-model:value="tpl.active" aria-label="保存后启用" /></div>
+        </div>
       </div>
-      <template #footer><div class="row" style="justify-content: flex-end"><n-button @click="tpl.show = false">取消</n-button><n-button type="primary" @click="saveTemplate">保存</n-button></div></template>
+      <template #footer><div class="m-foot"><n-button @click="tpl.show = false">取消</n-button><n-button type="primary" @click="saveTemplate">保存</n-button></div></template>
     </n-modal>
 
     <qr-modal v-model:show="qr.show" :text="qr.text" :title="qr.title" hint="用客户端扫码导入订阅" />
@@ -277,8 +291,6 @@ async function activate(t, v) {
 
 <style scoped>
 .url { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.form { display: flex; flex-direction: column; gap: 8px; }
-.form label { font-size: 13px; color: var(--c-text-2); margin-top: 6px; }
 .sw { margin-top: 6px; font-size: 13px; }
 .preview { max-height: 520px; min-height: 200px; font-size: 11.5px; }
 .ua { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

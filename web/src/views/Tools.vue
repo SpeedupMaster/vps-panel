@@ -345,16 +345,30 @@ function cronText(c) {
     </n-modal>
 
     <n-modal v-model:show="sched.show" preset="card" :title="sched.s.id ? '编辑定时任务' : '新建定时任务'" style="width: min(480px, 96vw)">
-      <div class="form">
-        <label>动作</label><n-select v-model:value="sched.s.action" :options="Object.entries(actions).map(([value, label]) => ({ label, value }))" />
-        <label>名称</label><n-input v-model:value="sched.s.name" :placeholder="actions[sched.s.action]" />
-        <label>时间</label><n-input v-model:value="sched.s.cron" placeholder="04:00" />
-        <span class="muted small">「HH:MM」每天；「HH:MM@1,3」每周一、三；「@every 6h」每 6 小时。按面板所在时区。</span>
-        <label>服务器</label><n-select v-model:value="sched.s.spec" :options="serverSpec" />
-        <n-select v-if="sched.s.spec === 'ids'" v-model:value="sched.s.ids" multiple :options="serverOpts" />
-        <n-checkbox v-model:checked="sched.s.enabled">启用</n-checkbox>
+      <div class="m-form">
+        <div class="field">
+          <div class="f-label"><span class="f-name">动作</span></div>
+          <div class="f-ctl"><n-select v-model:value="sched.s.action" :options="Object.entries(actions).map(([value, label]) => ({ label, value }))" /></div>
+        </div>
+        <div class="field">
+          <div class="f-label"><span class="f-name">名称</span></div>
+          <div class="f-ctl"><n-input v-model:value="sched.s.name" :placeholder="'默认 ' + (actions[sched.s.action] || '')" /></div>
+        </div>
+        <div class="field">
+          <div class="f-label"><span class="f-name">时间</span><span class="f-hint">「HH:MM」每天；「HH:MM@1,3」每周一、三；「@every 6h」每 6 小时。按面板所在时区</span></div>
+          <div class="f-ctl"><n-input v-model:value="sched.s.cron" placeholder="04:00" /></div>
+        </div>
+        <div class="field">
+          <div class="f-label"><span class="f-name">服务器</span></div>
+          <div class="f-ctl ctl-col"><n-select v-model:value="sched.s.spec" :options="serverSpec" />
+          <n-select v-if="sched.s.spec === 'ids'" v-model:value="sched.s.ids" multiple :options="serverOpts" placeholder="选择服务器" /></div>
+        </div>
+        <div class="field f-bool">
+          <div class="f-label"><span class="f-name">启用</span></div>
+          <div class="f-ctl"><n-switch v-model:value="sched.s.enabled" aria-label="启用" /></div>
+        </div>
       </div>
-      <template #footer><div class="row" style="justify-content: flex-end"><n-button @click="sched.show = false">取消</n-button><n-button type="primary" @click="saveSched">保存</n-button></div></template>
+      <template #footer><div class="m-foot"><n-button @click="sched.show = false">取消</n-button><n-button type="primary" @click="saveSched">保存</n-button></div></template>
     </n-modal>
   </div>
 </template>
