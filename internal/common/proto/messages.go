@@ -112,7 +112,7 @@ type ProbeSample struct {
 	Min    float64 `json:"min"`
 	Max    float64 `json:"max"`
 	Jitter float64 `json:"jitter"`
-	Loss   float64 `json:"loss"` // 0..1
+	Loss   float64 `json:"loss"` // 0..1 from agents; the panel converts to percent on ingest
 }
 
 type TaskResult struct {

@@ -19,6 +19,8 @@ type Alerter interface {
 	Fire(kind string, serverID uint, key, severity, text string)
 	Resolve(kind string, serverID uint, key string)
 	Info(kind string, serverID uint, text string) // one-shot notification
+	// Observe feeds a metric into threshold rules of that kind.
+	Observe(kind string, serverID uint, value float64)
 }
 
 type nopAlerter struct{}
@@ -26,6 +28,7 @@ type nopAlerter struct{}
 func (nopAlerter) Fire(string, uint, string, string, string) {}
 func (nopAlerter) Resolve(string, uint, string)              {}
 func (nopAlerter) Info(string, uint, string)                 {}
+func (nopAlerter) Observe(string, uint, float64)             {}
 
 type Panel struct {
 	St      *store.Store

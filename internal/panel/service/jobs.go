@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"vpspanel/internal/panel/scheduler"
+	"vpspanel/internal/panel/store"
 )
 
 // StartJobs registers the core periodic jobs.
@@ -13,6 +14,15 @@ func (p *Panel) StartJobs(s *scheduler.Scheduler) {
 	s.Every("tasks-expire", time.Minute, false, p.ExpireTasks)
 	s.Every("expiry", time.Hour, true, p.CheckExpiry)
 	s.Every("cleanup", 6*time.Hour, true, p.Cleanup)
+	s.Every("probe-rollup", time.Hour, false, p.RollupProbes)
+	s.Daily("zstatic-sync", func() string { return "04:20" }, func() { _, _ = p.SyncZstatic() })
+
+	p.LoadProbeState()
+	var n int64
+	p.St.DB.Model(&store.ProbeTarget{}).Count(&n)
+	if n == 0 {
+		go func() { _, _ = p.SyncZstatic() }()
+	}
 }
 
 // Cleanup trims old logs and finished tasks.

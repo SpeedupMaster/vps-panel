@@ -29,7 +29,7 @@ func prettyJSON(b []byte) []byte {
 	return buf.Bytes()
 }
 
-var secretFields = regexp.MustCompile(`("(?:privateKey|password)":s*")[^"]*(")`)
+var secretFields = regexp.MustCompile(`("(?:privateKey|password)":\s*")[^"]*(")`)
 
 // redactConfig hides keys in configs shown in the UI.
 func redactConfig(s string) string {

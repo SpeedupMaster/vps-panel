@@ -103,7 +103,7 @@ func Diagnose(ctx context.Context, a *agent.Agent, args map[string]string, out f
 			}
 		}
 		s := prober.Summarize(name, rtts, 3)
-		if s.Loss < 100 {
+		if s.Loss < 1 {
 			ok++
 			parts = append(parts, fmt.Sprintf("%s %.0fms", name, s.Avg))
 		} else {

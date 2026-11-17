@@ -78,6 +78,7 @@ func (a *API) Router() *gin.Engine {
 	authed.PUT("/settings", a.putSettings)
 
 	a.mountNodes(r, authed)
+	a.mountAlerts(authed)
 	for _, f := range a.Extra {
 		f(r, authed)
 	}
