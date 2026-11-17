@@ -46,6 +46,17 @@ const entries = computed(() => nodes.value.filter((s) => s.cap_reality))
 const landings = computed(() => nodes.value.filter((s) => s.cap_landing && s.id !== form.value.entry_server_id))
 const entrySv = computed(() => state.servers.find((s) => s.id === form.value.entry_server_id))
 const landingSv = computed(() => state.servers.find((s) => s.id === form.value.landing_server_id))
+// Latest unlock check per landing (from the tools page), to help pick one.
+const unlocks = ref({})
+watch(landings, async (ls) => {
+  for (const l of ls) {
+    if (unlocks.value[l.id]) continue
+    const r = await api.get(`/servers/${l.id}/tool-results`).catch(() => null)
+    let items = []
+    try { items = JSON.parse(r?.unlock?.data || '[]') } catch { /* ignore */ }
+    unlocks.value = { ...unlocks.value, [l.id]: Array.isArray(items) ? items : [] }
+  }
+}, { immediate: true })
 const backhaul = (id) => topo.value.nodes?.find((n) => n.id === id)?.backhaul_ms || 0
 function segment(entryId, landingId) {
   const s = segs.value.find((c) => c.server_id === entryId && c.target === `seg-${landingId}`)
@@ -173,6 +184,10 @@ async function copyLink() { if (view.value?.share_link && (await copy(view.value
               <span class="muted small">{{ l.region || '—' }}</span>
               <span class="small" v-if="segment(form.entry_server_id, l.id)">{{ segment(form.entry_server_id, l.id).src }} {{ Math.round(segment(form.entry_server_id, l.id).ms) }} ms · 丢包 {{ Math.round(segment(form.entry_server_id, l.id).loss) }}%</span>
               <span class="small muted" v-else>线路段延迟暂无数据</span>
+              <span v-if="unlocks[l.id]?.length" class="unlock">
+                <span v-for="u in unlocks[l.id]" :key="u.name" :class="['tag', u.status === 'yes' ? 'ok' : u.status === 'partial' ? 'warn' : u.status === 'no' ? 'bad' : '']">{{ u.name }}</span>
+              </span>
+              <span v-else-if="unlocks[l.id]" class="small muted">还没做过解锁检测</span>
             </button>
           </div>
           <h3>备用落地</h3>
@@ -265,4 +280,6 @@ h3 { font-size: 14px; margin: 20px 0 8px; }
 .ck.bad { background: var(--c-danger-soft); color: var(--c-danger); }
 .actions { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--c-border); }
 @media (max-width: 767px) { .pick-grid.two { grid-template-columns: 1fr; } }
+.unlock { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.unlock .tag { font-size: 11px; }
 </style>

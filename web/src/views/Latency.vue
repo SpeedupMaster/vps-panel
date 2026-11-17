@@ -3,7 +3,7 @@ export default { name: 'Latency' }
 </script>
 <script setup>
 import { ref, computed, onMounted, watch, onBeforeUnmount } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { NButton, NSelect } from 'naive-ui'
 import { api } from '../api'
 import { state, loadServers, on } from '../store'
@@ -13,12 +13,13 @@ import Chart from '../components/Chart.vue'
 import TargetManager from '../components/TargetManager.vue'
 
 const router = useRouter()
+const route = useRoute()
 const targets = ref([])
 const matrix = ref([])
 const segs = ref([])
 const peers = ref([])
 const series = ref({})
-const server = ref(null)
+const server = ref(Number(route.query.server) || null)
 const range = ref(86400)
 const managing = ref(false)
 
@@ -45,6 +46,8 @@ onMounted(async () => {
   if (!server.value && servers.value.length) server.value = (servers.value.find((s) => s.mode === 'node') || servers.value[0]).id
 })
 watch([server, range, () => enabled.value.length], loadSeries)
+// Kept alive: follow ?server= when opened again from a server page.
+watch(() => route.query.server, (v) => { if (route.name === 'latency' && v) server.value = Number(v) })
 let debounce = null
 const off = on('probe', () => { clearTimeout(debounce); debounce = setTimeout(() => { loadAll(); if (range.value <= 86400) loadSeries() }, 3000) })
 onBeforeUnmount(() => { off(); clearTimeout(debounce) })

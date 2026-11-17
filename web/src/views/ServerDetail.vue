@@ -5,7 +5,7 @@ import { NButton, NTabs, NTabPane, NSelect, NInput, NInputNumber, NForm, NFormIt
 import { api } from '../api'
 import { state, loadServers, on, ui } from '../store'
 import { run, ask } from '../helpers'
-import { bytes, rate, pct, ago, dt, date, daysUntil, flag, dur } from '../format'
+import { bytes, rate, pct, ago, dt, date, daysUntil, flag, dur, carrierLabel } from '../format'
 import { isMobile } from '../mobile'
 import Chart from '../components/Chart.vue'
 import TaskModal from '../components/TaskModal.vue'
@@ -38,11 +38,60 @@ async function loadXray() {
 async function loadTraffic() { traffic.value = await run(() => api.get(`/servers/${id.value}/traffic?days=30`)) }
 async function loadConfigs() { configs.value = (await run(() => api.get(`/servers/${id.value}/configs`))) || [] }
 
+// ---------- backhaul latency (last 24h, median per carrier) ----------
+const backhaul = ref({ targets: [], series: {} })
+async function loadBackhaul() {
+  const t = (await api.get('/probes/targets').catch(() => null))?.items || []
+  const ids = t.filter((x) => x.enabled && ['telecom', 'unicom', 'mobile'].includes(x.carrier)).map((x) => x.id)
+  const s = ids.length ? await api.get(`/probes/series?server_id=${id.value}&range=86400&targets=${ids.join(',')}`).catch(() => ({})) : {}
+  backhaul.value = { targets: t, series: s || {} }
+}
+const bhColors = { telecom: '#2f6fd0', unicom: '#b8650a', mobile: '#0f7b45' }
+const bhOpt = computed(() => {
+  const { targets, series } = backhaul.value
+  const buckets = new Map()
+  for (const tg of targets) {
+    for (const r of series[tg.id] || []) {
+      const k = Math.floor(r.ts / 300) * 300
+      if (!buckets.has(k)) buckets.set(k, { telecom: { v: [], l: [] }, unicom: { v: [], l: [] }, mobile: { v: [], l: [] } })
+      const b = buckets.get(k)[tg.carrier]
+      if (!b) continue
+      b.l.push(r.loss)
+      if (r.loss < 100 && r.avg > 0) b.v.push(r.avg)
+    }
+  }
+  const ks = [...buckets.keys()].sort((a, b) => a - b)
+  if (!ks.length) return null
+  const med = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return Math.round(s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2) }
+  const x = ks.map((k) => { const d = new Date(k * 1000); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` })
+  const lossOf = (c, i) => { const l = buckets.get(ks[i])[c].l; return l.length ? Math.round(l.reduce((a, b) => a + b, 0) / l.length) : 0 }
+  return {
+    grid: { left: 44, right: 10, top: 28, bottom: 24 },
+    legend: { top: 0, itemWidth: 14, textStyle: { fontSize: 12 } },
+    tooltip: {
+      trigger: 'axis',
+      formatter: (ps) => `${ps[0].axisValue}<br>` + ps.map((p) => {
+        const c = ['telecom', 'unicom', 'mobile'][p.seriesIndex]
+        const loss = lossOf(c, p.dataIndex)
+        return `${p.marker}${p.seriesName} ${p.value == null ? '超时' : p.value + ' ms'}${loss ? ` · 丢包 ${loss}%` : ''}`
+      }).join('<br>'),
+    },
+    xAxis: { type: 'category', data: x, axisLabel: { fontSize: 11 } },
+    yAxis: { type: 'value', name: 'ms', nameTextStyle: { fontSize: 11 }, axisLabel: { fontSize: 11 }, splitLine: { lineStyle: { color: '#eef0f2' } } },
+    series: ['telecom', 'unicom', 'mobile'].map((c) => ({
+      name: carrierLabel(c), type: 'line', showSymbol: false, connectNulls: false, lineStyle: { width: 1.5 }, color: bhColors[c],
+      data: ks.map((k) => med(buckets.get(k)[c].v)),
+    })),
+  }
+})
+
 watch(id, async () => {
   if (!id.value) return
   sv.value = null; xray.value = null; traffic.value = null; configs.value = []; tab.value = 'overview'
   await load()
   loadMetrics()
+  backhaul.value = { targets: [], series: {} }
+  loadBackhaul()
   api.get('/releases/xray').then((r) => { releases.value.xray = r.latest_xray; releases.value.agent = r.agent_published }).catch(() => {})
 }, { immediate: true })
 watch(range, loadMetrics)
@@ -282,6 +331,14 @@ function diffClass(line) {
                 <div><div class="chart-h">网络</div><chart :option="netOpt" height="180px" /></div>
                 <div><div class="chart-h">连接数 / 负载</div><chart :option="connOpt" height="180px" /></div>
               </div>
+            </div>
+            <div class="card span2">
+              <div class="card-title">
+                <h2>回程延迟</h2><span class="muted small">近 24 小时，三网各自的中位数</span><span class="spacer" />
+                <router-link :to="{ name: 'latency', query: { server: id } }" class="small">详细</router-link>
+              </div>
+              <div v-if="!bhOpt" class="empty">还没有探测数据</div>
+              <chart v-else :option="bhOpt" height="200px" />
             </div>
             <div class="card">
               <div class="card-title"><h2>系统信息</h2></div>
