@@ -73,18 +73,25 @@ const roleText = (r) => (r || []).map((x) => ({ entry: '入口', landing: '落�
 <template>
   <div class="page topo-page">
     <div class="page-head">
-      <div class="ph"><h1>拓扑</h1><p class="page-desc">节点、线路与线路段延迟（10 分钟均值）。点击节点查看详情。</p></div>
+      <div class="ph"><h1>拓扑</h1><p class="page-desc">所有节点和线路的连接关系，每分钟自动刷新。</p></div>
+    </div>
+    <section class="l-sec flow-sec">
+    <div class="sec-head">
+      <div class="s-head">
+        <h2>线路图</h2>
+        <p>入口在左，落地在中间，最右边是互联网。连线上是线路段延迟（10 分钟均值）和今日流量，点击节点查看详情，可以拖动节点调整位置。</p>
+      </div>
       <span class="spacer" />
-      <n-button size="small" @click="load">刷新</n-button>
+      <n-button @click="load">刷新</n-button>
     </div>
-    <div class="legend small">
-      <span><i class="ln ok" />线路（流动 = 今日有流量）</span>
-      <span><i class="ln back" />备用落地</span>
-      <span><i class="ln down" />线路段中断</span>
-      <span><span class="dot bad" /> 疑似被封</span>
-    </div>
-    <div class="card flow-card">
-      <div v-if="topo && !topo.nodes?.length" class="empty">还没有节点。</div>
+    <div class="card s-card flow-card">
+      <div class="s-card-head legend small">
+        <span><i class="ln ok" />线路（流动 = 今日有流量）</span>
+        <span><i class="ln back" />备用落地</span>
+        <span><i class="ln down" />线路段中断</span>
+        <span><span class="dot bad" /> 疑似被封</span>
+      </div>
+      <div v-if="topo && !topo.nodes?.length" class="empty">还没有节点</div>
       <vue-flow v-else :nodes="graph.nodes" :edges="graph.edges" fit-view-on-init :min-zoom="0.3" :max-zoom="2"
         :nodes-draggable="true" :nodes-connectable="false" :elements-selectable="false" @node-click="onNodeClick">
         <background pattern-color="#e4e6ea" :gap="20" />
@@ -101,13 +108,16 @@ const roleText = (r) => (r || []).map((x) => ({ entry: '入口', landing: '落�
         </template>
       </vue-flow>
     </div>
+    </section>
   </div>
 </template>
 
 <style scoped>
 .topo-page { height: 100vh; height: 100dvh; }
-.flow-card { flex: 1; min-height: 420px; padding: 0; overflow: hidden; }
-.legend { display: flex; gap: 18px; flex-wrap: wrap; color: var(--c-muted); align-items: center; }
+.flow-sec { flex: 1; min-height: 0; }
+.flow-card { flex: 1; min-height: 420px; padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+.flow-card > .vue-flow { flex: 1; min-height: 0; height: auto; }
+.legend { gap: 8px 18px; color: var(--c-muted); padding: 12px 20px; border-bottom: 1px solid var(--c-border); }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .ln { display: inline-block; width: 22px; height: 0; border-top: 2px solid #0f7b45; }
 .ln.back { border-top: 2px dashed #9aa0a6; }
@@ -116,5 +126,5 @@ const roleText = (r) => (r || []).map((x) => ({ entry: '入口', landing: '落�
 .node.blocked { border-color: var(--c-danger); background: var(--c-danger-soft); }
 .node.off { opacity: .65; }
 .node.net { background: var(--c-surface); cursor: default; text-align: center; }
-@media (max-width: 767px) { .topo-page { height: calc(100dvh - 52px - var(--safe-top)); } .flow-card { min-height: 360px; } }
+@media (max-width: 767px) { .topo-page { height: calc(100dvh - 52px - var(--safe-top)); } .flow-card { min-height: 360px; } .legend { padding: 10px 16px; gap: 6px 14px; } }
 </style>
