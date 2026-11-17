@@ -14,8 +14,9 @@ RUN go mod download
 COPY . .
 COPY --from=web /src/internal/panel/webui/dist ./internal/panel/webui/dist
 ARG VERSION=docker
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X vpspanel/internal/common/version.Version=${VERSION}" -o /out/vps-panel ./cmd/panel \
- && for arch in amd64 arm64; do CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w -X vpspanel/internal/common/version.Version=${VERSION}" -o /out/agent/vpsagent-linux-$arch ./cmd/agent; done
+ARG COMMIT=unknown
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X vpspanel/internal/common/version.Version=${VERSION} -X vpspanel/internal/common/version.Commit=${COMMIT}" -o /out/vps-panel ./cmd/panel \
+ && for arch in amd64 arm64; do CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w -X vpspanel/internal/common/version.Version=${VERSION} -X vpspanel/internal/common/version.Commit=${COMMIT}" -o /out/agent/vpsagent-linux-$arch ./cmd/agent; done
 
 FROM alpine:3.22
 RUN apk add --no-cache ca-certificates tzdata && adduser -D -H -u 10001 vpspanel

@@ -27,6 +27,18 @@ make agent    # dist/vpsagent-linux-{amd64,arm64}
 
 开发时 `cd web && pnpm dev`，`/api` 与 `/s/` 代理到本机 `:8080` 的面板。
 
+## Docker 镜像
+
+GitHub Actions 每次推送到 main 都会构建 linux/amd64 镜像，推到 GitHub Container Registry；打 `v*` 标签时另外生成版本号标签。镜像里带有 amd64 和 arm64 两种 Agent，供节点机下载。
+
+```bash
+docker pull ghcr.io/speedupmaster/vps-panel:latest
+docker run -d --name vps-panel -p 8080:8080 -v ./data:/data \
+  -e VPSPANEL_URL=https://panel.example.com ghcr.io/speedupmaster/vps-panel:latest
+```
+
+配合 Caddy 自动 HTTPS 的写法见 `deploy/docker-compose.yml`，把其中的 `build` 换成上面的 `image` 即可。
+
 ## 手机与 PWA
 
 - 宽度 ≤ 767px 时切换为手机布局：顶栏 + 底部 4 个常用入口（总览 / 线路 / 延迟 / 告警）+「更多」抽屉；表格改为卡片列表，适配刘海屏安全区，输入框不会触发 iOS 自动缩放；WebSSH 带一排常用按键（Esc、Tab、Ctrl+C、方向键…）。
