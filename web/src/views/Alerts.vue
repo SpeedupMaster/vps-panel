@@ -1,12 +1,20 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { NButton, NSelect, NSwitch, NModal, NInput, NInputNumber, NDropdown, NTabs, NTabPane, NTimePicker } from 'naive-ui'
 import { api } from '../api'
 import { state, loadServers, on, refreshAlertCount, ui } from '../store'
 import { run, ask } from '../helpers'
 import { ago, dt, dur, sevLabel, sevClass } from '../format'
 
-const tab = ref('events')
+const route = useRoute()
+const router = useRouter()
+const tabs = ['events', 'rules', 'channels']
+const tabOf = (q) => (tabs.includes(q) ? q : 'events')
+const tab = ref(tabOf(route.query.tab))
+// keep the tab in the URL so it survives reloads and can be linked to
+watch(tab, (t) => { if (tabOf(route.query.tab) !== t) router.replace({ query: { ...route.query, tab: t === 'events' ? undefined : t } }) })
+watch(() => route.query.tab, (q) => { tab.value = tabOf(q) })
 const events = ref([])
 const firing = ref(0)
 const fStatus = ref('firing')
