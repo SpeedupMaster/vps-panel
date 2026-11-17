@@ -674,24 +674,50 @@ function diffClass(line) {
 
         <n-tab-pane name="traffic" tab="流量">
           <div v-if="!traffic" class="empty">加载中…</div>
-          <div v-else class="detail-grid">
-            <div class="card span2">
-              <div class="card-title"><h2>近 30 天（网卡）</h2><span class="muted small">合计 {{ bytes(dailyTotal) }}</span></div>
-              <chart :option="dailyOpt" height="260px" />
-            </div>
-            <div class="card span2">
-              <div class="card-title"><h2>本周期按线路</h2></div>
-              <div class="table-wrap">
-                <table class="plain">
-                  <thead><tr><th>线路</th><th>上行</th><th>下行</th><th>合计</th></tr></thead>
-                  <tbody>
-                    <tr v-for="r in traffic.routes" :key="r.id"><td>{{ r.name }}</td><td class="mono">{{ bytes(r.up) }}</td><td class="mono">{{ bytes(r.down) }}</td><td class="mono">{{ bytes(r.up + r.down) }}</td></tr>
-                    <tr><td class="muted">非代理流量（系统、探针等）</td><td class="mono muted">—</td><td class="mono muted">—</td>
-                      <td class="mono muted">{{ bytes(Math.max(0, (traffic.usage.up + traffic.usage.down) - routeTotal)) }}</td></tr>
-                  </tbody>
-                </table>
+          <div v-else class="sections">
+            <section class="s-group">
+              <div class="s-head">
+                <h2>近 30 天</h2>
+                <p>网卡统计的每日出站与入站，包含所有流量。</p>
               </div>
-            </div>
+              <div class="card s-card">
+                <div class="s-card-head">
+                  <span class="f-hint">合计</span>
+                  <b class="mono">{{ bytes(dailyTotal) }}</b>
+                </div>
+                <div v-if="!traffic.daily?.length" class="empty">还没有流量数据</div>
+                <div v-else class="chart-pad"><chart :option="dailyOpt" height="260px" /></div>
+              </div>
+            </section>
+
+            <section class="s-group">
+              <div class="s-head">
+                <h2>本周期按线路</h2>
+                <p>{{ date(usage.cycle_start) }} 至 {{ date(usage.cycle_end) }}。代理流量按线路统计，剩下的是系统、探针等非代理流量。</p>
+              </div>
+              <div class="card s-card">
+                <div class="field f-inline">
+                  <div class="f-label"><span class="f-name">本周期合计</span><span class="f-hint">出站 + 入站</span></div>
+                  <div class="f-ctl"><span class="f-val mono">{{ bytes(traffic.usage.up + traffic.usage.down) }}</span></div>
+                </div>
+                <div class="field f-inline">
+                  <div class="f-label"><span class="f-name">代理流量</span><span class="f-hint">{{ traffic.routes?.length || 0 }} 条线路</span></div>
+                  <div class="f-ctl"><span class="f-val mono">{{ bytes(routeTotal) }}</span></div>
+                </div>
+                <div class="field f-inline">
+                  <div class="f-label"><span class="f-name">非代理流量</span><span class="f-hint">系统、探针等</span></div>
+                  <div class="f-ctl"><span class="f-val mono">{{ bytes(Math.max(0, (traffic.usage.up + traffic.usage.down) - routeTotal)) }}</span></div>
+                </div>
+                <div v-if="traffic.routes?.length" class="table-wrap route-table">
+                  <table class="plain">
+                    <thead><tr><th>线路</th><th>上行</th><th>下行</th><th>合计</th></tr></thead>
+                    <tbody>
+                      <tr v-for="r in traffic.routes" :key="r.id"><td>{{ r.name }}</td><td class="mono">{{ bytes(r.up) }}</td><td class="mono">{{ bytes(r.down) }}</td><td class="mono">{{ bytes(r.up + r.down) }}</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
           </div>
         </n-tab-pane>
 
@@ -883,13 +909,12 @@ function diffClass(line) {
 .crumb a { color: var(--c-muted); }
 .head .flag { font-size: 34px; }
 .title h1 { font-size: 22px; }
-.detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding-top: 8px; }
-.span2 { grid-column: span 2; }
 .chart-pad { padding: 12px 0; }
 .usage { display: flex; flex-direction: column; gap: 8px; padding: 16px 0 14px; }
 .f-val { font-size: 13.5px; text-align: right; overflow-wrap: anywhere; }
 .field.stacked .f-val { text-align: left; }
 .f-val.key { font-size: 12.5px; word-break: break-all; }
+.route-table { border-top: 1px solid var(--c-border); }
 .f-ctl.ver { display: flex; align-items: center; gap: 8px; }
 .s-card > .charts { padding: 4px 0 16px; }
 .s-card > .banner { margin: 4px 0 0; }
@@ -903,8 +928,6 @@ function diffClass(line) {
 .sub-h { font-size: 14px; margin: 18px 0 8px; }
 p { margin: 6px 0; }
 @media (max-width: 900px) {
-  .detail-grid { grid-template-columns: 1fr; }
-  .span2 { grid-column: auto; }
   .charts { grid-template-columns: 1fr; }
 }
 @media (max-width: 767px) {
