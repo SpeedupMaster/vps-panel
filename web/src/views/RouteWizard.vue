@@ -147,7 +147,7 @@ async function copyLink() { if (view.value?.share_link && (await copy(view.value
 <template>
   <div class="page wizard">
     <div class="crumb small muted"><router-link :to="{ name: 'routes' }">线路</router-link> / {{ editId ? '编辑线路' : '新建线路' }}</div>
-    <div class="page-head"><h1>{{ editId ? '编辑线路' : '新建线路' }}</h1></div>
+    <div class="page-head"><div class="ph"><h1>{{ editId ? '编辑线路' : '新建线路' }}</h1><p class="page-desc">按步骤选择入口机、线路类型和名称，下发前会先预览变更并在完成后自检。</p></div></div>
 
     <n-steps :current="step" size="small" :vertical="isMobile" class="steps">
       <n-step title="入口机" />

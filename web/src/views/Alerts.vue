@@ -17,6 +17,8 @@ const kinds = ref({})
 const channels = ref([])
 const fields = ref({})
 const glob = ref({ quiet_on: false, quiet_from: '23:00', quiet_to: '08:00', recovery: true })
+const globOrig = ref(JSON.stringify(glob.value))
+const globDirty = computed(() => JSON.stringify(glob.value) !== globOrig.value)
 
 async function loadEvents() {
   const q = new URLSearchParams({ status: fStatus.value || 'all', limit: '300' })
@@ -32,6 +34,7 @@ async function loadGlobal() {
   if (!s) return
   const [a, b] = String(s.alert_quiet || '').split('-')
   glob.value = { quiet_on: !!s.alert_quiet, quiet_from: a || '23:00', quiet_to: b || '08:00', recovery: s.alert_recovery !== '0' }
+  globOrig.value = JSON.stringify(glob.value)
 }
 onMounted(() => {
   loadEvents(); loadRules(); loadChannels(); loadGlobal()
@@ -116,7 +119,7 @@ async function toggleChannel(c, v) {
 }
 async function saveGlobal() {
   const g = glob.value
-  await run(() => api.put('/settings', { alert_quiet: g.quiet_on ? `${g.quiet_from}-${g.quiet_to}` : '', alert_recovery: g.recovery }), '已保存')
+  if (await run(() => api.put('/settings', { alert_quiet: g.quiet_on ? `${g.quiet_from}-${g.quiet_to}` : '', alert_recovery: g.recovery }), '已保存')) globOrig.value = JSON.stringify(g)
 }
 const botCmds = [['/status', '所有服务器在线状态与告警概况'], ['/vps', '每台的 CPU、内存、网速'], ['/traffic', '本周期流量与额度'], ['/routes', '线路状态与延迟'], ['/sub', '订阅链接（仅发给绑定的 chat）'], ['/help', '命令列表']]
 </script>
@@ -124,8 +127,7 @@ const botCmds = [['/status', '所有服务器在线状态与告警概况'], ['/v
 <template>
   <div class="page">
     <div class="page-head">
-      <h1>告警</h1>
-      <span class="sub">{{ firing }} 条进行中</span>
+      <div class="ph"><h1>告警</h1><p class="page-desc"><template v-if="firing">{{ firing }} 条告警进行中。</template><template v-else>没有进行中的告警。</template>在这里管理触发规则和通知渠道。</p></div>
       <span class="spacer" />
       <n-button @click="tab = 'rules'; editRule(null)">新建规则</n-button>
     </div>
@@ -215,40 +217,78 @@ const botCmds = [['/status', '所有服务器在线状态与告警概况'], ['/v
       </n-tab-pane>
 
       <n-tab-pane name="channels" tab="通知渠道">
-        <div class="grid-2">
-          <div class="card">
-            <div class="card-title"><h2>渠道</h2><span class="spacer" /><n-button size="small" type="primary" @click="editChannel(null)">添加渠道</n-button></div>
-            <div v-if="!channels.length" class="empty">还没有通知渠道，告警只会显示在面板里。</div>
-            <div v-for="c in channels" :key="c.id" class="ch-row">
-              <div style="flex: 1; min-width: 0">
-                <b>{{ c.name }}</b> <span class="tag">{{ chTypes[c.type] || c.type }}</span>
-                <div class="muted small">最低级别：{{ sevLabel[c.min_level] || '提醒' }}{{ c.type === 'telegram' && c.config?.bot_commands === '1' ? ' · 响应 Bot 命令' : '' }}</div>
+        <div class="sections">
+          <section class="s-group">
+            <div class="s-head">
+              <h2>通知渠道</h2>
+              <p>告警通过这些渠道推送。没有渠道时，告警只显示在面板里。</p>
+            </div>
+            <div class="card s-card">
+              <div class="s-card-head">
+                <span class="f-hint">{{ channels.length }} 个渠道</span>
+                <span class="spacer" />
+                <n-button size="small" type="primary" @click="editChannel(null)">添加渠道</n-button>
               </div>
-              <n-switch size="small" :value="c.enabled" @update:value="(v) => toggleChannel(c, v)" />
-              <n-button size="tiny" quaternary @click="testChannel(c)">发送测试</n-button>
-              <n-button size="tiny" quaternary @click="editChannel(c)">编辑</n-button>
-              <n-button size="tiny" quaternary type="error" @click="delChannel(c)">删除</n-button>
+              <div v-if="!channels.length" class="empty">还没有通知渠道</div>
+              <div v-for="c in channels" :key="c.id" class="ch-row">
+                <div class="ch-main">
+                  <span class="f-name">{{ c.name }} <span class="tag">{{ chTypes[c.type] || c.type }}</span></span>
+                  <span class="f-hint">最低级别：{{ sevLabel[c.min_level] || '提醒' }}{{ c.type === 'telegram' && c.config?.bot_commands === '1' ? ' · 响应 Bot 命令' : '' }}</span>
+                </div>
+                <div class="row ch-act">
+                  <n-button size="tiny" quaternary @click="testChannel(c)">发送测试</n-button>
+                  <n-button size="tiny" quaternary @click="editChannel(c)">编辑</n-button>
+                  <n-button size="tiny" quaternary type="error" @click="delChannel(c)">删除</n-button>
+                  <n-switch size="small" :value="c.enabled" :aria-label="'启用 ' + c.name" @update:value="(v) => toggleChannel(c, v)" />
+                </div>
+              </div>
             </div>
-          </div>
-          <div class="card">
-            <div class="card-title"><h2>全局设置</h2></div>
-            <div class="g-row">
-              <n-switch v-model:value="glob.quiet_on" />
-              <div style="flex: 1"><b>静默时段</b><div class="small muted">时段内只推送「严重」告警</div></div>
-            </div>
-            <div v-if="glob.quiet_on" class="row" style="margin: 0 0 12px 50px">
-              <n-time-picker v-model:formatted-value="glob.quiet_from" value-format="HH:mm" format="HH:mm" size="small" style="width: 110px" />
-              <span>–</span>
-              <n-time-picker v-model:formatted-value="glob.quiet_to" value-format="HH:mm" format="HH:mm" size="small" style="width: 110px" />
-            </div>
-            <div class="g-row"><n-switch :value="true" disabled /><div style="flex: 1"><b>合并发送</b><div class="small muted">10 秒内的多条告警合并成一条消息</div></div></div>
-            <div class="g-row"><n-switch v-model:value="glob.recovery" /><div style="flex: 1"><b>恢复通知</b><div class="small muted">告警恢复时发送一条，附持续时长</div></div></div>
-            <n-button type="primary" size="small" @click="saveGlobal">保存</n-button>
+          </section>
 
-            <h3 class="sub-h">Telegram Bot 命令</h3>
-            <p class="small muted" style="margin-top: 0">在 Telegram 渠道里开启「响应 Bot 命令」后可用。只响应已绑定的 chat_id，其他人发消息不会有任何回应。</p>
-            <div v-for="[c, d] in botCmds" :key="c" class="row small" style="padding: 3px 0"><code class="mono cmd">{{ c }}</code><span class="muted">{{ d }}</span></div>
-          </div>
+          <section class="s-group">
+            <div class="s-head">
+              <h2>推送设置</h2>
+              <p>对所有渠道生效。</p>
+            </div>
+            <div class="card s-card">
+              <div class="field f-bool">
+                <div class="f-label"><span class="f-name">静默时段</span><span class="f-hint">时段内只推送「严重」告警，其他级别只记录在面板里</span></div>
+                <div class="f-ctl"><n-switch v-model:value="glob.quiet_on" aria-label="静默时段" /></div>
+              </div>
+              <div v-if="glob.quiet_on" class="field">
+                <div class="f-label"><span class="f-name">时段</span><span class="f-hint">可以跨午夜，例如 23:00 – 08:00</span></div>
+                <div class="f-ctl ctl-row">
+                  <n-time-picker v-model:formatted-value="glob.quiet_from" value-format="HH:mm" format="HH:mm" aria-label="开始时间" />
+                  <span class="f-unit">–</span>
+                  <n-time-picker v-model:formatted-value="glob.quiet_to" value-format="HH:mm" format="HH:mm" aria-label="结束时间" />
+                </div>
+              </div>
+              <div class="field f-bool">
+                <div class="f-label"><span class="f-name">合并发送</span><span class="f-hint">10 秒内的多条告警合并成一条消息，始终开启</span></div>
+                <div class="f-ctl"><n-switch :value="true" disabled aria-label="合并发送" /></div>
+              </div>
+              <div class="field f-bool">
+                <div class="f-label"><span class="f-name">恢复通知</span><span class="f-hint">告警恢复时发送一条，附持续时长</span></div>
+                <div class="f-ctl"><n-switch v-model:value="glob.recovery" aria-label="恢复通知" /></div>
+              </div>
+              <div class="f-actions">
+                <span v-if="globDirty" class="small dirty-note"><i class="f-dot" />有未保存的修改</span>
+                <span class="spacer" />
+                <n-button :disabled="!globDirty" @click="glob = JSON.parse(globOrig)">撤销</n-button>
+                <n-button type="primary" :disabled="!globDirty" @click="saveGlobal">保存</n-button>
+              </div>
+            </div>
+          </section>
+
+          <section class="s-group">
+            <div class="s-head">
+              <h2>Telegram Bot 命令</h2>
+              <p>在 Telegram 渠道里开启「响应 Bot 命令」后可用。只响应已绑定的 chat_id，其他人发消息不会有任何回应。</p>
+            </div>
+            <div class="card s-card">
+              <div v-for="[c, d] in botCmds" :key="c" class="cmd-row"><code class="mono cmd">{{ c }}</code><span class="f-hint">{{ d }}</span></div>
+            </div>
+          </section>
         </div>
       </n-tab-pane>
     </n-tabs>
@@ -295,10 +335,11 @@ const botCmds = [['/status', '所有服务器在线状态与告警概况'], ['/v
 .form { display: flex; flex-direction: column; gap: 6px; }
 .form label { font-size: 13px; color: var(--c-text-2); margin-top: 6px; display: block; margin-bottom: 4px; }
 .form-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
-.ch-row { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--c-border); flex-wrap: wrap; }
-.ch-row:last-child { border-bottom: none; }
-.g-row { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 14px; }
-.sub-h { font-size: 14px; margin: 24px 0 6px; }
-.cmd { background: var(--c-surface); padding: 2px 6px; border-radius: 4px; min-width: 70px; }
+.ch-row { display: flex; align-items: center; gap: 8px 12px; padding: 12px 0; border-top: 1px solid var(--c-border); flex-wrap: wrap; }
+.ch-main { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 3px; }
+.ch-act { gap: 4px; flex-wrap: nowrap; }
+.cmd-row { display: flex; align-items: baseline; gap: 12px; padding: 10px 0; border-top: 1px solid var(--c-border); }
+.cmd-row:first-child { border-top: 0; }
+.cmd { background: var(--c-surface); padding: 2px 6px; border-radius: 4px; min-width: 76px; flex: none; }
 @media (max-width: 767px) { .form-2 { grid-template-columns: 1fr; } }
 </style>

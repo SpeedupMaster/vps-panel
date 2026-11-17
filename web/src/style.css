@@ -94,3 +94,63 @@ table.plain tr:last-child td { border-bottom: none; }
 @media (display-mode: standalone) { html, body { overscroll-behavior-y: none; } }
 .offline-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(68px + var(--safe-bottom)); z-index: 30; background: #3d4248; color: #fff; font-size: 13px; padding: 8px 14px; border-radius: 18px; box-shadow: 0 4px 14px rgba(0, 0, 0, .18); white-space: nowrap; }
 @media (min-width: 768px) { .offline-bar { bottom: 20px; } }
+/* ---- Page header with a one-line description ---- */
+.page-head .ph { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.page-desc { margin: 0; color: var(--c-muted); font-size: 13px; line-height: 1.6; }
+/* ---- Grouped forms: group header beside a card of field rows ---- */
+.sections { display: flex; flex-direction: column; gap: 28px; max-width: 1120px; padding-top: 4px; }
+.s-group { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 32px; align-items: start; }
+.s-head { padding-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+.s-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.s-head p { margin: 0; font-size: 13px; line-height: 1.6; color: var(--c-muted); }
+.sec-head { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.sec-head .s-head { padding-top: 0; }
+.s-card { padding: 2px 20px; container-type: inline-size; }
+.s-card .banner { margin: 12px 0; }
+.s-card > .empty { padding: 20px; }
+.s-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 14px 0 12px; }
+.s-card .m-item { border: 0; border-top: 1px solid var(--c-border); border-radius: 0; padding: 12px 0; }
+.s-card .m-item:first-child { border-top: 0; }
+.field { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 10px 32px; padding: 14px 0; border-top: 1px solid var(--c-border); align-items: center; }
+.field:first-child { border-top: 0; }
+.field.stacked { grid-template-columns: minmax(0, 1fr); }
+.f-label { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.f-name { font-size: 14px; color: var(--c-text); }
+.f-hint { font-size: 12.5px; line-height: 1.55; color: var(--c-muted); overflow-wrap: anywhere; }
+.f-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--c-primary); margin-left: 6px; vertical-align: 2px; }
+.f-ctl { min-width: 0; }
+.f-ctl > * { width: 100%; }
+.f-bool .f-ctl, .f-inline .f-ctl { justify-self: end; }
+.f-bool .f-ctl > *, .f-inline .f-ctl > * { width: auto; }
+.f-ctl.ctl-row { display: flex; gap: 8px; align-items: center; }
+.f-ctl.ctl-row > * { width: auto; }
+.ctl-row > .n-input, .ctl-row > .n-input-number, .ctl-row > .n-time-picker, .ctl-row > .n-select { flex: 1; min-width: 0; }
+.f-unit { color: var(--c-muted); font-size: 13px; }
+.f-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 0; border-top: 1px solid var(--c-border); }
+.f-actions:first-child { border-top: 0; }
+.savebar { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; gap: 8px; max-width: 1120px; padding: 12px 0; margin-top: 4px; background: var(--c-bg); border-top: 1px solid var(--c-border); }
+.dirty-note { color: var(--c-primary); font-weight: 500; }
+.dirty-note .f-dot { margin: 0 6px 0 0; vertical-align: 1px; }
+/* Field rows follow the card's width, so they also work in half-width cards */
+@container (max-width: 760px) {
+  .field { grid-template-columns: minmax(0, 1fr) 240px; gap: 10px 20px; }
+  .field.stacked { grid-template-columns: minmax(0, 1fr); }
+}
+@container (max-width: 520px) {
+  .field { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .field.f-bool, .field.f-inline { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
+}
+@media (max-width: 1279px) {
+  .s-group { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .s-group > .s-head { padding-top: 0; }
+}
+@media (max-width: 767px) {
+  .sections { gap: 22px; }
+  .s-card { padding: 2px 16px; }
+  .s-card .m-list { gap: 0; }
+  .savebar { bottom: calc(56px + var(--safe-bottom)); }
+}
+.s-card-head h2, .s-card-head h3 { margin: 0; font-size: 16px; font-weight: 600; }
+.s-form { container-type: inline-size; }
+/* naive animated tabs set overflow:hidden on the pane wrapper, which breaks the sticky save bar; clip keeps the slide clipped without making a scroll container */
+.n-tabs .n-tabs-pane-wrapper { overflow: clip; }

@@ -88,8 +88,7 @@ function latency(r) {
 <template>
   <div class="page">
     <div class="page-head">
-      <h1>线路</h1>
-      <span class="sub">{{ routes.length }} 条 · {{ inSub }} 条在订阅中</span>
+      <div class="ph"><h1>线路</h1><p class="page-desc">共 {{ routes.length }} 条，{{ inSub }} 条在订阅中。直连线路由入口机直接出网，链式线路经入口转发到落地机。</p></div>
       <span class="spacer" />
       <n-button @click="rotateAll">一键轮换密钥</n-button>
       <n-button type="primary" @click="router.push({ name: 'route-new' })">新建线路</n-button>

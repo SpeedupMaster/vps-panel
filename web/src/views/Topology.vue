@@ -73,8 +73,7 @@ const roleText = (r) => (r || []).map((x) => ({ entry: '入口', landing: '落�
 <template>
   <div class="page topo-page">
     <div class="page-head">
-      <h1>拓扑</h1>
-      <span class="sub">节点、线路与线路段延迟（10 分钟均值）</span>
+      <div class="ph"><h1>拓扑</h1><p class="page-desc">节点、线路与线路段延迟（10 分钟均值）。点击节点查看详情。</p></div>
       <span class="spacer" />
       <n-button size="small" @click="load">刷新</n-button>
     </div>

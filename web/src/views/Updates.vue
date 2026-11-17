@@ -105,8 +105,7 @@ async function selfUpdate() {
 <template>
   <div class="page">
     <div class="page-head">
-      <h1>更新中心</h1>
-      <span class="sub">上次检查：{{ data.synced_at ? ago(data.synced_at) : '从未' }}</span>
+      <div class="ph"><h1>更新中心</h1><p class="page-desc">Agent、Xray 和规则文件的版本与批量更新。上次检查：{{ data.synced_at ? ago(data.synced_at) : '从未' }}</p></div>
       <span class="spacer" />
       <n-button @click="sync">立即检查</n-button>
     </div>
@@ -123,31 +122,39 @@ async function selfUpdate() {
       <n-button v-if="panel.available" size="small" type="primary" @click="selfUpdate">更新面板</n-button>
     </div>
 
-    <div class="card">
-      <div class="card-title">
-        <h2>批量更新</h2>
-        <n-select v-model:value="comp" :options="comps" size="small" style="width: 220px" />
-        <n-select v-if="comp !== 'geo'" v-model:value="version" :options="versions" size="small" style="width: 200px" placeholder="目标版本" filterable tag />
-        <span class="spacer" />
-        <span v-if="comp === 'xray'" class="row small"><n-switch v-model:value="pre" size="small" />显示预发布版</span>
+    <div class="card s-card">
+      <div class="s-card-head"><h2>批量更新</h2><span class="f-hint">选择组件和目标版本，再勾选要更新的服务器</span></div>
+      <div class="field">
+        <div class="f-label"><span class="f-name">组件</span></div>
+        <div class="f-ctl"><n-select v-model:value="comp" :options="comps" /></div>
       </div>
-      <div class="row small" style="margin-bottom: 12px">
-        <span class="muted">策略</span>
-        <n-radio-group v-model:value="canary" size="small">
-          <n-radio :value="true">先更新 1 台，确认正常后再更新其余</n-radio>
-          <n-radio :value="false">全部同时更新</n-radio>
-        </n-radio-group>
+      <div v-if="comp !== 'geo'" class="field">
+        <div class="f-label"><span class="f-name">目标版本</span><span class="f-hint">可以直接输入列表里没有的版本号</span></div>
+        <div class="f-ctl"><n-select v-model:value="version" :options="versions" placeholder="选择版本" filterable tag /></div>
       </div>
-      <div class="table-wrap">
+      <div v-if="comp === 'xray'" class="field f-bool">
+        <div class="f-label"><span class="f-name">显示预发布版</span></div>
+        <div class="f-ctl"><n-switch v-model:value="pre" aria-label="显示预发布版" /></div>
+      </div>
+      <div class="field">
+        <div class="f-label"><span class="f-name">更新策略</span><span class="f-hint">先更新 1 台时，这台失败就停止，其余不更新</span></div>
+        <div class="f-ctl">
+          <n-radio-group v-model:value="canary" class="strategy">
+            <n-radio :value="true">先更新 1 台，正常后再更新其余</n-radio>
+            <n-radio :value="false">全部同时更新</n-radio>
+          </n-radio-group>
+        </div>
+      </div>
+      <div class="table-wrap pick-table">
         <table class="plain">
           <thead><tr>
             <th style="width: 36px"><n-checkbox :checked="picked.size > 0 && picked.size === candidates.length" :indeterminate="picked.size > 0 && picked.size < candidates.length"
-              @update:checked="(v) => picked = new Set(v ? candidates.map((s) => s.id) : [])" /></th>
+              aria-label="全选" @update:checked="(v) => picked = new Set(v ? candidates.map((s) => s.id) : [])" /></th>
             <th>服务器</th><th>角色</th><th>当前版本</th><th>更新后</th><th>说明</th>
           </tr></thead>
           <tbody>
             <tr v-for="s in candidates" :key="s.id">
-              <td><n-checkbox :checked="picked.has(s.id)" @update:checked="(v) => toggle(s.id, v)" /></td>
+              <td><n-checkbox :checked="picked.has(s.id)" :aria-label="'选择 ' + s.name" @update:checked="(v) => toggle(s.id, v)" /></td>
               <td>{{ s.name }}</td>
               <td class="small">{{ s.mode === 'node' ? '节点' : '探针' }}</td>
               <td class="mono">{{ current(s) || '—' }}</td>
@@ -160,8 +167,9 @@ async function selfUpdate() {
             </tr>
           </tbody>
         </table>
+        <div v-if="!candidates.length" class="empty">没有可以更新的服务器</div>
       </div>
-      <div class="row" style="margin-top: 12px">
+      <div class="f-actions">
         <button class="link-btn small" @click="pickOutdated">选择所有可更新</button>
         <span class="spacer" />
         <span class="small muted">已选 {{ picked.size }} 台</span>
@@ -263,6 +271,8 @@ async function selfUpdate() {
 </template>
 
 <style scoped>
+.strategy { display: flex; flex-direction: column; gap: 6px; }
+.pick-table { border-top: 1px solid var(--c-border); }
 .batch { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--c-border); display: flex; flex-direction: column; gap: 6px; }
 .out { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .form { display: flex; flex-direction: column; gap: 8px; }

@@ -10,6 +10,9 @@ import QrModal from '../components/QrModal.vue'
 const tokens = ref([])
 const routes = ref([])
 const settings = ref({})
+const settingsOrig = ref('{}')
+const subDirty = (k) => settings.value[k] !== JSON.parse(settingsOrig.value)[k]
+const subDirtyAny = computed(() => JSON.stringify(settings.value) !== settingsOrig.value)
 const preview = ref({ target: 'mihomo', content: '', nodes: 0 })
 const logs = ref([])
 const logToken = ref(0)
@@ -34,6 +37,7 @@ async function loadSettings() {
     sub_name_tpl: s.sub_name_tpl || '{flag} {name}', sub_profile_name: s.sub_profile_name || '', sub_update_hours: Number(s.sub_update_hours || 12),
     sub_userinfo: s.sub_userinfo || 'all', sub_exclude_blocked: s.sub_exclude_blocked !== '0', sub_exclude_offline: s.sub_exclude_offline === '1', sub_url: s.sub_url || '',
   }
+  settingsOrig.value = JSON.stringify(settings.value)
 }
 onMounted(() => {
   loadTokens(); loadPreview(); loadLogs(); loadTemplates(); loadSettings()
@@ -86,7 +90,7 @@ async function rotateAll() {
 }
 async function saveSettings() {
   const s = settings.value
-  if (await run(() => api.put('/settings', { ...s, sub_update_hours: String(s.sub_update_hours) }), '已保存')) loadPreview()
+  if (await run(() => api.put('/settings', { ...s, sub_update_hours: String(s.sub_update_hours) }), '已保存')) { settingsOrig.value = JSON.stringify(s); loadPreview() }
 }
 async function copyPreview() { if (await copy(preview.value.content)) ui.message.success('已复制') }
 
@@ -117,8 +121,7 @@ async function activate(t, v) {
 <template>
   <div class="page">
     <div class="page-head">
-      <h1>订阅</h1>
-      <span class="sub">{{ inSub.length }} 条线路在订阅中<template v-if="excluded"> · {{ excluded }} 条因疑似被封已自动移出</template></span>
+      <div class="ph"><h1>订阅</h1><p class="page-desc">{{ inSub.length }} 条线路在订阅中<template v-if="excluded">，{{ excluded }} 条因疑似被封已自动移出</template>。每台设备使用独立的订阅链接。</p></div>
       <span class="spacer" />
       <n-button @click="rotateAll">一键轮换</n-button>
     </div>
@@ -166,24 +169,41 @@ async function activate(t, v) {
     </div>
 
     <div class="grid-2">
-      <div class="card">
-        <div class="card-title"><h2>订阅设置</h2></div>
-        <div class="form">
-          <label>节点命名模板</label>
-          <n-input v-model:value="settings.sub_name_tpl" placeholder="{flag} {name}" />
-          <span class="muted small">可用 {flag} {name} {entry} {landing}。{{ nameExample ? '示例：' + nameExample : '' }}</span>
-          <label>配置名称（客户端里显示）</label>
-          <n-input v-model:value="settings.sub_profile_name" placeholder="VPS Panel" />
-          <label>订阅域名（留空用面板地址）</label>
-          <n-input v-model:value="settings.sub_url" placeholder="https://sub.example.com" />
-          <div class="row sw"><n-switch v-model:value="settings.sub_exclude_blocked" /><span>自动移出疑似被封的线路<span class="muted small">，恢复后自动加回</span></span></div>
-          <div class="row sw"><n-switch v-model:value="settings.sub_exclude_offline" /><span>同时移出离线入口的线路</span></div>
-          <label>客户端更新间隔</label>
-          <n-select v-model:value="settings.sub_update_hours" :options="hours" />
-          <label>流量信息（subscription-userinfo）</label>
-          <n-select v-model:value="settings.sub_userinfo" :options="userinfoOpts" />
-          <p class="muted small">新 IP 拉取订阅时会按告警规则「订阅陌生 IP」通知（与该设备最近 30 天的来源都不同）。</p>
-          <div><n-button type="primary" @click="saveSettings">保存</n-button></div>
+      <div class="card s-card">
+        <div class="s-card-head"><h2>订阅设置</h2></div>
+        <div class="field">
+          <div class="f-label"><span class="f-name">节点命名模板<i v-if="subDirty('sub_name_tpl')" class="f-dot" /></span><span class="f-hint">可用 {flag} {name} {entry} {landing}<template v-if="nameExample">。示例：{{ nameExample }}</template></span></div>
+          <div class="f-ctl"><n-input v-model:value="settings.sub_name_tpl" placeholder="默认 {flag} {name}" /></div>
+        </div>
+        <div class="field">
+          <div class="f-label"><span class="f-name">配置名称<i v-if="subDirty('sub_profile_name')" class="f-dot" /></span><span class="f-hint">客户端里显示的订阅名称</span></div>
+          <div class="f-ctl"><n-input v-model:value="settings.sub_profile_name" placeholder="默认 VPS Panel" clearable /></div>
+        </div>
+        <div class="field">
+          <div class="f-label"><span class="f-name">订阅域名<i v-if="subDirty('sub_url')" class="f-dot" /></span><span class="f-hint">留空用面板地址；可填 CDN 或另一个域名</span></div>
+          <div class="f-ctl"><n-input v-model:value="settings.sub_url" placeholder="https://sub.example.com" clearable /></div>
+        </div>
+        <div class="field f-bool">
+          <div class="f-label"><span class="f-name">移出疑似被封的线路<i v-if="subDirty('sub_exclude_blocked')" class="f-dot" /></span><span class="f-hint">恢复后自动加回</span></div>
+          <div class="f-ctl"><n-switch v-model:value="settings.sub_exclude_blocked" aria-label="移出疑似被封的线路" /></div>
+        </div>
+        <div class="field f-bool">
+          <div class="f-label"><span class="f-name">移出离线入口的线路<i v-if="subDirty('sub_exclude_offline')" class="f-dot" /></span><span class="f-hint">入口机离线时，经过它的线路暂不下发</span></div>
+          <div class="f-ctl"><n-switch v-model:value="settings.sub_exclude_offline" aria-label="移出离线入口的线路" /></div>
+        </div>
+        <div class="field">
+          <div class="f-label"><span class="f-name">客户端更新间隔<i v-if="subDirty('sub_update_hours')" class="f-dot" /></span><span class="f-hint">客户端自动拉取订阅的周期</span></div>
+          <div class="f-ctl"><n-select v-model:value="settings.sub_update_hours" :options="hours" /></div>
+        </div>
+        <div class="field">
+          <div class="f-label"><span class="f-name">流量信息<i v-if="subDirty('sub_userinfo')" class="f-dot" /></span><span class="f-hint">客户端显示的已用流量与额度（subscription-userinfo）</span></div>
+          <div class="f-ctl"><n-select v-model:value="settings.sub_userinfo" :options="userinfoOpts" /></div>
+        </div>
+        <div class="f-actions">
+          <span class="f-hint">新 IP 拉取订阅时，按告警规则「订阅陌生 IP」通知（与该设备最近 30 天的来源都不同）。</span>
+          <span class="spacer" />
+          <n-button :disabled="!subDirtyAny" @click="settings = JSON.parse(settingsOrig)">撤销</n-button>
+          <n-button type="primary" :disabled="!subDirtyAny" @click="saveSettings">保存</n-button>
         </div>
       </div>
       <div class="card">

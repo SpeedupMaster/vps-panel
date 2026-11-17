@@ -235,10 +235,10 @@ onMounted(() => {
 
 <template>
   <div class="page">
-    <div class="page-head"><h1>设置</h1></div>
+    <div class="page-head"><div class="ph"><h1>设置</h1><p class="page-desc">账号安全、面板、Agent、Xray、数据保留与备份的全局设置。</p></div></div>
     <n-tabs v-model:value="tab" type="line" animated>
       <n-tab-pane name="account" tab="账号与安全">
-        <div class="settings">
+        <div class="sections">
           <section class="s-group">
             <div class="s-head">
               <h2>登录密码</h2>
@@ -351,7 +351,7 @@ onMounted(() => {
       </n-tab-pane>
 
       <n-tab-pane v-for="t in settingsTabs" :key="t.name" :name="t.name" :tab="t.label">
-        <div class="settings">
+        <div class="sections">
           <section v-for="g in groups[t.name]" :key="g.title" class="s-group">
             <div class="s-head">
               <h2>{{ g.title }}</h2>
@@ -396,7 +396,7 @@ onMounted(() => {
       </n-tab-pane>
 
       <n-tab-pane name="backup" tab="备份">
-        <div class="settings">
+        <div class="sections">
           <section class="s-group">
             <div class="s-head">
               <h2>备份文件</h2>
@@ -490,7 +490,7 @@ onMounted(() => {
       </n-tab-pane>
 
       <n-tab-pane name="audit" tab="审计日志">
-        <div class="audit-head">
+        <div class="sec-head">
           <div class="s-head">
             <h2>审计日志</h2>
             <p>登录和面板上的修改操作都记录在这里。</p>
@@ -547,63 +547,18 @@ onMounted(() => {
 .form label { font-size: 13px; color: var(--c-text-2); margin-top: 6px; }
 .secret { cursor: pointer; word-break: break-all; background: var(--c-surface); padding: 6px 8px; border-radius: 4px; }
 .codes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 16px; padding: 12px; background: var(--c-surface); border-radius: 6px; margin: 10px 0; font-size: 14px; }
-.settings { display: flex; flex-direction: column; gap: 28px; max-width: 1120px; padding-top: 4px; }
-.s-group { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 32px; align-items: start; }
-.s-head { padding-top: 14px; display: flex; flex-direction: column; gap: 6px; }
-.s-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
-.s-head p { margin: 0; font-size: 13px; line-height: 1.6; color: var(--c-muted); }
-.s-card { padding: 2px 20px; }
-.field { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 10px 32px; padding: 14px 0; border-top: 1px solid var(--c-border); align-items: center; }
-.field:first-child { border-top: 0; }
-.field.stacked { grid-template-columns: minmax(0, 1fr); }
-.f-label { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.f-name { font-size: 14px; color: var(--c-text); }
-.f-hint { font-size: 12.5px; line-height: 1.55; color: var(--c-muted); overflow-wrap: anywhere; }
-.f-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--c-primary); margin-left: 6px; vertical-align: 2px; }
-.f-ctl { min-width: 0; }
-.f-ctl > * { width: 100%; }
-.f-bool .f-ctl, .f-inline .f-ctl { justify-self: end; }
-.f-bool .f-ctl > *, .f-inline .f-ctl > * { width: auto; }
-.f-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 0; border-top: 1px solid var(--c-border); }
-.f-actions:first-child { border-top: 0; }
-.s-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 14px 0 12px; }
-.s-card .banner { margin-bottom: 10px; }
-.s-card > .empty { padding: 20px; }
-.f-ctl.ctl-row { display: flex; gap: 8px; }
-.f-ctl.ctl-row > * { width: auto; }
-.ctl-row > .n-input { flex: 1; min-width: 0; }
 .totp-scan { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
 .totp-scan > * { width: auto; }
 .totp-side { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 8px; }
-.s-card .m-item { border: 0; border-top: 1px solid var(--c-border); border-radius: 0; padding: 12px 0; }
-.s-card .m-item:first-child { border-top: 0; }
-.audit-head { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; padding-top: 4px; }
-.audit-head .s-head { padding-top: 0; }
 .table-wrap td.detail { white-space: normal; min-width: 260px; overflow-wrap: anywhere; }
 .audit-text { color: var(--c-text-2); line-height: 1.55; overflow-wrap: anywhere; }
-.f-unit { color: var(--c-muted); font-size: 13px; }
 .fx { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .fx-code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; margin-right: 4px; }
-.savebar { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; gap: 8px; max-width: 1120px; padding: 12px 0; margin-top: 4px; background: var(--c-bg, #f7f8fa); border-top: 1px solid var(--c-border); }
-.dirty-note { color: var(--c-primary); font-weight: 500; }
-.dirty-note .f-dot { margin: 0 6px 0 0; vertical-align: 1px; }
 .b-item { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--c-border); flex-wrap: wrap; }
 .b-main { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 200px; }
 .b-act { gap: 4px; }
 p { line-height: 1.6; }
-@media (max-width: 1279px) {
-  .s-group { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-  .s-head { padding-top: 0; }
-  .field { grid-template-columns: minmax(0, 1fr) 260px; gap: 10px 20px; }
-  .field.stacked { grid-template-columns: minmax(0, 1fr); }
-}
 @media (max-width: 767px) {
-  .settings { gap: 22px; }
-  .s-card { padding: 2px 16px; }
-  .field { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-  .field.f-bool, .field.f-inline { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
-  .s-card .m-list { gap: 0; }
   .fx { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .savebar { bottom: calc(56px + env(safe-area-inset-bottom)); }
 }
 </style>

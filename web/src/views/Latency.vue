@@ -142,7 +142,7 @@ function peerStyle(c) {
 <template>
   <div class="page">
     <div class="page-head">
-      <h1>延迟</h1>
+      <div class="ph"><h1>延迟</h1><p class="page-desc">各台 VPS 到国内三网目标的回程延迟与丢包。</p></div>
       <span class="spacer" />
       <n-button @click="managing = true">管理拨测目标（{{ enabled.length }} 个）</n-button>
     </div>

@@ -248,6 +248,9 @@ const routeTotal = computed(() => (traffic.value?.routes || []).reduce((a, r) =>
 
 // ---------- asset ----------
 const asset = ref({})
+const assetOrig = ref({})
+const assetDirty = (k) => (asset.value[k] ?? null) !== (assetOrig.value[k] ?? null)
+const assetDirtyCount = computed(() => Object.keys(asset.value).filter(assetDirty).length)
 function fillAsset() {
   const s = sv.value
   if (!s) return
@@ -257,6 +260,7 @@ function fillAsset() {
     note: s.note, reset_day: s.reset_day || 1, quota_gb: s.quota_bytes ? +(s.quota_bytes / 1024 ** 3).toFixed(2) : 0,
     count_mode: s.count_mode || 'out', on_exceeded: s.on_exceeded || 'alert', sort: s.sort, mode: s.mode, cap_reality: s.cap_reality, cap_landing: s.cap_landing,
   }
+  assetOrig.value = { ...asset.value }
 }
 const currencies = ['USD', 'CNY', 'EUR', 'HKD', 'JPY', 'GBP'].map((v) => ({ label: v, value: v }))
 const cycles = [{ label: '月付', value: 'month' }, { label: '季付', value: 'quarter' }, { label: '半年付', value: 'half' }, { label: '年付', value: 'year' }, { label: '一次性', value: 'once' }]
@@ -264,9 +268,8 @@ const countModes = Object.entries(countModeText).map(([value, label]) => ({ labe
 const exceeded = [{ label: '仅告警（80% / 90% / 100%）', value: 'alert' }, { label: '告警并停止 Xray', value: 'stop_xray' }]
 async function saveAsset() {
   const a = { ...asset.value, expire_at: asset.value.expire_at ? new Date(asset.value.expire_at).toISOString() : null }
-  if (await run(() => api.put(`/servers/${id.value}`, a), '已保存')) { await load(); loadServers() }
+  if (await run(() => api.put(`/servers/${id.value}`, a), '已保存')) { await load(); fillAsset(); loadServers() }
 }
-const cycleText = { month: '月', quarter: '季', half: '半年', year: '年', once: '一次性' }
 
 // ---------- configs ----------
 const cfgView = ref({ show: false, title: '', body: '', diff: false })
@@ -409,7 +412,7 @@ function diffClass(line) {
 
             <div v-if="xray.reality" class="card">
               <div class="card-title"><h2>Reality 入站</h2><span class="spacer" />
-                <n-button size="small" @click="editReality = !editReality">{{ editReality ? '取消' : '编辑' }}</n-button>
+                <n-button v-if="!editReality" size="small" @click="editReality = true">编辑</n-button>
                 <n-button size="small" @click="rotateKeys">轮换密钥</n-button>
               </div>
               <div v-if="!editReality" class="kv">
@@ -422,23 +425,38 @@ function diffClass(line) {
                 <span>客户端地址</span><span class="mono">{{ xray.reality.address || sv.ipv4 }}</span>
                 <span>指纹</span><span>{{ xray.reality.fingerprint }}</span>
               </div>
-              <n-form v-else @submit.prevent label-placement="top" size="small">
-                <div class="form-2">
-                  <n-form-item label="端口"><n-input-number v-model:value="reality.port" :min="1" :max="65535" :show-button="false" /></n-form-item>
-                  <n-form-item label="指纹"><n-select v-model:value="reality.fingerprint" :options="fps" /></n-form-item>
+              <div v-else class="s-form">
+                <div class="field">
+                  <div class="f-label"><span class="f-name">端口</span></div>
+                  <div class="f-ctl"><n-input-number v-model:value="reality.port" :min="1" :max="65535" :show-button="false" /></div>
                 </div>
-                <n-form-item label="目标站（host:port）"><n-input v-model:value="reality.target" placeholder="www.example.com:443" /></n-form-item>
-                <n-form-item label="SNI（逗号分隔）"><n-input v-model:value="reality.server_names" /></n-form-item>
-                <n-form-item label="shortIds（逗号分隔，留空自动生成）"><n-input v-model:value="reality.short_ids" /></n-form-item>
-                <n-form-item label="客户端连接地址（留空用 IPv4）"><n-input v-model:value="reality.address" placeholder="域名或 IP" /></n-form-item>
-                <p class="small muted" style="margin-top: 0">目标站可在「工具 → Reality 目标扫描」里挑选：需支持 TLS 1.3 与 H2、握手快。</p>
-                <n-button type="primary" @click="saveReality">保存并下发</n-button>
-              </n-form>
+                <div class="field">
+                  <div class="f-label"><span class="f-name">目标站</span><span class="f-hint">host:port。可在「工具 → Reality 目标扫描」里挑选：需支持 TLS 1.3 与 H2、握手快</span></div>
+                  <div class="f-ctl"><n-input v-model:value="reality.target" placeholder="www.example.com:443" /></div>
+                </div>
+                <div class="field">
+                  <div class="f-label"><span class="f-name">SNI</span><span class="f-hint">逗号分隔</span></div>
+                  <div class="f-ctl"><n-input v-model:value="reality.server_names" /></div>
+                </div>
+                <div class="field">
+                  <div class="f-label"><span class="f-name">shortIds</span><span class="f-hint">逗号分隔，留空自动生成</span></div>
+                  <div class="f-ctl"><n-input v-model:value="reality.short_ids" placeholder="自动生成" /></div>
+                </div>
+                <div class="field">
+                  <div class="f-label"><span class="f-name">客户端连接地址</span><span class="f-hint">订阅里给客户端用的地址，留空用 IPv4</span></div>
+                  <div class="f-ctl"><n-input v-model:value="reality.address" placeholder="域名或 IP" clearable /></div>
+                </div>
+                <div class="field">
+                  <div class="f-label"><span class="f-name">指纹</span></div>
+                  <div class="f-ctl"><n-select v-model:value="reality.fingerprint" :options="fps" /></div>
+                </div>
+                <div class="f-actions"><span class="spacer" /><n-button @click="editReality = false">取消</n-button><n-button type="primary" @click="saveReality">保存并下发</n-button></div>
+              </div>
             </div>
 
             <div v-if="xray.landing" class="card">
               <div class="card-title"><h2>SS2022 落地</h2><span class="spacer" />
-                <n-button size="small" @click="editLanding = !editLanding">{{ editLanding ? '取消' : '编辑' }}</n-button>
+                <n-button v-if="!editLanding" size="small" @click="editLanding = true">编辑</n-button>
               </div>
               <div v-if="!editLanding" class="kv">
                 <span>端口</span><span class="mono">{{ xray.landing.port }}</span>
@@ -446,15 +464,21 @@ function diffClass(line) {
                 <span>连接地址</span><span class="mono small">{{ xray.landing.address || '公网 IP' }}</span>
                 <span>防火墙</span><span>只放行入口机 IP</span>
               </div>
-              <n-form v-else @submit.prevent label-placement="top" size="small">
-                <n-form-item label="端口（1024–65535）"><n-input-number v-model:value="landing.port" :min="1024" :max="65535" :show-button="false" /></n-form-item>
-                <n-form-item label="加密方式"><n-select v-model:value="landing.method" :options="methods" /></n-form-item>
-                <n-form-item label="连接地址（可选）">
-                  <n-input v-model:value="landing.address" placeholder="留空 = 落地机公网 IP" />
-                  <template #feedback><span class="muted small">入口和落地在同一内网、或落地是 NAT 机端口映射时填写。填内网 IP 时，落地防火墙会同时放行内网网段（入口走内网时来源是内网地址）。</span></template>
-                </n-form-item>
-                <n-button type="primary" @click="saveLanding">保存并下发</n-button>
-              </n-form>
+              <div v-else class="s-form">
+                <div class="field">
+                  <div class="f-label"><span class="f-name">端口</span><span class="f-hint">1024–65535</span></div>
+                  <div class="f-ctl"><n-input-number v-model:value="landing.port" :min="1024" :max="65535" :show-button="false" /></div>
+                </div>
+                <div class="field">
+                  <div class="f-label"><span class="f-name">加密方式</span></div>
+                  <div class="f-ctl"><n-select v-model:value="landing.method" :options="methods" /></div>
+                </div>
+                <div class="field">
+                  <div class="f-label"><span class="f-name">连接地址</span><span class="f-hint">入口和落地在同一内网、或落地是 NAT 机端口映射时填写。填内网 IP 时，落地防火墙会同时放行内网网段</span></div>
+                  <div class="f-ctl"><n-input v-model:value="landing.address" placeholder="留空 = 落地机公网 IP" clearable /></div>
+                </div>
+                <div class="f-actions"><span class="spacer" /><n-button @click="editLanding = false">取消</n-button><n-button type="primary" @click="saveLanding">保存并下发</n-button></div>
+              </div>
               <h3 class="sub-h">入口用户（本月）</h3>
               <div v-if="!xray.landing_users?.length" class="muted small">还没有入口机连到这台落地</div>
               <table v-else class="plain">
@@ -510,44 +534,121 @@ function diffClass(line) {
         </n-tab-pane>
 
         <n-tab-pane name="asset" tab="资产">
-          <div class="detail-grid">
-            <div class="card">
-              <div class="card-title"><h2>当前</h2></div>
-              <div class="kv">
-                <span>服务商</span><span>{{ sv.provider || '—' }} <a v-if="sv.provider_url" :href="sv.provider_url" target="_blank" rel="noopener noreferrer">打开商家后台</a></span>
-                <span>价格</span><span>{{ sv.price ? `${sv.price} ${sv.currency} / ${cycleText[sv.pay_cycle] || '月'}` : '—' }}</span>
-                <span>到期</span><span>{{ date(sv.expire_at) }}<template v-if="daysUntil(sv.expire_at) !== null">（{{ daysUntil(sv.expire_at) }} 天后）</template></span>
-                <span>流量额度</span><span>{{ sv.quota_bytes ? bytes(sv.quota_bytes, 0) : '不限' }} · {{ countModeText[sv.count_mode] || '只计出站' }}</span>
-                <span>分组 / 标签</span><span>{{ [sv.group, sv.tags].filter(Boolean).join(' · ') || '—' }}</span>
-                <span>备注</span><span style="white-space: pre-wrap">{{ sv.note || '—' }}</span>
-                <span>创建于</span><span>{{ dt(sv.created_at, true) }}</span>
+          <div class="sections">
+            <section class="s-group">
+              <div class="s-head">
+                <h2>基本信息</h2>
+                <p>显示名称与分类。总览可以按分组筛选。创建于 {{ dt(sv.created_at, true) }}。</p>
               </div>
-            </div>
-            <div class="card">
-              <div class="card-title"><h2>编辑</h2></div>
-              <n-form @submit.prevent label-placement="top" size="small">
-                <div class="form-2">
-                  <n-form-item label="名称"><n-input v-model:value="asset.name" /></n-form-item>
-                  <n-form-item label="分组"><n-input v-model:value="asset.group" /></n-form-item>
-                  <n-form-item label="标签"><n-input v-model:value="asset.tags" placeholder="逗号分隔" /></n-form-item>
-                  <n-form-item label="排序"><n-input-number v-model:value="asset.sort" :show-button="false" /></n-form-item>
-                  <n-form-item label="地区"><n-input v-model:value="asset.region" placeholder="自动识别" /></n-form-item>
-                  <n-form-item label="国家代码"><n-input v-model:value="asset.country_code" maxlength="2" placeholder="HK" /></n-form-item>
-                  <n-form-item label="服务商"><n-input v-model:value="asset.provider" /></n-form-item>
-                  <n-form-item label="商家后台链接"><n-input v-model:value="asset.provider_url" placeholder="https://" /></n-form-item>
-                  <n-form-item label="价格"><n-input-number v-model:value="asset.price" :min="0" :precision="2" :show-button="false" /></n-form-item>
-                  <n-form-item label="币种"><n-select v-model:value="asset.currency" :options="currencies" tag filterable /></n-form-item>
-                  <n-form-item label="付费周期"><n-select v-model:value="asset.pay_cycle" :options="cycles" /></n-form-item>
-                  <n-form-item label="到期日"><n-date-picker v-model:value="asset.expire_at" type="date" clearable style="width: 100%" /></n-form-item>
-                  <n-form-item label="流量额度（GB，0 = 不限）"><n-input-number v-model:value="asset.quota_gb" :min="0" :show-button="false" /></n-form-item>
-                  <n-form-item label="每月重置日"><n-input-number v-model:value="asset.reset_day" :min="1" :max="31" /></n-form-item>
-                  <n-form-item label="计费口径"><n-select v-model:value="asset.count_mode" :options="countModes" /></n-form-item>
-                  <n-form-item label="超额动作"><n-select v-model:value="asset.on_exceeded" :options="exceeded" /></n-form-item>
+              <div class="card s-card">
+                <div class="field">
+                  <div class="f-label"><span class="f-name">名称<i v-if="assetDirty('name')" class="f-dot" /></span></div>
+                  <div class="f-ctl"><n-input v-model:value="asset.name" placeholder="服务器名称" /></div>
                 </div>
-                <n-form-item label="备注"><n-input v-model:value="asset.note" type="textarea" :rows="2" /></n-form-item>
-                <n-button type="primary" @click="saveAsset">保存</n-button>
-              </n-form>
-            </div>
+                <div class="field">
+                  <div class="f-label"><span class="f-name">分组<i v-if="assetDirty('group')" class="f-dot" /></span></div>
+                  <div class="f-ctl"><n-input v-model:value="asset.group" placeholder="未分组" clearable /></div>
+                </div>
+                <div class="field">
+                  <div class="f-label"><span class="f-name">标签<i v-if="assetDirty('tags')" class="f-dot" /></span><span class="f-hint">逗号分隔，可在总览里搜索</span></div>
+                  <div class="f-ctl"><n-input v-model:value="asset.tags" placeholder="未设置" clearable /></div>
+                </div>
+                <div class="field">
+                  <div class="f-label"><span class="f-name">排序<i v-if="assetDirty('sort')" class="f-dot" /></span><span class="f-hint">数字小的排在前面</span></div>
+                  <div class="f-ctl"><n-input-number v-model:value="asset.sort" :show-button="false" placeholder="默认 0" /></div>
+                </div>
+                <div class="field">
+                  <div class="f-label"><span class="f-name">地区<i v-if="assetDirty('region')" class="f-dot" /></span></div>
+                  <div class="f-ctl"><n-input v-model:value="asset.region" placeholder="自动识别" clearable /></div>
+                </div>
+                <div class="field">
+                  <div class="f-label"><span class="f-name">国家代码<i v-if="assetDirty('country_code')" class="f-dot" /></span><span class="f-hint">两位字母，用于显示国旗</span></div>
+                  <div class="f-ctl"><n-input v-model:value="asset.country_code" maxlength="2" placeholder="例如 HK" /></div>
+                </div>
+                <div class="field stacked">
+                  <div class="f-label"><span class="f-name">备注<i v-if="assetDirty('note')" class="f-dot" /></span></div>
+                  <div class="f-ctl"><n-input v-model:value="asset.note" type="textarea" :autosize="{ minRows: 2, maxRows: 6 }" placeholder="未设置" /></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="s-group">
+              <div class="s-head">
+                <h2>服务商与费用</h2>
+                <p>用于总览里的月度花费和到期提醒。</p>
+              </div>
+              <div class="card s-card">
+                <div class="field">
+                  <div class="f-label"><span class="f-name">服务商<i v-if="assetDirty('provider')" class="f-dot" /></span></div>
+                  <div class="f-ctl"><n-input v-model:value="asset.provider" placeholder="未设置" clearable /></div>
+                </div>
+                <div class="field">
+                  <div class="f-label">
+                    <span class="f-name">商家后台链接<i v-if="assetDirty('provider_url')" class="f-dot" /></span>
+                    <span v-if="sv.provider_url" class="f-hint"><a :href="sv.provider_url" target="_blank" rel="noopener noreferrer">打开商家后台</a></span>
+                  </div>
+                  <div class="f-ctl"><n-input v-model:value="asset.provider_url" placeholder="https://" clearable /></div>
+                </div>
+                <div class="field">
+                  <div class="f-label"><span class="f-name">价格<i v-if="assetDirty('price') || assetDirty('currency')" class="f-dot" /></span></div>
+                  <div class="f-ctl ctl-row">
+                    <n-input-number v-model:value="asset.price" :min="0" :precision="2" :show-button="false" placeholder="未设置" />
+                    <n-select v-model:value="asset.currency" :options="currencies" tag filterable aria-label="币种" class="cur" />
+                  </div>
+                </div>
+                <div class="field">
+                  <div class="f-label"><span class="f-name">付费周期<i v-if="assetDirty('pay_cycle')" class="f-dot" /></span></div>
+                  <div class="f-ctl"><n-select v-model:value="asset.pay_cycle" :options="cycles" /></div>
+                </div>
+                <div class="field">
+                  <div class="f-label">
+                    <span class="f-name">到期日<i v-if="assetDirty('expire_at')" class="f-dot" /></span>
+                    <span v-if="daysUntil(sv.expire_at) !== null" class="f-hint">{{ daysUntil(sv.expire_at) }} 天后到期</span>
+                  </div>
+                  <div class="f-ctl"><n-date-picker v-model:value="asset.expire_at" type="date" clearable placeholder="未设置" /></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="s-group">
+              <div class="s-head">
+                <h2>流量</h2>
+                <p>本周期流量的计算方式，以及超出额度后的动作。</p>
+              </div>
+              <div class="card s-card">
+                <div class="field">
+                  <div class="f-label"><span class="f-name">流量额度<i v-if="assetDirty('quota_gb')" class="f-dot" /></span><span class="f-hint">0 = 不限</span></div>
+                  <div class="f-ctl">
+                    <n-input-number v-model:value="asset.quota_gb" :min="0" :show-button="false" placeholder="0">
+                      <template #suffix><span class="f-unit">GB</span></template>
+                    </n-input-number>
+                  </div>
+                </div>
+                <div class="field">
+                  <div class="f-label"><span class="f-name">每月重置日<i v-if="assetDirty('reset_day')" class="f-dot" /></span></div>
+                  <div class="f-ctl">
+                    <n-input-number v-model:value="asset.reset_day" :min="1" :max="31" :show-button="false" placeholder="默认 1">
+                      <template #suffix><span class="f-unit">日</span></template>
+                    </n-input-number>
+                  </div>
+                </div>
+                <div class="field">
+                  <div class="f-label"><span class="f-name">计费口径<i v-if="assetDirty('count_mode')" class="f-dot" /></span></div>
+                  <div class="f-ctl"><n-select v-model:value="asset.count_mode" :options="countModes" /></div>
+                </div>
+                <div class="field">
+                  <div class="f-label"><span class="f-name">超额动作<i v-if="assetDirty('on_exceeded')" class="f-dot" /></span></div>
+                  <div class="f-ctl"><n-select v-model:value="asset.on_exceeded" :options="exceeded" /></div>
+                </div>
+              </div>
+            </section>
+          </div>
+          <div class="savebar">
+            <span v-if="assetDirtyCount" class="small dirty-note"><i class="f-dot" />{{ assetDirtyCount }} 项未保存</span>
+            <span v-else class="small muted">修改后点保存</span>
+            <span class="spacer" />
+            <n-button :disabled="!assetDirtyCount" @click="fillAsset">撤销</n-button>
+            <n-button type="primary" :disabled="!assetDirtyCount" @click="saveAsset">保存</n-button>
           </div>
         </n-tab-pane>
 
@@ -619,6 +720,7 @@ function diffClass(line) {
 .big { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .big small { font-size: 15px; color: var(--c-muted); font-weight: 500; }
 .bad-text { color: var(--c-danger); }
+.ctl-row .cur { flex: none; width: 96px; }
 .form-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
 .sub-h { font-size: 14px; margin: 18px 0 8px; }
 p { margin: 6px 0; }

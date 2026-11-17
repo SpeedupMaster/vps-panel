@@ -163,7 +163,7 @@ function cronText(c) {
 <template>
   <div class="page">
     <div class="page-head">
-      <h1>工具</h1>
+      <div class="ph"><h1>工具</h1><p class="page-desc">在选定的服务器上执行检测、网络优化、终端和脚本。</p></div>
       <span class="spacer" />
       <n-select v-model:value="server" :options="serverOpts" filterable style="width: 200px" placeholder="选择服务器" />
     </div>
@@ -199,27 +199,34 @@ function cronText(c) {
 
       <n-tab-pane name="bbr" tab="网络优化">
         <div class="grid-2">
-          <div class="card">
-            <div class="card-title"><h2>BBR 与 TCP 缓冲区</h2></div>
+          <div class="card s-card">
+            <div class="s-card-head"><h2>BBR 与 TCP 缓冲区</h2></div>
             <div v-if="sv && !sv.switches?.allow_system_tune" class="banner warn">此机器的 Agent 关闭了系统调优：在 VPS 上执行 <code class="mono">vpsagent config set allow_system_tune true</code> 后重启 Agent。</div>
             <div v-else-if="sv?.system?.virt && ['openvz', 'lxc'].includes(sv.system.virt)" class="banner warn">此机器是 {{ sv.system.virt }} 容器，无法修改拥塞控制。</div>
-            <div class="kv" style="margin: 12px 0">
-              <span>当前</span><span>{{ sv?.system?.congestion || '—' }} · {{ sv?.system?.qdisc || '—' }}</span>
-              <span>可用</span><span class="small">{{ sv?.system?.avail_cc || '—' }}</span>
+            <div class="field f-inline">
+              <div class="f-label"><span class="f-name">当前</span><span class="f-hint">可用：{{ sv?.system?.avail_cc || '—' }}</span></div>
+              <div class="f-ctl"><span class="mono">{{ sv?.system?.congestion || '—' }} · {{ sv?.system?.qdisc || '—' }}</span></div>
             </div>
-            <div class="form">
-              <label>档位</label>
-              <n-radio-group v-model:value="tune.profile"><n-radio-button v-for="p in profiles" :key="p.value" :value="p.value">{{ p.label }}</n-radio-button></n-radio-group>
-              <label>带宽（Mbps）</label>
-              <n-input-number v-model:value="tune.bandwidth_mbps" :min="10" :max="100000" :step="100" />
-              <span class="muted small">缓冲区按 带宽 × 回程 RTT 计算，RTT 自动取这台机器的回程延迟。</span>
+            <div class="field">
+              <div class="f-label"><span class="f-name">档位</span><span class="f-hint">TCP 缓冲区上限：保守为带宽时延积的 1 倍，均衡 2 倍，激进 4 倍</span></div>
+              <div class="f-ctl"><n-radio-group v-model:value="tune.profile" class="seg"><n-radio-button v-for="p in profiles" :key="p.value" :value="p.value">{{ p.label }}</n-radio-button></n-radio-group></div>
             </div>
-            <div class="row" style="margin-top: 14px">
-              <n-button :disabled="!sv?.online" @click="previewTune">预览改动</n-button>
-              <n-button type="primary" :disabled="!sv?.online || !sv?.switches?.allow_system_tune" @click="applyTune">应用优化</n-button>
-              <n-button :disabled="!sv?.online || !sv?.switches?.allow_system_tune" @click="restoreTune">还原到优化前</n-button>
+            <div class="field">
+              <div class="f-label"><span class="f-name">带宽</span><span class="f-hint">缓冲区按 带宽 × 回程 RTT 计算，RTT 自动取这台机器的回程延迟</span></div>
+              <div class="f-ctl">
+                <n-input-number v-model:value="tune.bandwidth_mbps" :min="10" :max="100000" :step="100" :show-button="false" placeholder="默认 1000">
+                  <template #suffix><span class="f-unit">Mbps</span></template>
+                </n-input-number>
+              </div>
             </div>
-            <p class="small muted">改动写入 /etc/sysctl.d/99-vpspanel.conf。应用前自动备份原值；「还原」把所有项改回优化前的数值并删除此文件。</p>
+            <div class="f-actions">
+              <span class="f-hint">改动写入 /etc/sysctl.d/99-vpspanel.conf，应用前自动备份原值。「还原」把所有项改回优化前的数值并删除此文件。</span>
+              <div class="row tune-btns">
+                <n-button :disabled="!sv?.online" @click="previewTune">预览改动</n-button>
+                <n-button :disabled="!sv?.online || !sv?.switches?.allow_system_tune" @click="restoreTune">还原到优化前</n-button>
+                <n-button type="primary" :disabled="!sv?.online || !sv?.switches?.allow_system_tune" @click="applyTune">应用优化</n-button>
+              </div>
+            </div>
           </div>
           <div class="card">
             <div class="card-title"><h2>改动预览 / 输出</h2></div>
@@ -361,6 +368,9 @@ function cronText(c) {
 .tool:disabled { opacity: .55; cursor: not-allowed; }
 .tool.iperf { cursor: default; }
 .tool .last { color: var(--c-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seg { display: flex; }
+.seg :deep(.n-radio-button) { flex: 1; text-align: center; }
+.tune-btns { gap: 8px; margin-left: auto; }
 .form { display: flex; flex-direction: column; gap: 8px; }
 .form label { font-size: 13px; color: var(--c-text-2); margin-top: 6px; }
 .scripts { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; }

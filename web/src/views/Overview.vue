@@ -70,7 +70,7 @@ const shareTotal = computed(() => (ov.value?.traffic_share || []).reduce((a, b) 
 <template>
   <div class="page">
     <div class="page-head">
-      <h1>总览</h1>
+      <div class="ph"><h1>总览</h1><p class="page-desc">所有服务器的在线状态、流量、费用和告警。</p></div>
       <span class="spacer" />
       <n-input v-model:value="q" placeholder="搜索名称 / IP / 标签" clearable class="hide-mobile" style="width: 220px" />
       <n-button type="primary" @click="adding = true">添加服务器</n-button>
