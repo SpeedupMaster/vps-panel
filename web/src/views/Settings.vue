@@ -58,28 +58,29 @@ async function loadSettings() { const s = (await api.get('/settings').catch(() =
 const B = (k, label, def, hint) => ({ k, label, type: 'bool', def, hint })
 const N = (k, label, def, hint, unit) => ({ k, label, type: 'num', def, hint, unit })
 const S = (k, label, def, hint) => ({ k, label, type: 'str', def, hint })
+const opts = (...xs) => xs.map(([value, label]) => ({ value, label }))
 const groups = {
   panel: [
-    { title: '访问', fields: [
-      S('panel_url', '面板地址', '', 'Agent 连接与安装命令使用，如 https://panel.example.com'),
+    { title: '访问', desc: 'Agent、安装命令和订阅链接使用的地址，以及谁能打开面板。', fields: [
+      S('panel_url', '面板地址', '', 'Agent 连接和安装命令里使用，例如 https://panel.example.com'),
       S('panel_urls_backup', '备用面板地址', '', '逗号分隔；主地址不可达时 Agent 依次尝试'),
       S('sub_url', '订阅地址', '', '留空 = 用面板地址；可填 CDN 或另一个域名'),
       S('admin_path', '后台路径', '', '例如 /x7k2，留空 = 根路径；改后旧路径返回 404'),
       S('allow_ips', '允许访问的 IP', '', '逗号分隔，支持 CIDR；留空 = 不限制。订阅与 Agent 连接不受影响'),
     ] },
-    { title: '费用', fields: [
-      { k: 'currency', label: '统计币种', type: 'select', def: 'USD', options: ['USD', 'CNY', 'EUR', 'HKD', 'JPY'] },
-      S('fx_rates', '汇率（相对 USD）', '{"CNY":7.2,"EUR":0.92,"HKD":7.8,"JPY":150}', 'JSON'),
+    { title: '费用', desc: '服务器月费按所选币种换算后汇总。', fields: [
+      { k: 'currency', label: '统计币种', type: 'select', def: 'USD', options: opts(['USD', 'USD 美元'], ['CNY', 'CNY 人民币'], ['EUR', 'EUR 欧元'], ['HKD', 'HKD 港币'], ['JPY', 'JPY 日元']) },
+      { k: 'fx_rates', label: '汇率', type: 'fx', def: '', hint: '1 USD 可兑换的数量；留空的币种用默认汇率' },
     ] },
-    { title: '告警', fields: [
-      N('traffic_spike_factor', '流量突增倍数', 5, '小时流量超过近 7 天同时段均值的倍数时告警', '倍'),
-      N('traffic_spike_min_gb', '突增最小量', 2, '低于此值不算突增', 'GB'),
+    { title: '流量突增', desc: '「流量异常突增」告警的判定条件。告警开关与通知渠道在「告警」页设置。', fields: [
+      N('traffic_spike_factor', '突增倍数', 5, '某小时流量超过近 7 天同一时段均值的这个倍数时告警', '倍'),
+      N('traffic_spike_min_gb', '最小流量', 2, '这一小时的流量低于此值时不算突增', 'GB'),
     ] },
-    { title: '更新', fields: [
-      S('panel_repo', '面板发布仓库', '', 'GitHub owner/repo，用于检查面板新版本'),
+    { title: '更新', desc: '检查面板新版本的来源，以及 Agent 升级包的签名校验。', fields: [
+      S('panel_repo', '面板发布仓库', '', 'GitHub 的 owner/repo，用于检查面板新版本'),
       { k: 'sign_pubkey', label: 'Agent 签名公钥', type: 'text', def: '', hint: 'Ed25519 公钥（base64）。设置后 Agent 只接受签名正确的升级包' },
     ] },
-    { title: '公开状态页', link: 'status', fields: [
+    { title: '公开状态页', desc: '不用登录的只读页面，可以分享给别人。', link: 'status', fields: [
       B('status_enabled', '开启', false, '任何人都能打开 /status 查看；页面不显示 IP、服务商、版本，也不链接到面板'),
       S('status_title', '标题', '服务状态', ''),
       { k: 'status_servers', label: '显示的服务器', type: 'servers', def: '', hint: '不选 = 全部' },
@@ -87,11 +88,11 @@ const groups = {
     ] },
   ],
   agent: [
-    { title: 'Agent', fields: [
+    { title: 'Agent', desc: 'Agent 的上报频率与离线判定。', fields: [
       N('agent_report_interval', '上报间隔', 10, '', '秒'),
       N('offline_after_sec', '离线判定', 90, '超过此时间没有心跳视为离线', '秒'),
     ] },
-    { title: '回程探测', fields: [
+    { title: '回程探测', desc: '每台 VPS 到三网目标的延迟与丢包探测。', fields: [
       N('probe_interval', '探测间隔', 60, '每台 VPS 对每个目标的探测周期', '秒'),
       N('probe_count', '每轮包数', 5, '', '个'),
       N('block_rounds', '判定被封', 3, '连续几轮三网全丢包才标记为疑似被封', '轮'),
@@ -99,23 +100,23 @@ const groups = {
     ] },
   ],
   xray: [
-    { title: '部署', fields: [
+    { title: '部署', desc: '节点机上 Xray 的安装、版本与配置管理。', fields: [
       B('auto_install_xray', '自动安装 Xray', true, '节点机接入后自动安装并下发配置'),
-      B('drift_autofix', '配置漂移自动修复', true, '发现 VPS 上的配置被改动时自动恢复为面板版本'),
+      B('drift_autofix', '配置漂移自动修复', true, '发现 VPS 上的配置被改动时，自动恢复为面板版本'),
       S('xray_pinned_version', '默认 Xray 版本', 'latest', 'latest 或具体版本号；单台机器可另行锁定'),
       B('xray_relay', '通过面板中转下载', false, 'VPS 访问 GitHub 困难时开启'),
-      { k: 'geo_source', label: '规则文件来源', type: 'select', def: 'loyalsoldier', options: ['loyalsoldier', 'v2fly', 'metacubex'] },
+      { k: 'geo_source', label: '规则文件来源', type: 'select', def: 'loyalsoldier', hint: 'geoip / geosite 规则文件的下载来源', options: opts(['loyalsoldier', 'Loyalsoldier'], ['v2fly', 'v2fly'], ['metacubex', 'MetaCubeX']) },
     ] },
-    { title: '入站与安全', fields: [
+    { title: '入站与安全', desc: '新建入口的默认值，以及落地机和出站的防护。', fields: [
       S('reality_default_target', 'Reality 默认目标', 'www.microsoft.com', '新建入口时的默认 dest / serverName'),
       B('landing_firewall', '落地机防火墙', true, '落地端口只放行入口机 IP'),
-      B('xray_block_bt', '屏蔽 BT', true, ''),
+      B('xray_block_bt', '屏蔽 BT', true, '拦截 BitTorrent 流量'),
       B('xray_access_log', '访问日志', false, '默认关闭，只保留错误日志'),
-      S('xray_probe_url', '线路自检地址', '', '留空 = https://www.gstatic.com/generate_204'),
+      S('xray_probe_url', '线路自检地址', 'https://www.gstatic.com/generate_204', '线路自检时访问的地址'),
     ] },
   ],
   retention: [
-    { title: '保留时长', fields: [
+    { title: '保留时长', desc: '超过保留时长的历史数据会被自动清理。', fields: [
       N('retention_metrics_1m_days', '分钟级指标', 7, '', '天'),
       N('retention_metrics_1h_days', '小时级指标', 90, '', '天'),
       N('retention_probe_raw_days', '探测原始数据', 3, '', '天'),
@@ -128,6 +129,18 @@ const dirtyKeys = computed(() => Object.keys(cfg.value).filter((k) => cfg.value[
 function boolVal(f) { const v = cfg.value[f.k]; return v === '' || v == null ? f.def : v === '1' || v === 'true' }
 function numVal(f) { const v = cfg.value[f.k]; return v === '' || v == null ? null : Number(v) }
 function setVal(k, v) { cfg.value = { ...cfg.value, [k]: v == null ? '' : typeof v === 'boolean' ? (v ? '1' : '0') : String(v) } }
+function isDirty(k) { return (cfg.value[k] ?? '') !== (orig.value[k] ?? '') }
+function placeholder(f) { return f.def !== '' && f.def != null ? `默认 ${f.def}` : '未设置' }
+// fx_rates is stored as JSON; the panel replaces its defaults wholesale, so a
+// saved value always carries every currency.
+const fxDefault = { CNY: 7.2, EUR: 0.92, HKD: 7.8, JPY: 150 }
+function fxStored() { try { const o = JSON.parse(cfg.value.fx_rates || '{}'); return o && typeof o === 'object' ? o : {} } catch { return {} } }
+function fxVal(c) { const v = fxStored()[c]; return v == null || Number(v) === fxDefault[c] ? null : Number(v) }
+function setFx(c, v) {
+  const o = { ...fxDefault, ...fxStored() }
+  o[c] = v == null ? fxDefault[c] : v
+  setVal('fx_rates', Object.keys(fxDefault).every((k) => o[k] === fxDefault[k]) && Object.keys(o).length === 4 ? '' : JSON.stringify(o))
+}
 async function saveSettings(keys) {
   const body = {}
   for (const k of keys || dirtyKeys.value) body[k] = cfg.value[k]
@@ -278,32 +291,43 @@ onMounted(() => {
 
       <n-tab-pane v-for="t in settingsTabs" :key="t.name" :name="t.name" :tab="t.label">
         <div class="settings">
-          <div v-for="g in groups[t.name]" :key="g.title" class="card">
-            <div class="card-title">
-              <h2>{{ g.title }}</h2><span class="spacer" />
-              <a v-if="g.link === 'status' && orig.status_enabled === '1'" class="small" href="/status" target="_blank" rel="noopener">打开</a>
+          <section v-for="g in groups[t.name]" :key="g.title" class="s-group">
+            <div class="s-head">
+              <h2>{{ g.title }}</h2>
+              <p v-if="g.desc">{{ g.desc }}</p>
+              <a v-if="g.link === 'status' && orig.status_enabled === '1'" class="small" href="/status" target="_blank" rel="noopener">打开状态页</a>
             </div>
-            <div v-for="f in g.fields" :key="f.k" class="field">
-              <div class="f-label"><span>{{ f.label }}</span><span v-if="f.hint" class="small muted">{{ f.hint }}</span></div>
-              <div class="f-ctl">
-                <n-switch v-if="f.type === 'bool'" :value="boolVal(f)" @update:value="(v) => setVal(f.k, v)" />
-                <div v-else-if="f.type === 'num'" class="row nowrap-row">
-                  <n-input-number :value="numVal(f)" :placeholder="String(f.def)" clearable style="width: 140px" @update:value="(v) => setVal(f.k, v)" />
-                  <span v-if="f.unit" class="small muted">{{ f.unit }}</span>
+            <div class="card s-card">
+              <div v-for="f in g.fields" :key="f.k" :class="['field', 'f-' + f.type, { stacked: f.type === 'text' || f.type === 'fx', dirty: isDirty(f.k) }]">
+                <div class="f-label">
+                  <span class="f-name">{{ f.label }}<i v-if="isDirty(f.k)" class="f-dot" title="未保存" /></span>
+                  <span v-if="f.hint" class="f-hint">{{ f.hint }}</span>
                 </div>
-                <n-select v-else-if="f.type === 'select'" :value="cfg[f.k] || f.def" :options="f.options.map((o) => ({ label: o, value: o }))" style="width: 180px" @update:value="(v) => setVal(f.k, v)" />
-                <n-select v-else-if="f.type === 'servers'" multiple clearable placeholder="全部" style="width: 280px; max-width: 100%"
-                  :value="(cfg[f.k] || '').split(',').filter((x) => x && x !== 'all').map(Number)"
-                  :options="state.servers.map((s) => ({ label: s.name, value: s.id }))"
-                  @update:value="(v) => setVal(f.k, v.join(','))" />
-                <n-input v-else-if="f.type === 'text'" :value="cfg[f.k]" type="textarea" :rows="2" class="mono" :placeholder="f.def" @update:value="(v) => setVal(f.k, v)" />
-                <n-input v-else :value="cfg[f.k]" :placeholder="f.def || '未设置'" clearable @update:value="(v) => setVal(f.k, v)" />
+                <div class="f-ctl">
+                  <n-switch v-if="f.type === 'bool'" :value="boolVal(f)" :aria-label="f.label" @update:value="(v) => setVal(f.k, v)" />
+                  <n-input-number v-else-if="f.type === 'num'" :value="numVal(f)" :placeholder="placeholder(f)" :min="0" :show-button="false" clearable @update:value="(v) => setVal(f.k, v)">
+                    <template v-if="f.unit" #suffix><span class="f-unit">{{ f.unit }}</span></template>
+                  </n-input-number>
+                  <n-select v-else-if="f.type === 'select'" :value="cfg[f.k] || f.def" :options="f.options" @update:value="(v) => setVal(f.k, v)" />
+                  <n-select v-else-if="f.type === 'servers'" multiple clearable placeholder="全部服务器" max-tag-count="responsive"
+                    :value="(cfg[f.k] || '').split(',').filter((x) => x && x !== 'all').map(Number)"
+                    :options="state.servers.map((s) => ({ label: s.name, value: s.id }))"
+                    @update:value="(v) => setVal(f.k, v.join(','))" />
+                  <div v-else-if="f.type === 'fx'" class="fx">
+                    <n-input-number v-for="(d, c) in fxDefault" :key="c" :value="fxVal(c)" :placeholder="String(d)" :min="0" :show-button="false" clearable @update:value="(v) => setFx(c, v)">
+                      <template #prefix><span class="f-unit fx-code">{{ c }}</span></template>
+                    </n-input-number>
+                  </div>
+                  <n-input v-else-if="f.type === 'text'" :value="cfg[f.k]" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" class="mono" :placeholder="placeholder(f)" @update:value="(v) => setVal(f.k, v)" />
+                  <n-input v-else :value="cfg[f.k]" :placeholder="placeholder(f)" clearable @update:value="(v) => setVal(f.k, v)" />
+                </div>
               </div>
             </div>
-          </div>
+          </section>
         </div>
         <div class="savebar">
-          <span class="small muted">{{ dirtyKeys.length ? `${dirtyKeys.length} 项未保存` : '留空的项使用默认值' }}</span>
+          <span v-if="dirtyKeys.length" class="small dirty-note"><i class="f-dot" />{{ dirtyKeys.length }} 项未保存</span>
+          <span v-else class="small muted">留空的项使用默认值</span>
           <span class="spacer" />
           <n-button :disabled="!dirtyKeys.length" @click="cfg = { ...orig }">撤销</n-button>
           <n-button type="primary" :disabled="!dirtyKeys.length" @click="saveSettings()">保存</n-button>
@@ -425,22 +449,45 @@ onMounted(() => {
 .form label { font-size: 13px; color: var(--c-text-2); margin-top: 6px; }
 .secret { cursor: pointer; word-break: break-all; background: var(--c-surface); padding: 6px 8px; border-radius: 4px; }
 .codes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 16px; padding: 12px; background: var(--c-surface); border-radius: 6px; margin: 10px 0; font-size: 14px; }
-.settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; align-items: start; }
-.field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 16px; padding: 10px 0; border-top: 1px solid var(--c-border); align-items: center; }
-.field:first-of-type { border-top: 0; }
-.f-label { display: flex; flex-direction: column; gap: 2px; font-size: 13.5px; }
+.settings { display: flex; flex-direction: column; gap: 28px; max-width: 1120px; padding-top: 4px; }
+.s-group { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 32px; align-items: start; }
+.s-head { padding-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+.s-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.s-head p { margin: 0; font-size: 13px; line-height: 1.6; color: var(--c-muted); }
+.s-card { padding: 2px 20px; }
+.field { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 10px 32px; padding: 14px 0; border-top: 1px solid var(--c-border); align-items: center; }
+.field:first-child { border-top: 0; }
+.field.stacked { grid-template-columns: minmax(0, 1fr); }
+.f-label { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.f-name { font-size: 14px; color: var(--c-text); }
+.f-hint { font-size: 12.5px; line-height: 1.55; color: var(--c-muted); overflow-wrap: anywhere; }
+.f-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--c-primary); margin-left: 6px; vertical-align: 2px; }
 .f-ctl { min-width: 0; }
-.f-ctl :deep(.n-input):not(.n-input-number .n-input) { width: 280px; max-width: 100%; }
-.nowrap-row { flex-wrap: nowrap; }
-.savebar { position: sticky; bottom: 0; display: flex; align-items: center; gap: 8px; padding: 12px 0; margin-top: 12px; background: var(--c-bg, #f6f7f8); border-top: 1px solid var(--c-border); }
+.f-ctl > * { width: 100%; }
+.f-bool .f-ctl { justify-self: end; }
+.f-bool .f-ctl > * { width: auto; }
+.f-unit { color: var(--c-muted); font-size: 13px; }
+.fx { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.fx-code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; margin-right: 4px; }
+.savebar { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; gap: 8px; max-width: 1120px; padding: 12px 0; margin-top: 4px; background: var(--c-bg, #f7f8fa); border-top: 1px solid var(--c-border); }
+.dirty-note { color: var(--c-primary); font-weight: 500; }
+.dirty-note .f-dot { margin: 0 6px 0 0; vertical-align: 1px; }
 .b-item { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--c-border); flex-wrap: wrap; }
 .b-main { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 200px; }
 .b-act { gap: 4px; }
 p { line-height: 1.6; }
+@media (max-width: 1279px) {
+  .s-group { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .s-head { padding-top: 0; }
+  .field { grid-template-columns: minmax(0, 1fr) 260px; gap: 10px 20px; }
+  .field.stacked { grid-template-columns: minmax(0, 1fr); }
+}
 @media (max-width: 767px) {
-  .settings { grid-template-columns: 1fr; }
-  .field { grid-template-columns: 1fr; }
-  .f-ctl :deep(.n-input):not(.n-input-number .n-input) { width: 100%; }
+  .settings { gap: 22px; }
+  .s-card { padding: 2px 16px; }
+  .field { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .field.f-bool { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
+  .fx { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .savebar { bottom: calc(56px + env(safe-area-inset-bottom)); }
 }
 </style>
