@@ -98,6 +98,10 @@ fi
 install -m 0755 "$TMP/vpsagent" "$PREFIX/vpsagent"
 mkdir -p "$CONF_DIR" "$DATA_DIR"
 chmod 700 "$CONF_DIR" "$DATA_DIR"
+# Pin the release signing key locally: later self-updates must be signed by it.
+if [ "$SIGN_PUBKEY" != "__SIGN_PUBKEY__" ] && [ -n "$SIGN_PUBKEY" ] && [ ! -f "$CONF_DIR/sign.pub" ]; then
+  printf '%s\n' "$SIGN_PUBKEY" > "$CONF_DIR/sign.pub"
+fi
 
 # ---- local switches (only editable on the VPS) ----
 if [ ! -f "$CONF_DIR/agent.yaml" ]; then
