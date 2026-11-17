@@ -129,7 +129,7 @@ const botCmds = [['/status', '所有服务器在线状态与告警概况'], ['/v
 <template>
   <div class="page">
     <div class="page-head">
-      <div class="ph"><h1>告警</h1><p class="page-desc"><template v-if="firing">{{ firing }} 条告警进行中。</template><template v-else>没有进行中的告警。</template>在这里管理触发规则和通知渠道。</p></div>
+      <div class="ph"><h1>告警</h1><p class="page-desc"><template v-if="firing">{{ firing }} 条告警待确认。</template><template v-else>没有待确认的告警。</template>在这里管理触发规则和通知渠道。</p></div>
     </div>
 
     <n-tabs v-model:value="tab" type="line" animated>
@@ -196,15 +196,16 @@ const botCmds = [['/status', '所有服务器在线状态与告警概况'], ['/v
 
       <n-tab-pane name="rules" tab="规则">
         <div class="sec-head">
-          <div class="s-head"><h2>告警规则</h2><p>条件持续满足时按严重度通知所选渠道，冷却时间内同一规则不重复通知。</p></div>
+          <div class="s-head"><h2>告警规则</h2><p>条件持续满足时按严重度通知所选渠道；告警未恢复时，按重复提醒间隔再次通知。</p></div>
           <span class="spacer" />
           <n-button type="primary" @click="editRule(null)">新建规则</n-button>
         </div>
         <div class="card s-card">
           <div v-if="!rules.length" class="empty">还没有告警规则</div>
-          <div v-else class="table-wrap">
+          <template v-else>
+          <div class="table-wrap hide-mobile">
             <table class="plain">
-              <thead><tr><th>规则</th><th>条件</th><th>范围</th><th>冷却</th><th>严重度</th><th>渠道</th><th>启用</th><th /></tr></thead>
+              <thead><tr><th>规则</th><th>条件</th><th>范围</th><th>重复提醒</th><th>严重度</th><th>渠道</th><th>启用</th><th /></tr></thead>
               <tbody>
                 <tr v-for="r in rules" :key="r.id">
                   <td><b>{{ r.name }}</b><div class="muted small">{{ kinds[r.kind] || r.kind }}</div></td>
@@ -213,12 +214,31 @@ const botCmds = [['/status', '所有服务器在线状态与告警概况'], ['/v
                   <td class="small nowrap">{{ r.cooldown ? dur(r.cooldown) : '—' }}</td>
                   <td><span :class="['tag', sevClass[r.severity]]">{{ sevLabel[r.severity] }}</span></td>
                   <td class="small">{{ chName(r.channels) }}</td>
-                  <td><n-switch size="small" :value="r.enabled" @update:value="(v) => toggleRule(r, v)" /></td>
+                  <td><n-switch size="small" :value="r.enabled" :aria-label="'启用 ' + r.name" @update:value="(v) => toggleRule(r, v)" /></td>
                   <td class="nowrap" style="text-align: right"><n-button size="tiny" quaternary @click="editRule(r)">编辑</n-button><n-button size="tiny" quaternary type="error" @click="delRule(r)">删除</n-button></td>
                 </tr>
               </tbody>
             </table>
           </div>
+          <div class="m-list">
+            <div v-for="r in rules" :key="r.id" :class="['m-item', { dim: !r.enabled }]">
+              <div class="row">
+                <span :class="['tag', sevClass[r.severity]]">{{ sevLabel[r.severity] }}</span>
+                <b>{{ r.name }}</b><span class="spacer" />
+                <n-switch size="small" :value="r.enabled" :aria-label="'启用 ' + r.name" @update:value="(v) => toggleRule(r, v)" />
+              </div>
+              <div class="m-row"><span>条件</span><span>{{ cond(r) }}</span></div>
+              <div class="m-row"><span>范围</span><span>{{ scopeText(r.scope) }}</span></div>
+              <div class="m-row"><span>渠道</span><span>{{ chName(r.channels) }}</span></div>
+              <div class="m-row"><span>重复提醒</span><span>{{ r.cooldown ? dur(r.cooldown) : '—' }}</span></div>
+              <div class="row">
+                <span class="spacer" />
+                <n-button size="small" @click="editRule(r)">编辑</n-button>
+                <n-button size="small" type="error" quaternary @click="delRule(r)">删除</n-button>
+              </div>
+            </div>
+          </div>
+          </template>
         </div>
       </n-tab-pane>
 
@@ -380,6 +400,8 @@ const botCmds = [['/status', '所有服务器在线状态与告警概况'], ['/v
 .ch-row { display: flex; align-items: center; gap: 8px 12px; padding: 12px 0; border-top: 1px solid var(--c-border); flex-wrap: wrap; }
 .ch-main { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 3px; }
 .ch-act { gap: 4px; flex-wrap: nowrap; }
+.m-item.dim { opacity: .6; }
+.m-row > :last-child { text-align: right; overflow-wrap: anywhere; }
 .cmd-row { display: flex; align-items: baseline; gap: 12px; padding: 10px 0; border-top: 1px solid var(--c-border); }
 .cmd-row:first-child { border-top: 0; }
 .cmd { background: var(--c-surface); padding: 2px 6px; border-radius: 4px; min-width: 76px; flex: none; }
