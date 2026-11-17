@@ -10,6 +10,10 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"vpspanel/internal/panel/auth"
+	"vpspanel/internal/panel/secret"
+	"vpspanel/internal/panel/store"
 )
 
 // signCommand handles `vps-panel keygen` and `vps-panel sign`. The private
@@ -20,6 +24,8 @@ func signCommand(args []string) (bool, error) {
 		return false, nil
 	}
 	switch args[0] {
+	case "reset-admin":
+		return true, resetAdmin(args[1:])
 	case "keygen":
 		out := "sign.key"
 		if len(args) > 1 {
@@ -73,4 +79,29 @@ func signCommand(args []string) (bool, error) {
 		return true, nil
 	}
 	return false, nil
+}
+
+// resetAdmin: vps-panel reset-admin [-data dir]
+func resetAdmin(args []string) error {
+	dir := env("VPSPANEL_DATA", "./data")
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "-data" || args[i] == "--data" {
+			dir = args[i+1]
+		}
+	}
+	st, err := store.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	box, err := secret.Load(dir)
+	if err != nil {
+		return err
+	}
+	pw, err := auth.New(st, box).ResetAdmin()
+	if err != nil {
+		return err
+	}
+	fmt.Printf("管理员密码已重置为：%s\n两步验证已关闭，所有会话已失效。登录后请立即修改密码并重新开启两步验证。\n", pw)
+	return nil
 }

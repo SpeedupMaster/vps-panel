@@ -297,3 +297,22 @@ func IPAllowed(list, ip string) bool {
 	}
 	return false
 }
+
+// ResetAdmin sets a new random password, turns off 2FA and ends all
+// sessions. Used by `vps-panel reset-admin` on the panel host.
+func (a *Auth) ResetAdmin() (string, error) {
+	ad, err := a.Admin()
+	if err != nil {
+		return "", err
+	}
+	pw := secret.RandomToken(12)
+	hash, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	if err := a.st.DB.Model(ad).Updates(map[string]any{"password_hash": string(hash), "password_at": time.Now(), "totp_secret": "", "totp_pending": "", "recovery_hash": ""}).Error; err != nil {
+		return "", err
+	}
+	a.st.DB.Where("1 = 1").Delete(&store.Session{})
+	return pw, nil
+}

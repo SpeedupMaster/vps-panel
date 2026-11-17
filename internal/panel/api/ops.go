@@ -61,6 +61,7 @@ func (a *API) mountOps(r *gin.Engine, g *gin.RouterGroup) {
 	g.DELETE("/backups/:name", a.deleteBackup)
 	g.POST("/backups/restore", a.restoreBackup)
 
+	g.POST("/servers/:id/ssh-install", a.sshInstall)
 	g.POST("/servers/:id/shell-ticket", a.shellTicket)
 	g.GET("/servers/:id/shell", a.shell)
 }
@@ -609,4 +610,19 @@ func (a *API) shell(c *gin.Context) {
 		},
 	}
 	srv.ServeHTTP(c.Writer, c.Request)
+}
+
+func (a *API) sshInstall(c *gin.Context) {
+	var in service.SSHInstallInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		bad(c, err)
+		return
+	}
+	id, err := a.P.SSHInstall(idParam(c), in)
+	if err != nil {
+		bad(c, err)
+		return
+	}
+	a.P.Audit("server", "ssh_install", a.P.ServerName(idParam(c)), in.Host, c.ClientIP())
+	ok(c, gin.H{"task_id": id})
 }
