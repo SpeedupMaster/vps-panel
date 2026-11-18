@@ -263,7 +263,7 @@ function fillAsset() {
   }
   assetOrig.value = { ...asset.value }
 }
-const currencies = ['USD', 'CNY', 'EUR', 'HKD', 'JPY', 'GBP'].map((v) => ({ label: v, value: v }))
+const currencies = ['USD', 'CNY', 'EUR', 'HKD', 'JPY', 'GBP', 'CAD'].map((v) => ({ label: v, value: v }))
 const cycles = [{ label: '月付', value: 'month' }, { label: '季付', value: 'quarter' }, { label: '半年付', value: 'half' }, { label: '年付', value: 'year' }, { label: '一次性', value: 'once' }]
 const countModes = Object.entries(countModeText).map(([value, label]) => ({ label, value }))
 const exceeded = [{ label: '仅告警（80% / 90% / 100%）', value: 'alert' }, { label: '告警并停止 Xray', value: 'stop_xray' }]

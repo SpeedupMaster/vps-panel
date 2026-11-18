@@ -40,8 +40,10 @@ func (p *Panel) ToCurrency(amount float64, cur string) float64 {
 	if cur == "" || strings.EqualFold(cur, base) {
 		return amount
 	}
-	rates := map[string]float64{}
-	_ = json.Unmarshal([]byte(p.St.Get("fx_rates", `{"CNY":7.2,"EUR":0.92,"HKD":7.8,"JPY":150}`)), &rates)
+	// Saved rates are merged over the defaults, so currencies added later still
+	// convert for panels that saved fx_rates before they existed.
+	rates := map[string]float64{"CNY": 7.2, "EUR": 0.92, "HKD": 7.8, "JPY": 150, "GBP": 0.79, "CAD": 1.38}
+	_ = json.Unmarshal([]byte(p.St.Get("fx_rates", "{}")), &rates)
 	if r, ok := rates[strings.ToUpper(cur)]; ok && r > 0 {
 		return amount / r
 	}

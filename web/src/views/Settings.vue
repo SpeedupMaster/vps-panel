@@ -69,7 +69,7 @@ const groups = {
       S('allow_ips', '允许访问的 IP', '', '逗号分隔，支持 CIDR；留空 = 不限制。订阅与 Agent 连接不受影响'),
     ] },
     { title: '费用', desc: '服务器月费按所选币种换算后汇总。', fields: [
-      { k: 'currency', label: '统计币种', type: 'select', def: 'USD', options: opts(['USD', 'USD 美元'], ['CNY', 'CNY 人民币'], ['EUR', 'EUR 欧元'], ['HKD', 'HKD 港币'], ['JPY', 'JPY 日元']) },
+      { k: 'currency', label: '统计币种', type: 'select', def: 'USD', options: opts(['USD', 'USD 美元'], ['CNY', 'CNY 人民币'], ['EUR', 'EUR 欧元'], ['HKD', 'HKD 港币'], ['JPY', 'JPY 日元'], ['GBP', 'GBP 英镑'], ['CAD', 'CAD 加元']) },
       { k: 'fx_rates', label: '汇率', type: 'fx', def: '', hint: '1 USD 可兑换的数量；留空的币种用默认汇率' },
     ] },
     { title: '流量突增', desc: '「流量异常突增」告警的判定条件。告警开关与通知渠道在「告警」页设置。', fields: [
@@ -132,15 +132,15 @@ function numVal(f) { const v = cfg.value[f.k]; return v === '' || v == null ? nu
 function setVal(k, v) { cfg.value = { ...cfg.value, [k]: v == null ? '' : typeof v === 'boolean' ? (v ? '1' : '0') : String(v) } }
 function isDirty(k) { return (cfg.value[k] ?? '') !== (orig.value[k] ?? '') }
 function placeholder(f) { return f.def !== '' && f.def != null ? `默认 ${f.def}` : '未设置' }
-// fx_rates is stored as JSON; the panel replaces its defaults wholesale, so a
+// fx_rates is stored as JSON and merged over the panel's defaults; a
 // saved value always carries every currency.
-const fxDefault = { CNY: 7.2, EUR: 0.92, HKD: 7.8, JPY: 150 }
+const fxDefault = { CNY: 7.2, EUR: 0.92, HKD: 7.8, JPY: 150, GBP: 0.79, CAD: 1.38 }
 function fxStored() { try { const o = JSON.parse(cfg.value.fx_rates || '{}'); return o && typeof o === 'object' ? o : {} } catch { return {} } }
 function fxVal(c) { const v = fxStored()[c]; return v == null || Number(v) === fxDefault[c] ? null : Number(v) }
 function setFx(c, v) {
   const o = { ...fxDefault, ...fxStored() }
   o[c] = v == null ? fxDefault[c] : v
-  setVal('fx_rates', Object.keys(fxDefault).every((k) => o[k] === fxDefault[k]) && Object.keys(o).length === 4 ? '' : JSON.stringify(o))
+  setVal('fx_rates', Object.keys(fxDefault).every((k) => o[k] === fxDefault[k]) && Object.keys(o).length === Object.keys(fxDefault).length ? '' : JSON.stringify(o))
 }
 async function saveSettings(keys) {
   const body = {}

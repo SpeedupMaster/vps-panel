@@ -62,7 +62,7 @@ function diskPct(s) { const t = s.system?.disk_total; return t ? (s.latest?.disk
 function statusText(s) { return { online: '在线', offline: '离线', suspect: '不稳定', pending: '待安装' }[s.status] || s.status }
 function statusClass(s) { return s.blocked ? 'bad' : { online: 'ok', offline: 'bad', suspect: 'warn' }[s.status] || 'off' }
 function barColor(p) { return p >= 90 ? '#b4233a' : p >= 75 ? '#b8650a' : '#0f7b45' }
-const money = (v, cur) => (cur === 'CNY' ? '¥' : cur === 'USD' ? '$' : cur === 'EUR' ? '€' : '') + Number(v || 0).toFixed(0)
+const money = (v, cur) => (cur === 'CNY' ? '¥' : cur === 'USD' ? '$' : cur === 'EUR' ? '€' : cur === 'GBP' ? '£' : cur === 'CAD' ? 'C$' : '') + Number(v || 0).toFixed(0)
 function open(s) { router.push({ name: 'server', params: { id: s.id } }) }
 const shareTotal = computed(() => (ov.value?.traffic_share || []).reduce((a, b) => a + b.used, 0))
 </script>
