@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -96,7 +97,7 @@ func (p *Panel) onTaskResult(serverID uint, r *proto.TaskResult) {
 		}
 	}
 	if r.Finished {
-		p.Bus.Publish("task", map[string]any{"id": r.TaskID, "server_id": serverID, "type": t.Type, "status": r.Status})
+		p.Bus.Publish("task", map[string]any{"id": strconv.FormatUint(r.TaskID, 10), "server_id": serverID, "type": t.Type, "status": r.Status})
 		p.afterTask(&t, r)
 	}
 }

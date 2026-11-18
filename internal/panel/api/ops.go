@@ -267,7 +267,7 @@ func (a *API) runTool(c *gin.Context) {
 		bad(c, err)
 		return
 	}
-	ok(c, gin.H{"task_id": id})
+	ok(c, gin.H{"task_id": strconv.FormatUint(id, 10)})
 }
 
 func (a *API) runIperf(c *gin.Context) {
@@ -284,7 +284,7 @@ func (a *API) runIperf(c *gin.Context) {
 		bad(c, err)
 		return
 	}
-	ok(c, gin.H{"task_id": id})
+	ok(c, gin.H{"task_id": strconv.FormatUint(id, 10)})
 }
 
 func (a *API) toolResults(c *gin.Context) {
@@ -353,7 +353,11 @@ func (a *API) runScript(c *gin.Context) {
 		return
 	}
 	a.P.Audit("server", "run_script", strconv.Itoa(int(in.ScriptID)), batch, c.ClientIP())
-	ok(c, gin.H{"batch": batch, "task_ids": ids})
+	sids := make([]string, len(ids))
+	for i, id := range ids {
+		sids[i] = strconv.FormatUint(id, 10)
+	}
+	ok(c, gin.H{"batch": batch, "task_ids": sids})
 }
 
 func (a *API) listSchedules(c *gin.Context) {
@@ -624,5 +628,5 @@ func (a *API) sshInstall(c *gin.Context) {
 		return
 	}
 	a.P.Audit("server", "ssh_install", a.P.ServerName(idParam(c)), in.Host, c.ClientIP())
-	ok(c, gin.H{"task_id": id})
+	ok(c, gin.H{"task_id": strconv.FormatUint(id, 10)})
 }

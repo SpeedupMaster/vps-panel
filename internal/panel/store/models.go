@@ -227,7 +227,7 @@ type ConfigVersion struct {
 }
 
 type Task struct {
-	ID         uint64     `gorm:"primaryKey" json:"id"`
+	ID         uint64     `gorm:"primaryKey" json:"id,string"` // UnixNano: exceeds JS safe-integer range
 	ServerID   uint       `gorm:"index" json:"server_id"`
 	BatchID    string     `gorm:"index" json:"batch_id"`
 	Type       string     `json:"type"`
