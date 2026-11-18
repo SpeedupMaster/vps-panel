@@ -115,18 +115,32 @@ async function submit() {
   result.value = r
   if (r.warning) ui.message.warning('已保存，但下发未完成：' + r.warning)
   step.value = 5
+  tries = 0
+  pollDone.value = false
   pollStatus()
 }
 const view = ref(null)
+const pollDone = ref(false)
 let tries = 0
+// Chain routes wait for the entry's first segment probe (pushed on save).
+const segmentKnown = (v) => v.type !== 'chain' || v.segment_ms > 0 || v.segment_down
 async function pollStatus() {
   const id = result.value?.route?.id
   if (!id) return
   const rs = await api.get('/routes').catch(() => [])
   view.value = rs.find((x) => x.id === id) || null
   const v = view.value
-  const settled = v && v.share_link && v.status === 'ok' && (v.config_synced || v.deploy_error)
-  if (++tries < 12 && !settled) setTimeout(pollStatus, 5000)
+  const settled = v && v.share_link && (v.config_synced || v.deploy_error) && segmentKnown(v) && (v.status === 'ok' || v.segment_down)
+  if (++tries < 24 && !settled) setTimeout(pollStatus, 5000)
+  else pollDone.value = true
+}
+function segmentCheck(v) {
+  const base = '入口 → 落地线路段可达'
+  if (!v) return { text: base, st: 'wait' }
+  if (v.segment_down) return { text: `${base}：落地 SS 端口不通`, st: 'bad' }
+  if (v.segment_ms > 0) return { text: `${base}（${Math.round(v.segment_ms)} ms）`, st: 'ok' }
+  if (pollDone.value) return { text: `${base}：未收到入口的探测结果，稍后可在线路列表查看`, st: 'warn' }
+  return { text: base, st: 'wait' }
 }
 const checks = computed(() => {
   const v = view.value
@@ -138,7 +152,7 @@ const checks = computed(() => {
       st: result.value?.warning || v?.deploy_error ? 'bad' : ok(v?.config_synced),
     },
     { text: `入口 ${v?.entry_name || ''} Xray 运行中`, st: v ? (v.xray_running ? 'ok' : 'bad') : 'wait' },
-    ...(form.value.type === 'chain' ? [{ text: `入口 → 落地线路段可达${v?.segment_ms ? `（${Math.round(v.segment_ms)} ms）` : ''}`, st: v ? (v.segment_ms > 0 ? 'ok' : 'wait') : 'wait' }] : []),
+    ...(form.value.type === 'chain' ? [segmentCheck(v)] : []),
     { text: '分享链接已生成', st: ok(v?.share_link) },
   ]
 })
@@ -286,7 +300,7 @@ async function copyLink() { if (view.value?.share_link && (await copy(view.value
         <div class="card s-card">
           <div v-for="(c, i) in checks" :key="i" class="field f-inline">
             <div class="f-label"><span class="f-name">{{ c.text }}</span></div>
-            <div class="f-ctl"><span :class="['tag', { ok: 'ok', bad: 'bad' }[c.st]]"><span :class="['dot', { ok: 'ok', bad: 'bad' }[c.st] || 'off']" />{{ { ok: '通过', bad: '失败' }[c.st] || '检查中' }}</span></div>
+            <div class="f-ctl"><span :class="['tag', { ok: 'ok', bad: 'bad', warn: 'warn' }[c.st]]"><span :class="['dot', { ok: 'ok', bad: 'bad', warn: 'warn' }[c.st] || 'off']" />{{ { ok: '通过', bad: '失败', warn: '未知' }[c.st] || '检查中' }}</span></div>
           </div>
           <div class="f-actions">
             <span class="f-hint">单条线路的分享链接，可以直接导入客户端</span>

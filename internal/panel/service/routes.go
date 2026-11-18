@@ -178,6 +178,14 @@ func landingsOf(r *store.Route) []uint {
 // changed get redeployed, and the entry is hot-updated when only one user
 // was added or removed and the outbound already existed.
 func (p *Panel) syncRoute(r, old *store.Route, reason string) error {
+	// The entry's segment probe targets follow its routes: refresh them even
+	// if a deploy below fails, since the route itself is already saved.
+	defer func() {
+		p.PushProbeTasks(r.EntryServerID)
+		if old != nil && old.EntryServerID != r.EntryServerID {
+			p.PushProbeTasks(old.EntryServerID)
+		}
+	}()
 	// Landings first: the entry must not dial a landing that doesn't know it yet.
 	touched := map[uint]bool{}
 	for _, l := range append(landingsOf(r), landingsOf(old)...) {
@@ -277,6 +285,7 @@ type RouteView struct {
 	LatencyMs    float64  `json:"latency_ms"`
 	BackhaulMs   float64  `json:"backhaul_ms"`
 	SegmentMs    float64  `json:"segment_ms"`
+	SegmentDown  bool     `json:"segment_down"` // last segment probe lost every packet
 	TodayBytes   uint64   `json:"today_bytes"`
 	MonthBytes   uint64   `json:"month_bytes"`
 	ShareLink    string   `json:"share_link"`
@@ -336,6 +345,7 @@ func (p *Panel) RouteViews() []RouteView {
 		v.LatencyMs = v.BackhaulMs
 		if r.Type == "chain" {
 			v.SegmentMs = p.segmentAvg(r.EntryServerID, r.LandingServerID)
+			v.SegmentDown = p.segmentDown(r.EntryServerID, r.LandingServerID)
 			v.LatencyMs += v.SegmentMs
 		}
 		switch {
@@ -343,7 +353,7 @@ func (p *Panel) RouteViews() []RouteView {
 			v.Status = "disabled"
 		case e == nil || e.Status == "offline" || !e.XrayRunning || e.Blocked:
 			v.Status = "down"
-		case r.Type == "chain" && p.segmentDown(r.EntryServerID, r.LandingServerID):
+		case v.SegmentDown:
 			if len(parseIDs(r.BackupIDs)) > 0 {
 				v.Status = "degraded"
 			} else {
