@@ -1,6 +1,12 @@
 /bin/
 /dist/
 /data/
+/deploy/data/
+.env
+.env.*
+deploy/.env
+deploy/.env.*
+!deploy/.env.example
 *.db
 *.db-shm
 *.db-wal

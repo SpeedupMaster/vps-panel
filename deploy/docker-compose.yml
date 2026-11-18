@@ -1,22 +1,30 @@
 services:
   panel:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
-    image: vps-panel:latest
+    image: ${VPSPANEL_IMAGE:-ghcr.io/speedupmaster/vps-panel:latest}
     restart: unless-stopped
     environment:
-      VPSPANEL_URL: https://panel.example.com
-      VPSPANEL_ADMIN: admin
+      VPSPANEL_URL: ${VPSPANEL_URL:-}
+      VPSPANEL_ADMIN: ${VPSPANEL_ADMIN:-admin}
+      VPSPANEL_PASSWORD: ${VPSPANEL_PASSWORD:-}
+      VPSPANEL_TRUSTED_PROXIES: ${VPSPANEL_TRUSTED_PROXIES:-127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7}
+      TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - ./data:/data
     # Only Caddy talks to the panel.
     expose:
       - "8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   caddy:
     image: caddy:2
     restart: unless-stopped
+    environment:
+      PANEL_DOMAIN: ${PANEL_DOMAIN:-panel.example.com}
     ports:
       - "80:80"
       - "443:443"
@@ -24,8 +32,10 @@ services:
     volumes:
       - ./Caddyfile.docker:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
+      - caddy_config:/config
     depends_on:
       - panel
 
 volumes:
   caddy_data:
+  caddy_config:

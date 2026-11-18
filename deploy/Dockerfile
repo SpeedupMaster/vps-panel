@@ -19,10 +19,15 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X vpspanel/internal/common
  && for arch in amd64 arm64; do CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w -X vpspanel/internal/common/version.Version=${VERSION} -X vpspanel/internal/common/version.Commit=${COMMIT}" -o /out/agent/vpsagent-linux-$arch ./cmd/agent; done
 
 FROM alpine:3.22
-RUN apk add --no-cache ca-certificates tzdata && adduser -D -H -u 10001 vpspanel
+RUN apk add --no-cache ca-certificates tzdata su-exec \
+ && adduser -D -H -u 10001 vpspanel \
+ && mkdir -p /data \
+ && chown vpspanel:vpspanel /data
 COPY --from=go /out/ /opt/vps-panel/
+COPY deploy/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
+ && ln -s /usr/local/bin/docker-entrypoint.sh /usr/local/bin/vps-panel
 ENV VPSPANEL_DATA=/data VPSPANEL_LISTEN=:8080 VPSPANEL_AGENT_DIR=/opt/vps-panel/agent TZ=Asia/Shanghai
 VOLUME /data
 EXPOSE 8080
-USER vpspanel
-ENTRYPOINT ["/opt/vps-panel/vps-panel"]
+ENTRYPOINT ["docker-entrypoint.sh"]

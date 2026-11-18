@@ -1,5 +1,5 @@
 # Panel (keep it private: restrict by IP or put it behind your own proxy)
-panel.example.com {
+{$PANEL_DOMAIN:panel.example.com} {
 	encode zstd gzip
 	# Agents use gRPC over HTTP/2 on the same port; h2c keeps it end-to-end HTTP/2.
 	reverse_proxy h2c://panel:8080 {
@@ -10,11 +10,12 @@ panel.example.com {
 	}
 }
 
-# Subscription domain: only /s/* is exposed
-sub.example.com {
-	@sub path /s/*
-	handle @sub {
-		reverse_proxy h2c://panel:8080
-	}
-	respond 404
-}
+# Optional separate subscription domain: only /s/* is exposed.
+# Uncomment and replace sub.example.com if you use a dedicated subscription domain.
+# sub.example.com {
+# 	@sub path /s/*
+# 	handle @sub {
+# 		reverse_proxy h2c://panel:8080
+# 	}
+# 	respond 404
+# }

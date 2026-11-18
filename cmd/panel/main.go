@@ -49,6 +49,7 @@ func main() {
 	panelURL := flag.String("url", env("VPSPANEL_URL", ""), "public panel URL, e.g. https://panel.example.com")
 	tlsCert := flag.String("tls-cert", env("VPSPANEL_TLS_CERT", ""), "TLS certificate (omit when behind Caddy)")
 	tlsKey := flag.String("tls-key", env("VPSPANEL_TLS_KEY", ""), "TLS key")
+	trustedProxies := flag.String("trusted-proxies", env("VPSPANEL_TRUSTED_PROXIES", "127.0.0.1,::1"), "comma-separated trusted reverse proxy IPs/CIDRs")
 	showVer := flag.Bool("version", false, "print version")
 	flag.Parse()
 	if *showVer {
@@ -86,7 +87,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	a := &api.API{P: p, Web: webui.FS(), Script: scripts.Install}
+	a := &api.API{P: p, Web: webui.FS(), Script: scripts.Install, TrustedProxies: splitCSV(*trustedProxies)}
 	modules := setup(ctx, p, a)
 	sch := scheduler.New(ctx)
 	p.StartJobs(sch)
@@ -158,4 +159,14 @@ func seedAgents(dataDir, src string) {
 			log.Printf("seeded %s", e.Name())
 		}
 	}
+}
+
+func splitCSV(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }

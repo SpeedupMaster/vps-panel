@@ -27,17 +27,80 @@ make agent    # dist/vpsagent-linux-{amd64,arm64}
 
 开发时 `cd web && pnpm dev`，`/api` 与 `/s/` 代理到本机 `:8080` 的面板。
 
-## Docker 镜像
+## Docker 与 Docker Compose 部署
 
-GitHub Actions 每次推送到 main 都会构建 linux/amd64 镜像，推到 GitHub Container Registry；打 `v*` 标签时另外生成版本号标签。镜像里带有 amd64 和 arm64 两种 Agent，供节点机下载。
+GitHub Actions 每次推送到 main 都会构建 `linux/amd64` 镜像，推到 GitHub Container Registry（`ghcr.io/speedupmaster/vps-panel:latest`）；打 `v*` 标签时另外生成版本号标签。镜像里带有 `amd64` 和 `arm64` 两种 Agent，供节点机下载。
+
+### 方式一：Docker Compose + Caddy 自动 HTTPS（推荐）
+
+无需克隆源码，在服务器新建目录下载部署文件即可：
+
+```bash
+mkdir -p vps-panel && cd vps-panel
+curl -fsSLO https://raw.githubusercontent.com/SpeedupMaster/vps-panel/main/deploy/docker-compose.yml
+curl -fsSLO https://raw.githubusercontent.com/SpeedupMaster/vps-panel/main/deploy/Caddyfile.docker
+curl -fsSL https://raw.githubusercontent.com/SpeedupMaster/vps-panel/main/deploy/.env.example -o .env
+```
+
+编辑 `.env`，至少修改域名与公网地址：
+
+```env
+PANEL_DOMAIN=panel.example.com
+VPSPANEL_URL=https://panel.example.com
+VPSPANEL_ADMIN=admin
+# VPSPANEL_PASSWORD=    # 留空则在首次启动时随机生成并打印到日志
+```
+
+> 如需使用独立订阅域名（仅暴露 `/s/*`），可取消注释 `Caddyfile.docker` 中的 `sub.example.com` 段并替换域名。
+
+启动并查看首次生成的随机管理员密码：
+
+```bash
+docker compose up -d
+docker compose logs panel
+```
+
+### 方式二：仅部署面板（已有反向代理或直接端口访问）
+
+如果服务器已运行 Nginx / Caddy / 1Panel / Cloudflare Tunnel，或只需先通过 `http://IP:8080` 访问，可使用 [`deploy/docker-compose.panel.yml`](deploy/docker-compose.panel.yml)：
+
+```bash
+mkdir -p vps-panel && cd vps-panel
+curl -fsSL https://raw.githubusercontent.com/SpeedupMaster/vps-panel/main/deploy/docker-compose.panel.yml -o docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/SpeedupMaster/vps-panel/main/deploy/.env.example -o .env
+# 若面板仅暴露给本机 Nginx/Caddy 反代，可在 .env 中设置：VPSPANEL_PORT=127.0.0.1:8080
+docker compose up -d
+docker compose logs panel
+```
+
+> 若前置使用自建反向代理：Agent 与面板同端口走 gRPC over HTTP/2（`h2c`），WebSSH 使用 WebSocket，实时状态使用 SSE；Caddy 可直接参考 [`deploy/Caddyfile`](deploy/Caddyfile) 的 `reverse_proxy h2c://127.0.0.1:8080`。
+
+### 方式三：从源码本地构建
+
+克隆仓库后进入 `deploy` 目录执行：
+
+```bash
+cd deploy
+cp .env.example .env
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
+### 常用维护命令
+
+```bash
+docker compose pull && docker compose up -d        # 更新到最新镜像
+docker compose exec panel vps-panel reset-admin    # 重置管理员密码并关闭 2FA
+```
+
+所有持久化数据（`panel.db`、`master.key`、`backups/`、`agent/`）保存在 `./data` 目录。
+
+### 直接使用 `docker run`
 
 ```bash
 docker pull ghcr.io/speedupmaster/vps-panel:latest
 docker run -d --name vps-panel -p 8080:8080 -v ./data:/data \
   -e VPSPANEL_URL=https://panel.example.com ghcr.io/speedupmaster/vps-panel:latest
 ```
-
-配合 Caddy 自动 HTTPS 的写法见 `deploy/docker-compose.yml`，把其中的 `build` 换成上面的 `image` 即可。
 
 ## 手机与 PWA
 

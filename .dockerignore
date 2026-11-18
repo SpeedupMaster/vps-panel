@@ -1,0 +1,16 @@
+.git
+.gitignore
+data
+deploy/data
+deploy/.env
+.env
+.env.*
+dist
+web/node_modules
+web/dist
+internal/panel/webui/dist/*
+!internal/panel/webui/dist/.keep
+*.db
+*.db-shm
+*.db-wal
+.DS_Store

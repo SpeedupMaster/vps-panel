@@ -14,10 +14,11 @@ import (
 )
 
 type API struct {
-	P      *service.Panel
-	Web    fs.FS // built SPA (may be empty during development)
-	Script []byte
-	Extra  []func(r *gin.Engine, authed *gin.RouterGroup) // feature modules
+	P              *service.Panel
+	Web            fs.FS // built SPA (may be empty during development)
+	Script         []byte
+	TrustedProxies []string
+	Extra          []func(r *gin.Engine, authed *gin.RouterGroup) // feature modules
 }
 
 func ok(c *gin.Context, v any) { c.JSON(http.StatusOK, v) }
@@ -38,7 +39,11 @@ func (a *API) Router() *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
-	_ = r.SetTrustedProxies([]string{"127.0.0.1", "::1"})
+	proxies := a.TrustedProxies
+	if len(proxies) == 0 {
+		proxies = []string{"127.0.0.1", "::1"}
+	}
+	_ = r.SetTrustedProxies(proxies)
 
 	// Public endpoints (no session): install script, agent download, subscription.
 	r.GET("/install.sh", a.installScript)

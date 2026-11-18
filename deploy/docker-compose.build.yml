@@ -1,0 +1,6 @@
+services:
+  panel:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: vps-panel:local
