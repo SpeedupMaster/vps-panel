@@ -13,26 +13,27 @@ import (
 )
 
 type ServerInput struct {
-	Name        string     `json:"name"`
-	Group       string     `json:"group"`
-	Tags        string     `json:"tags"`
-	Mode        string     `json:"mode"`
-	CapReality  bool       `json:"cap_reality"`
-	CapLanding  bool       `json:"cap_landing"`
-	Region      string     `json:"region"`
-	CountryCode string     `json:"country_code"`
-	Provider    string     `json:"provider"`
-	ProviderURL string     `json:"provider_url"`
-	Price       float64    `json:"price"`
-	Currency    string     `json:"currency"`
-	PayCycle    string     `json:"pay_cycle"`
-	ExpireAt    *time.Time `json:"expire_at"`
-	Note        string     `json:"note"`
-	ResetDay    int        `json:"reset_day"`
-	QuotaGB     float64    `json:"quota_gb"`
-	CountMode   string     `json:"count_mode"`
-	OnExceeded  string     `json:"on_exceeded"`
-	Sort        int        `json:"sort"`
+	Name          string     `json:"name"`
+	Group         string     `json:"group"`
+	Tags          string     `json:"tags"`
+	Mode          string     `json:"mode"`
+	CapReality    bool       `json:"cap_reality"`
+	CapLanding    bool       `json:"cap_landing"`
+	Region        string     `json:"region"`
+	CountryCode   string     `json:"country_code"`
+	Provider      string     `json:"provider"`
+	ProviderURL   string     `json:"provider_url"`
+	Price         float64    `json:"price"`
+	Currency      string     `json:"currency"`
+	PayCycle      string     `json:"pay_cycle"`
+	ExpireAt      *time.Time `json:"expire_at"`
+	Note          string     `json:"note"`
+	BandwidthMbps int        `json:"bandwidth_mbps"`
+	ResetDay      int        `json:"reset_day"`
+	QuotaGB       float64    `json:"quota_gb"`
+	CountMode     string     `json:"count_mode"`
+	OnExceeded    string     `json:"on_exceeded"`
+	Sort          int        `json:"sort"`
 	// Only read when creating a node with Reality; empty = the default target.
 	RealityTarget      string `json:"reality_target"`
 	RealityServerNames string `json:"reality_server_names"`
@@ -53,6 +54,9 @@ func (in *ServerInput) validate() error {
 	}
 	if in.ResetDay < 1 || in.ResetDay > 31 {
 		in.ResetDay = 1
+	}
+	if in.BandwidthMbps < 0 {
+		in.BandwidthMbps = 0
 	}
 	if in.CountMode == "" {
 		in.CountMode = "out"
@@ -75,6 +79,7 @@ func (in *ServerInput) apply(sv *store.Server) {
 	sv.Region, sv.CountryCode = in.Region, in.CountryCode
 	sv.Provider, sv.ProviderURL, sv.Price, sv.Currency, sv.PayCycle, sv.ExpireAt, sv.Note =
 		in.Provider, in.ProviderURL, in.Price, in.Currency, in.PayCycle, in.ExpireAt, in.Note
+	sv.BandwidthMbps = in.BandwidthMbps
 	sv.ResetDay, sv.QuotaBytes, sv.CountMode, sv.OnExceeded = in.ResetDay, int64(in.QuotaGB*(1<<30)), in.CountMode, in.OnExceeded
 }
 

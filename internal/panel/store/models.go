@@ -50,6 +50,8 @@ type Server struct {
 	PayCycle    string     `json:"pay_cycle"` // month | quarter | half | year | once
 	ExpireAt    *time.Time `json:"expire_at"`
 	Note        string     `json:"note"`
+	// Port speed sold by the provider, Mbps; 0 = not set.
+	BandwidthMbps int `json:"bandwidth_mbps"`
 
 	// Traffic billing
 	ResetDay   int    `json:"reset_day"`

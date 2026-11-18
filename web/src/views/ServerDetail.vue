@@ -46,6 +46,15 @@ async function loadBackhaul() {
   const s = ids.length ? await api.get(`/probes/series?server_id=${id.value}&range=86400&targets=${ids.join(',')}`).catch(() => ({})) : {}
   backhaul.value = { targets: t, series: s || {} }
 }
+const mbps = (v) => (!v ? '未设置' : v >= 1000 && v % 1000 === 0 ? `${v / 1000} Gbps` : `${v} Mbps`)
+// Why the backhaul chart is empty, so the user knows what to fix.
+const bhEmpty = computed(() => {
+  const t = backhaul.value.targets
+  if (!t.length) return '还没有探测目标，去「延迟」页同步 zstatic 节点或添加自定义目标。'
+  if (!t.some((x) => x.enabled && ['telecom', 'unicom', 'mobile'].includes(x.carrier))) return '没有启用的国内三网探测目标，去「延迟」页启用。'
+  if (sv.value?.status !== 'online') return '机器不在线，上线后约 1 分钟出数据。'
+  return '探测目标已启用，但这台机器近 24 小时没有上报结果。可能刚连上（约 1 分钟出第一轮）；一直没有的话，用 journalctl -u vpsagent 看 Agent 日志。'
+})
 const bhColors = { telecom: '#2f6fd0', unicom: '#b8650a', mobile: '#0f7b45' }
 const bhOpt = computed(() => {
   const { targets, series } = backhaul.value
@@ -79,7 +88,7 @@ const bhOpt = computed(() => {
     xAxis: { type: 'category', data: x, axisLabel: { fontSize: 11 } },
     yAxis: { type: 'value', name: 'ms', nameTextStyle: { fontSize: 11 }, axisLabel: { fontSize: 11 }, splitLine: { lineStyle: { color: '#eef0f2' } } },
     series: ['telecom', 'unicom', 'mobile'].map((c) => ({
-      name: carrierLabel(c), type: 'line', showSymbol: false, connectNulls: false, lineStyle: { width: 1.5 }, color: bhColors[c],
+      name: carrierLabel[c], type: 'line', showSymbol: false, connectNulls: false, lineStyle: { width: 1.5 }, color: bhColors[c],
       data: ks.map((k) => med(buckets.get(k)[c].v)),
     })),
   }
@@ -258,7 +267,7 @@ function fillAsset() {
   asset.value = {
     name: s.name, group: s.group, tags: s.tags, region: s.region, country_code: s.country_code, provider: s.provider, provider_url: s.provider_url,
     price: s.price, currency: s.currency || 'USD', pay_cycle: s.pay_cycle || 'month', expire_at: s.expire_at ? new Date(s.expire_at).getTime() : null,
-    note: s.note, reset_day: s.reset_day || 1, quota_gb: s.quota_bytes ? +(s.quota_bytes / 1024 ** 3).toFixed(2) : 0,
+    note: s.note, bandwidth_mbps: s.bandwidth_mbps || 0, reset_day: s.reset_day || 1, quota_gb: s.quota_bytes ? +(s.quota_bytes / 1024 ** 3).toFixed(2) : 0,
     count_mode: s.count_mode || 'out', on_exceeded: s.on_exceeded || 'alert', sort: s.sort, mode: s.mode, cap_reality: s.cap_reality, cap_landing: s.cap_landing,
   }
   assetOrig.value = { ...asset.value }
@@ -353,7 +362,7 @@ function diffClass(line) {
                 <p>近 24 小时到国内三网的延迟中位数。<router-link :to="{ name: 'latency', query: { server: id } }">查看详细</router-link></p>
               </div>
               <div class="card s-card">
-                <div v-if="!bhOpt" class="empty">还没有探测数据</div>
+                <div v-if="!bhOpt" class="empty">还没有探测数据<div class="small muted" style="margin-top: 6px">{{ bhEmpty }}</div></div>
                 <div v-else class="chart-pad"><chart :option="bhOpt" height="200px" /></div>
               </div>
             </section>
@@ -370,6 +379,10 @@ function diffClass(line) {
                   <span v-if="sv.quota_bytes" :class="['small', usage.forecast_at ? 'bad-text' : 'muted']">
                     {{ usage.forecast_at ? '按当前速度，预计 ' + date(usage.forecast_at) + ' 用完额度' : '按当前速度，本周期不会超额' }}
                   </span>
+                </div>
+                <div class="field f-inline">
+                  <div class="f-label"><span class="f-name">带宽</span></div>
+                  <div class="f-ctl"><span class="f-val">{{ mbps(sv.bandwidth_mbps) }}</span></div>
                 </div>
                 <div class="field f-inline">
                   <div class="f-label"><span class="f-name">出站 / 入站</span></div>
@@ -801,9 +814,17 @@ function diffClass(line) {
             <section class="s-group">
               <div class="s-head">
                 <h2>流量</h2>
-                <p>本周期流量的计算方式，以及超出额度后的动作。</p>
+                <p>带宽、本周期流量的计算方式，以及超出额度后的动作。</p>
               </div>
               <div class="card s-card">
+                <div class="field">
+                  <div class="f-label"><span class="f-name">带宽<i v-if="assetDirty('bandwidth_mbps')" class="f-dot" /></span><span class="f-hint">商家标称端口速率，0 = 未设置</span></div>
+                  <div class="f-ctl">
+                    <n-input-number v-model:value="asset.bandwidth_mbps" :min="0" :precision="0" :show-button="false" placeholder="0">
+                      <template #suffix><span class="f-unit">Mbps</span></template>
+                    </n-input-number>
+                  </div>
+                </div>
                 <div class="field">
                   <div class="f-label"><span class="f-name">流量额度<i v-if="assetDirty('quota_gb')" class="f-dot" /></span><span class="f-hint">0 = 不限</span></div>
                   <div class="f-ctl">
