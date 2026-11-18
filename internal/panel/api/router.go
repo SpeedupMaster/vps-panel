@@ -2,6 +2,8 @@
 package api
 
 import (
+	"bytes"
+	"html"
 	"io/fs"
 	"net/http"
 	"strconv"
@@ -157,7 +159,7 @@ func (a *API) mountSPA(r *gin.Engine) {
 				return
 			}
 			c.Header("Cache-Control", "no-cache")
-			c.Data(http.StatusOK, "text/html; charset=utf-8", b)
+			c.Data(http.StatusOK, "text/html; charset=utf-8", withBase(b, prefix))
 			return
 		}
 		if strings.HasSuffix(name, ".webmanifest") {
@@ -171,4 +173,21 @@ func (a *API) mountSPA(r *gin.Engine) {
 		c.Request.URL.Path = "/" + name
 		fileServer.ServeHTTP(c.Writer, c.Request)
 	})
+}
+
+// withBase adds <base href> to index.html so the history-mode router and the
+// relative asset URLs resolve against the panel root (prefix is "/" or the
+// admin_path) even on deep links like /servers/3.
+func withBase(page []byte, prefix string) []byte {
+	base := strings.TrimSuffix(prefix, "/") + "/"
+	tag := []byte(`<base href="` + html.EscapeString(base) + `">`)
+	i := bytes.Index(page, []byte("<head>"))
+	if i < 0 {
+		return page
+	}
+	i += len("<head>")
+	out := make([]byte, 0, len(page)+len(tag))
+	out = append(out, page[:i]...)
+	out = append(out, tag...)
+	return append(out, page[i:]...)
 }

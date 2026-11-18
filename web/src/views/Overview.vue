@@ -138,7 +138,7 @@ const shareTotal = computed(() => (ov.value?.traffic_share || []).reduce((a, b) 
                   <div class="row nowrap" style="gap: 8px">
                     <span class="flag">{{ flag(s.country_code) }}</span>
                     <div>
-                      <a :href="'#/servers/' + s.id" @click.prevent="open(s)"><b>{{ s.name }}</b></a>
+                      <a :href="$router.resolve({ name: 'server', params: { id: s.id } }).href" @click.prevent="open(s)"><b>{{ s.name }}</b></a>
                       <div class="muted small">{{ s.mode === 'probe' ? '探针' : [s.cap_reality && 'Reality', s.cap_landing && 'SS 落地'].filter(Boolean).join(' + ') }}{{ s.group ? ' · ' + s.group : '' }}</div>
                     </div>
                   </div>
@@ -163,7 +163,7 @@ const shareTotal = computed(() => (ov.value?.traffic_share || []).reduce((a, b) 
           </table>
         </div>
         <div class="m-list">
-          <a v-for="s in list" :key="s.id" class="m-item" :href="'#/servers/' + s.id" @click.prevent="open(s)">
+          <a v-for="s in list" :key="s.id" class="m-item" :href="$router.resolve({ name: 'server', params: { id: s.id } }).href" @click.prevent="open(s)">
             <div class="row" style="gap: 8px">
               <span class="flag">{{ flag(s.country_code) }}</span><b style="color: var(--c-text)">{{ s.name }}</b>
               <span class="spacer" />

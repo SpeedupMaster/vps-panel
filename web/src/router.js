@@ -1,4 +1,4 @@
-import { createRouter, createWebHashHistory } from 'vue-router'
+import { createRouter, createWebHistory } from 'vue-router'
 import { state, loadMe } from './store'
 
 const routes = [
@@ -25,8 +25,17 @@ const routes = [
   { path: '/:p(.*)*', redirect: '/' },
 ]
 
+// The panel may live under admin_path; the server writes it into <base href>,
+// which createWebHistory() picks up as the router base.
+const history = createWebHistory()
+
+// Old links and bookmarks used hash URLs (/#/latency): rewrite them in place.
+if (location.hash.startsWith('#/')) {
+  history.replace(location.hash.slice(1))
+}
+
 const router = createRouter({
-  history: createWebHashHistory(),
+  history,
   routes,
   scrollBehavior: () => ({ top: 0 }),
 })

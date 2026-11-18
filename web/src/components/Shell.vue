@@ -67,12 +67,12 @@ onBeforeUnmount(() => {
   <div class="shell">
     <div v-if="!online" class="offline-bar" role="status">网络已断开，显示的是断开前的数据</div>
     <aside class="side hide-mobile">
-      <a class="brand" href="#/" @click.prevent="go('overview')">
+      <a class="brand" :href="$router.resolve({ name: 'overview' }).href" @click.prevent="go('overview')">
         <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0f7b45" /><path d="M7 17h4l3-7 4 12 3-5h4" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
         <span class="brand-text"><b>VPS Panel</b><small>自用节点管理</small></span>
       </a>
       <nav class="nav" aria-label="主导航">
-        <a v-for="it in navItems" :key="it.id" :href="'#' + router.resolve({ name: it.id }).fullPath"
+        <a v-for="it in navItems" :key="it.id" :href="router.resolve({ name: it.id }).href"
           :class="['nav-item', { on: active === it.id }]" :aria-current="active === it.id ? 'page' : undefined"
           @click.prevent="go(it.id)">
           <Icon :d="it.d" />

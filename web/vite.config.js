@@ -36,8 +36,8 @@ const pwa = VitePWA({
       { src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml' },
     ],
     shortcuts: [
-      { name: '回程延迟', url: './#/latency' },
-      { name: '告警', url: './#/alerts' },
+      { name: '回程延迟', url: './latency' },
+      { name: '告警', url: './alerts' },
     ],
   },
   workbox: {
