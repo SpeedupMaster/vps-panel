@@ -34,7 +34,7 @@ import (
 // ---------- secret settings ----------
 
 // SecretSettings are stored encrypted and never returned to the UI.
-var SecretSettings = []string{"backup_password", "backup_s3_secret", "backup_webdav_password"}
+var SecretSettings = []string{"backup_password", "backup_s3_secret", "backup_webdav_password", "ipapi_is_key"}
 
 const SecretMask = "••••••"
 

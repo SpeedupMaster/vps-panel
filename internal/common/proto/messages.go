@@ -219,6 +219,11 @@ type Task struct {
 	Timeout int               `json:"timeout"` // seconds
 }
 
+// IPQualityKeys is the ip_quality task payload: optional third-party API keys.
+type IPQualityKeys struct {
+	IPAPIIs string `json:"ipapi_is,omitempty"`
+}
+
 type Ack struct {
 	Seq uint64 `json:"seq"`
 }

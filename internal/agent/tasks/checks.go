@@ -4,15 +4,19 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"vpspanel/internal/common/proto"
 )
 
 func httpClient(timeout time.Duration, follow bool) *http.Client {
@@ -230,6 +234,90 @@ type IPQualityResult struct {
 	Proxy     bool     `json:"proxy"`
 	Blacklist []string `json:"blacklist"`
 	Checked   int      `json:"checked"`
+	// Per-provider verdicts. Type/Risk/Proxy above mirror the proxycheck.io
+	// entry so older summaries and UIs keep working.
+	Sources []IPSource `json:"sources"`
+}
+
+// IPSource is one provider's verdict on the IP. Error is set when the lookup
+// failed, so the UI can tell "no flags" apart from "didn't get an answer";
+// Skipped says why a source wasn't queried at all.
+type IPSource struct {
+	Name    string   `json:"name"`
+	Type    string   `json:"type,omitempty"`
+	Flags   []string `json:"flags,omitempty"`
+	Score   string   `json:"score,omitempty"`
+	Error   string   `json:"error,omitempty"`
+	Skipped string   `json:"skipped,omitempty"`
+}
+
+func (s IPSource) line() string {
+	if s.Skipped != "" {
+		return fmt.Sprintf("%-14s 跳过：%s\n", s.Name, s.Skipped)
+	}
+	if s.Error != "" {
+		return fmt.Sprintf("%-14s 查询失败：%s\n", s.Name, s.Error)
+	}
+	parts := []string{}
+	if s.Type != "" {
+		parts = append(parts, "类型 "+s.Type)
+	}
+	if len(s.Flags) > 0 {
+		parts = append(parts, strings.Join(s.Flags, " "))
+	} else {
+		parts = append(parts, "无标记")
+	}
+	if s.Score != "" {
+		parts = append(parts, s.Score)
+	}
+	return fmt.Sprintf("%-14s %s\n", s.Name, strings.Join(parts, "  "))
+}
+
+func flagIf(flags []string, cond bool, name string) []string {
+	if cond {
+		return append(flags, name)
+	}
+	return flags
+}
+
+// getJSON fetches url and decodes the body into v, treating non-200 as an error.
+func getJSON(ctx context.Context, url string, v any) error {
+	resp, body, err := get(ctx, url, true)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		var e struct {
+			Error   string `json:"error"`
+			Message string `json:"message"`
+		}
+		_ = json.Unmarshal([]byte(body), &e)
+		if e.Error == "" {
+			e.Error = e.Message
+		}
+		if resp.StatusCode == http.StatusForbidden && strings.Contains(strings.ToLower(e.Error), "api key") {
+			return fmt.Errorf("API key 无效")
+		}
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return fmt.Errorf("超出频率限制 (HTTP 429)")
+		}
+		if e.Error != "" {
+			return fmt.Errorf("HTTP %d：%s", resp.StatusCode, e.Error)
+		}
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	if err := json.Unmarshal([]byte(body), v); err != nil {
+		return fmt.Errorf("响应解析失败")
+	}
+	return nil
+}
+
+func errText(err error) string {
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return "超时"
+	}
+	return err.Error()
 }
 
 var dnsbls = []string{
@@ -238,7 +326,7 @@ var dnsbls = []string{
 	"bl.mailspike.net", "all.s5h.net", "dnsbl.sorbs.net", "spam.dnsbl.anonmails.de",
 }
 
-func IPQuality(ctx context.Context, out func(string)) (*IPQualityResult, error) {
+func IPQuality(ctx context.Context, keys proto.IPQualityKeys, out func(string)) (*IPQualityResult, error) {
 	r := &IPQualityResult{}
 	_, body, err := get(ctx, "https://ipinfo.io/json", true)
 	if err != nil {
@@ -252,46 +340,174 @@ func IPQuality(ctx context.Context, out func(string)) (*IPQualityResult, error) 
 	}
 	out(fmt.Sprintf("IP %s  %s %s  %s %s\n", r.IP, r.Country, r.City, r.ASN, r.Org))
 
-	if _, body, err := get(ctx, "https://proxycheck.io/v2/"+r.IP+"?vpn=1&risk=1&asn=1", true); err == nil {
-		var pc map[string]json.RawMessage
-		_ = json.Unmarshal([]byte(body), &pc)
-		var d struct {
-			Proxy string `json:"proxy"`
-			Type  string `json:"type"`
-			Risk  int    `json:"risk"`
-		}
-		_ = json.Unmarshal(pc[r.IP], &d)
-		r.Proxy, r.Type, r.Risk = d.Proxy == "yes", d.Type, d.Risk
-		out(fmt.Sprintf("类型 %s  风险 %d  代理标记 %v\n", r.Type, r.Risk, r.Proxy))
+	// Providers and DNSBLs are independent; query them all at once.
+	providers := []func(context.Context, string) IPSource{
+		func(ctx context.Context, ip string) IPSource {
+			s, typ, risk, proxy := checkProxyCheck(ctx, ip)
+			r.Type, r.Risk, r.Proxy = typ, risk, proxy
+			return s
+		},
+		func(ctx context.Context, ip string) IPSource { return checkIPAPIIs(ctx, ip, keys.IPAPIIs) },
+		checkIPAPICom,
 	}
+	r.Sources = make([]IPSource, len(providers))
+	var wg sync.WaitGroup
+	for i, p := range providers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r.Sources[i] = p(ctx, r.IP)
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		r.Blacklist, r.Checked = checkDNSBL(ctx, r.IP)
+	}()
+	wg.Wait()
 
-	ip := net.ParseIP(r.IP).To4()
-	if ip != nil {
-		rev := fmt.Sprintf("%d.%d.%d.%d", ip[3], ip[2], ip[1], ip[0])
-		var mu sync.Mutex
-		var wg sync.WaitGroup
-		res := net.Resolver{}
-		for _, bl := range dnsbls {
-			wg.Add(1)
-			go func(bl string) {
-				defer wg.Done()
-				c, cancel := context.WithTimeout(ctx, 5*time.Second)
-				defer cancel()
-				addrs, err := res.LookupHost(c, rev+"."+bl)
-				mu.Lock()
-				r.Checked++
-				// 127.255.255.x are "query refused" codes, not listings.
-				if err == nil && len(addrs) > 0 && strings.HasPrefix(addrs[0], "127.0.0.") {
-					r.Blacklist = append(r.Blacklist, bl)
-				}
-				mu.Unlock()
-			}(bl)
-		}
-		wg.Wait()
-		sort.Strings(r.Blacklist)
+	for _, s := range r.Sources {
+		out(s.line())
+	}
+	if r.Checked > 0 {
 		out(fmt.Sprintf("黑名单 %d / %d 命中 %s\n", len(r.Blacklist), r.Checked, strings.Join(r.Blacklist, ", ")))
+	} else {
+		out("黑名单 未检查（仅支持 IPv4）\n")
 	}
 	return r, nil
+}
+
+func checkProxyCheck(ctx context.Context, ip string) (s IPSource, typ string, risk int, proxy bool) {
+	s.Name = "proxycheck.io"
+	var pc map[string]json.RawMessage
+	if err := getJSON(ctx, "https://proxycheck.io/v2/"+ip+"?vpn=1&risk=1&asn=1", &pc); err != nil {
+		s.Error = errText(err)
+		return
+	}
+	var status, msg string
+	_ = json.Unmarshal(pc["status"], &status)
+	_ = json.Unmarshal(pc["message"], &msg)
+	if status == "denied" || status == "error" || pc[ip] == nil {
+		s.Error = msg
+		if s.Error == "" {
+			s.Error = "无结果 (" + status + ")"
+		}
+		return
+	}
+	var d struct {
+		Proxy string `json:"proxy"`
+		Type  string `json:"type"`
+		Risk  int    `json:"risk"`
+	}
+	_ = json.Unmarshal(pc[ip], &d)
+	typ, risk, proxy = d.Type, d.Risk, d.Proxy == "yes"
+	s.Type = d.Type
+	s.Flags = flagIf(s.Flags, proxy, "代理")
+	s.Score = fmt.Sprintf("风险 %d", d.Risk)
+	return
+}
+
+// ipapi.is: since 2026-09 the detection flags need a (free) account key; the
+// anonymous tier only returns owner/geo data, so without a key we skip it.
+func checkIPAPIIs(ctx context.Context, ip, key string) IPSource {
+	s := IPSource{Name: "ipapi.is"}
+	if key == "" {
+		s.Skipped = "未配置 API key"
+		return s
+	}
+	var d struct {
+		Error        string `json:"error"`
+		IsDatacenter bool   `json:"is_datacenter"`
+		IsVPN        bool   `json:"is_vpn"`
+		IsProxy      bool   `json:"is_proxy"`
+		IsTor        bool   `json:"is_tor"`
+		IsAbuser     bool   `json:"is_abuser"`
+		IsMobile     bool   `json:"is_mobile"`
+		IsCrawler    bool   `json:"is_crawler"`
+		Company      struct {
+			Type        string `json:"type"`
+			AbuserScore string `json:"abuser_score"`
+		} `json:"company"`
+	}
+	q := url.Values{"q": {ip}, "key": {key}}
+	if err := getJSON(ctx, "https://api.ipapi.is/?"+q.Encode(), &d); err != nil {
+		s.Error = errText(err)
+		return s
+	}
+	if d.Error != "" {
+		s.Error = d.Error
+		return s
+	}
+	s.Type = d.Company.Type
+	s.Flags = flagIf(s.Flags, d.IsDatacenter, "机房")
+	s.Flags = flagIf(s.Flags, d.IsVPN, "VPN")
+	s.Flags = flagIf(s.Flags, d.IsProxy, "代理")
+	s.Flags = flagIf(s.Flags, d.IsTor, "Tor")
+	s.Flags = flagIf(s.Flags, d.IsAbuser, "滥用")
+	s.Flags = flagIf(s.Flags, d.IsMobile, "移动网络")
+	s.Flags = flagIf(s.Flags, d.IsCrawler, "爬虫")
+	if d.Company.AbuserScore != "" {
+		s.Score = "滥用分 " + d.Company.AbuserScore
+	}
+	return s
+}
+
+// ip-api.com: free, no key, 45 req/min, HTTP only on the free tier.
+func checkIPAPICom(ctx context.Context, ip string) IPSource {
+	s := IPSource{Name: "ip-api.com"}
+	var d struct {
+		Status  string `json:"status"`
+		Message string `json:"message"`
+		Proxy   bool   `json:"proxy"`
+		Hosting bool   `json:"hosting"`
+		Mobile  bool   `json:"mobile"`
+	}
+	if err := getJSON(ctx, "http://ip-api.com/json/"+ip+"?fields=status,message,proxy,hosting,mobile", &d); err != nil {
+		s.Error = errText(err)
+		return s
+	}
+	if d.Status != "success" {
+		s.Error = d.Message
+		if s.Error == "" {
+			s.Error = "无结果"
+		}
+		return s
+	}
+	s.Flags = flagIf(s.Flags, d.Hosting, "机房")
+	s.Flags = flagIf(s.Flags, d.Proxy, "代理")
+	s.Flags = flagIf(s.Flags, d.Mobile, "移动网络")
+	return s
+}
+
+// checkDNSBL looks the IPv4 address up in each DNSBL; IPv6 is skipped (checked = 0).
+func checkDNSBL(ctx context.Context, addr string) (listed []string, checked int) {
+	ip := net.ParseIP(addr).To4()
+	if ip == nil {
+		return nil, 0
+	}
+	rev := fmt.Sprintf("%d.%d.%d.%d", ip[3], ip[2], ip[1], ip[0])
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	res := net.Resolver{}
+	for _, bl := range dnsbls {
+		wg.Add(1)
+		go func(bl string) {
+			defer wg.Done()
+			c, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			addrs, err := res.LookupHost(c, rev+"."+bl)
+			mu.Lock()
+			checked++
+			// 127.255.255.x are "query refused" codes, not listings.
+			if err == nil && len(addrs) > 0 && strings.HasPrefix(addrs[0], "127.0.0.") {
+				listed = append(listed, bl)
+			}
+			mu.Unlock()
+		}(bl)
+	}
+	wg.Wait()
+	sort.Strings(listed)
+	return listed, checked
 }
 
 // ---------- Reality target scan ----------

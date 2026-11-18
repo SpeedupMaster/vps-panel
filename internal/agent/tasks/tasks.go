@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -72,7 +73,9 @@ func Register(a *agent.Agent) {
 		return Unlock(ctx, out), nil
 	}
 	a.Tasks[proto.TaskIPQuality] = func(ctx context.Context, t *proto.Task, out func(string)) (any, error) {
-		return IPQuality(ctx, out)
+		var keys proto.IPQualityKeys
+		_ = json.Unmarshal(t.Payload, &keys)
+		return IPQuality(ctx, keys, out)
 	}
 	a.Tasks[proto.TaskTrace] = func(ctx context.Context, t *proto.Task, out func(string)) (any, error) {
 		return Trace(ctx, t.Args, out)

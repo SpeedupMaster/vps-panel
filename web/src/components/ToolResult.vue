@@ -12,6 +12,9 @@ const unlockClass = { yes: 'ok', partial: 'warn', no: 'bad', unknown: '' }
 const unlockText = { yes: '解锁', partial: '部分', no: '未解锁', unknown: '未知' }
 const lvl = { ok: 'ok', warn: 'warn', fail: 'bad' }
 const carrier = { telecom: '电信', unicom: '联通', mobile: '移动' }
+// "机房" is expected for a VPS; these flags are what services actually block on.
+const riskyFlags = new Set(['代理', 'VPN', 'Tor', '滥用'])
+const sourceRisky = (s) => s.flags?.some((f) => riskyFlags.has(f)) || (s.name === 'proxycheck.io' && d.value.risk >= 66)
 </script>
 
 <template>
@@ -29,9 +32,19 @@ const carrier = { telecom: '电信', unicom: '联通', mobile: '移动' }
     <span>IP</span><span class="mono">{{ d.ip }}</span>
     <span>ASN</span><span>{{ d.asn }} · {{ d.org }}</span>
     <span>位置</span><span>{{ d.country }} {{ d.city }}</span>
-    <span>类型</span><span>{{ d.type || '—' }}{{ d.proxy ? ' · 被标记为代理' : '' }}</span>
-    <span>风险分</span><span :class="d.risk >= 66 ? 'bad-text' : ''">{{ d.risk }}</span>
-    <span>黑名单</span><span>{{ d.blacklist?.length ? d.blacklist.join('、') : `无（查了 ${d.checked} 个）` }}</span>
+    <template v-if="d.sources?.length">
+      <template v-for="s in d.sources" :key="s.name">
+        <span>{{ s.name }}</span>
+        <span v-if="s.skipped" class="muted">跳过：{{ s.skipped }}{{ s.name === 'ipapi.is' ? '（在「设置 → Agent 与探测」填写）' : '' }}</span>
+        <span v-else-if="s.error" class="warn-text">查询失败：{{ s.error }}</span>
+        <span v-else :class="sourceRisky(s) ? 'bad-text' : ''">{{ [s.type, ...(s.flags || []), s.score].filter(Boolean).join(' · ') || '无标记' }}</span>
+      </template>
+    </template>
+    <template v-else>
+      <span>类型</span><span>{{ d.type || '—' }}{{ d.proxy ? ' · 被标记为代理' : '' }}</span>
+      <span>风险分</span><span :class="d.risk >= 66 ? 'bad-text' : ''">{{ d.risk }}</span>
+    </template>
+    <span>黑名单</span><span>{{ d.blacklist?.length ? d.blacklist.join('、') : d.checked ? `无（查了 ${d.checked} 个）` : '未检查（仅支持 IPv4）' }}</span>
   </div>
   <div v-else-if="tool === 'trace' && Array.isArray(d)" class="list">
     <details v-for="(t, i) in d" :key="i" class="trace">
@@ -73,4 +86,5 @@ const carrier = { telecom: '电信', unicom: '联通', mobile: '移动' }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .trace summary { cursor: pointer; padding: 4px 0; font-size: 13px; }
 .bad-text { color: var(--c-danger); }
+.warn-text { color: var(--c-warning); }
 </style>

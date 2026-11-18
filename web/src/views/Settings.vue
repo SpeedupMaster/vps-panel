@@ -98,6 +98,9 @@ const groups = {
       N('block_rounds', '判定被封', 3, '连续几轮三网全丢包才标记为疑似被封', '轮'),
       B('probe_peer', 'VPS 互测', false, '每台 VPS 互相 ping，用于新建线路时估算入口→落地延迟'),
     ] },
+    { title: '检测工具', desc: '工具页「IP 质量」使用的第三方数据源。proxycheck.io 和 ip-api.com 无需配置。', fields: [
+      { k: 'ipapi_is_key', label: 'ipapi.is API Key', type: 'secret', def: '', hint: '在 ipapi.is 免费注册获取；留空则跳过该来源。机房 / VPN / 代理 / 滥用标记需要 Key 才会返回' },
+    ] },
   ],
   xray: [
     { title: '部署', desc: '节点机上 Xray 的安装、版本与配置管理。', fields: [
@@ -382,6 +385,7 @@ onMounted(() => {
                     </n-input-number>
                   </div>
                   <n-input v-else-if="f.type === 'text'" :value="cfg[f.k]" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" class="mono" :placeholder="placeholder(f)" @update:value="(v) => setVal(f.k, v)" />
+                  <n-input v-else-if="f.type === 'secret'" :value="cfg[f.k]" type="password" show-password-on="click" :placeholder="placeholder(f)" :input-props="{ autocomplete: 'off' }" @update:value="(v) => setVal(f.k, v)" />
                   <n-input v-else :value="cfg[f.k]" :placeholder="placeholder(f)" clearable @update:value="(v) => setVal(f.k, v)" />
                 </div>
               </div>

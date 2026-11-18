@@ -54,7 +54,13 @@ func (p *Panel) RunTool(serverID uint, tool string, args map[string]string) (uin
 	if args == nil {
 		args = map[string]string{}
 	}
+	var payload []byte
 	switch tool {
+	case "ip_quality":
+		// API keys go in the payload, which is never returned by the task API.
+		if k := p.SecretSetting("ipapi_is_key"); k != "" {
+			payload, _ = json.Marshal(proto.IPQualityKeys{IPAPIIs: k})
+		}
 	case "diagnose":
 		for k, v := range p.DiagnoseArgs(serverID) {
 			args[k] = v
@@ -74,7 +80,7 @@ func (p *Panel) RunTool(serverID uint, tool string, args map[string]string) (uin
 			args["source"] = p.St.Get("geo_source", "loyalsoldier")
 		}
 	}
-	t, err := p.CreateTask(serverID, def.Task, args, nil, def.Timeout, "")
+	t, err := p.CreateTask(serverID, def.Task, args, payload, def.Timeout, "")
 	if err != nil {
 		return 0, err
 	}
@@ -146,9 +152,57 @@ func toolSummary(tool string, data []byte) string {
 			Type      string
 			Risk      int
 			Blacklist []string
+			Checked   int
+			Sources   []struct {
+				Name    string
+				Flags   []string
+				Error   string
+				Skipped string
+			}
 		}
 		_ = json.Unmarshal(data, &q)
-		return fmt.Sprintf("%s，风险 %d，黑名单 %d", q.Type, q.Risk, len(q.Blacklist))
+		if len(q.Sources) == 0 { // results from agents before multi-source
+			return fmt.Sprintf("%s，风险 %d，黑名单 %d", q.Type, q.Risk, len(q.Blacklist))
+		}
+		var parts, flags []string
+		seen := map[string]bool{}
+		failed, riskKnown := 0, false
+		for _, s := range q.Sources {
+			if s.Skipped != "" {
+				continue
+			}
+			if s.Error != "" {
+				failed++
+				continue
+			}
+			if s.Name == "proxycheck.io" {
+				riskKnown = true
+			}
+			for _, f := range s.Flags {
+				if !seen[f] {
+					seen[f] = true
+					flags = append(flags, f)
+				}
+			}
+		}
+		if q.Type != "" {
+			parts = append(parts, q.Type)
+		}
+		if riskKnown {
+			parts = append(parts, fmt.Sprintf("风险 %d", q.Risk))
+		} else {
+			parts = append(parts, "风险未知")
+		}
+		if len(flags) > 0 {
+			parts = append(parts, strings.Join(flags, "/"))
+		}
+		if q.Checked > 0 {
+			parts = append(parts, fmt.Sprintf("黑名单 %d", len(q.Blacklist)))
+		}
+		if failed > 0 {
+			parts = append(parts, fmt.Sprintf("%d 个来源查询失败", failed))
+		}
+		return strings.Join(parts, "，")
 	case "trace":
 		var rs []struct{ Carrier, Line string }
 		_ = json.Unmarshal(data, &rs)
