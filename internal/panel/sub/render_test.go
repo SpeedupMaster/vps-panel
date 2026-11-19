@@ -76,7 +76,10 @@ func TestDefaultMihomoAntiDNSLeakAndDynamicRegions(t *testing.T) {
 		t.Fatalf("unmarshal rendered mihomo: %v", err)
 	}
 
-	// Verify anti-DNS-leak invariants.
+	// Verify anti-DNS-leak invariants and Mihomo 1.19+ compatibility.
+	if _, hasGlobalFP := cfg["global-client-fingerprint"]; hasGlobalFP {
+		t.Errorf("global-client-fingerprint was removed in mihomo and must not be set")
+	}
 	if cfg["ipv6"] != false {
 		t.Errorf("ipv6 = %v, want false", cfg["ipv6"])
 	}
@@ -125,10 +128,14 @@ func TestDefaultMihomoAntiDNSLeakAndDynamicRegions(t *testing.T) {
 		t.Errorf("unexpected region order in %s: %v", GroupSelect, selectProxies)
 	}
 
-	// Verify all GEOIP / IP-CIDR rules carry no-resolve.
+	// Verify all GEOIP / IP-CIDR rules carry no-resolve and avoid GeoSite lists
+	// missing from Loyalsoldier/v2fly GeoSite.dat (such as biliintl).
 	for _, r := range toStrings(cfg["rules"]) {
 		if (strings.HasPrefix(r, "GEOIP,") || strings.HasPrefix(r, "IP-CIDR,") || strings.HasPrefix(r, "IP-CIDR6,")) && !strings.HasSuffix(r, ",no-resolve") {
 			t.Errorf("IP/GEOIP rule missing no-resolve: %q", r)
+		}
+		if strings.HasPrefix(r, "GEOSITE,biliintl,") {
+			t.Errorf("GEOSITE,biliintl is missing from Loyalsoldier GeoSite.dat: %q", r)
 		}
 	}
 
@@ -313,9 +320,22 @@ func assertValidSingBox(t *testing.T, rendered []byte, nodes []Node) {
 	}
 	route, _ := cfg["route"].(map[string]any)
 	ruleSets := map[string]bool{}
+	brokenURLs := []string{
+		"SagerNet/sing-geosite/rule-set/geosite-biliintl.srs",
+		"SagerNet/sing-geosite/rule-set/geosite-apple-cn.srs",
+		"SagerNet/sing-geoip/rule-set/geoip-netflix.srs",
+		"SagerNet/sing-geoip/rule-set/geoip-telegram.srs",
+		"SagerNet/sing-geoip/rule-set/geoip-google.srs",
+	}
 	for _, rs := range route["rule_set"].([]any) {
 		rsm := rs.(map[string]any)
 		ruleSets[fmt.Sprint(rsm["tag"])] = true
+		u := fmt.Sprint(rsm["url"])
+		for _, bad := range brokenURLs {
+			if strings.Contains(u, bad) {
+				t.Fatalf("rule_set %q points to nonexistent upstream URL %q", rsm["tag"], u)
+			}
+		}
 	}
 	checkRuleSetRef := func(v any) {
 		switch x := v.(type) {
