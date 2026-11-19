@@ -20,11 +20,12 @@ onMounted(async () => {
   if (!state.serversLoaded) await loadServers().catch(() => {})
   if (!server.value && state.servers.length) server.value = (state.servers.find((s) => s.online) || state.servers[0]).id
   loadLatest()
-  if (route.query.tool && sv.value?.online) runTool(String(route.query.tool))
+  // Links may ask to run right away (?run=1); otherwise just show the last result.
+  if (route.query.run && sv.value?.online && selected.value !== 'iperf') runTool(selected.value)
 })
-watch(server, (v) => { router.replace({ query: { ...route.query, server: v, tool: undefined } }); loadLatest(); loadHistory() })
+watch(server, (v) => { router.replace({ query: { ...route.query, server: v, run: undefined } }); runs.value = {}; loadLatest(); loadHistory() })
 watch(tab, (t) => {
-  router.replace({ query: { ...route.query, tab: t, tool: undefined } })
+  router.replace({ query: { ...route.query, tab: t, run: undefined } })
   if (t === 'history') loadHistory()
   if (t === 'scripts') loadScripts()
   if (t === 'schedules') loadSchedules()
@@ -39,41 +40,64 @@ const toolDefs = [
   { id: 'speedtest', name: '测速', desc: '就近测速点上下行带宽' },
   { id: 'reality_scan', name: 'Reality 目标扫描', desc: '找握手快、支持 TLS 1.3 + H2 的目标站' },
   { id: 'net_status', name: '网络状态', desc: '拥塞控制、队列与 sysctl 当前值' },
+  { id: 'iperf', name: 'iperf3 互测', desc: '测到另一台 VPS 的带宽' },
 ]
-const current = ref({ tool: '', task: null, data: null })
+const selected = ref(toolDefs.some((t) => t.id === route.query.tool) ? String(route.query.tool) : 'diagnose')
+watch(selected, (t) => router.replace({ query: { ...route.query, tool: t, run: undefined } }))
+// Runs started on this page, by tool: { task, status, data }. Several tools can run at once.
+const runs = ref({})
 const latest = ref({})
 async function loadLatest() { if (server.value) latest.value = (await api.get(`/servers/${server.value}/tool-results`).catch(() => ({}))) || {} }
+const isRunning = (tool) => runs.value[tool]?.status === 'running'
+function startRun(tool, task) { runs.value = { ...runs.value, [tool]: { task, status: 'running', data: null } } }
 async function runTool(tool, args) {
-  if (!server.value) return
+  if (!server.value || isRunning(tool)) return
   const r = await run(() => api.post(`/servers/${server.value}/tools/${tool}`, args || {}))
-  if (r) current.value = { tool, task: r.task_id, data: null }
+  if (r) startRun(tool, r.task_id)
 }
-async function onDone(status) {
-  const id = current.value.task
-  if (!id) return
-  const t = await api.get(`/tasks/${id}`).catch(() => null)
-  if (t?.data) current.value.data = t.data
-  if (status === 'success') loadLatest()
+async function onDone(tool, status) {
+  const cur = runs.value[tool]
+  if (!cur) return
+  const task = cur.task
+  const t = await api.get(`/tasks/${task}`).catch(() => null)
+  if (runs.value[tool]?.task !== task) return
+  runs.value = { ...runs.value, [tool]: { ...cur, status, data: t?.data ?? null } }
+  if (status === 'success' || status === 'finished') loadLatest()
 }
-const toolName = (id) => toolDefs.find((t) => t.id === id)?.name || { tune_net: '网络优化', iperf: 'iperf3' }[id] || id
+const toolName = (id) => toolDefs.find((t) => t.id === id)?.name || { tune_net: '网络优化', restore_net: '还原网络参数' }[id] || id
 const iperfTo = ref(null)
 async function runIperf() {
   if (!iperfTo.value) { ui.message.warning('选择对端'); return }
+  if (isRunning('iperf')) return
   const r = await run(() => api.post('/tools/iperf', { from: server.value, to: iperfTo.value }))
-  if (r) current.value = { tool: 'iperf', task: r.task_id, data: null }
+  if (r) startRun('iperf', r.task_id)
 }
+function execSelected() { selected.value === 'iperf' ? runIperf() : runTool(selected.value) }
+// What the result area shows: this page's finished run, or else the last saved result.
+const sel = computed(() => runs.value[selected.value])
+const shown = computed(() => {
+  const r = sel.value
+  if (r?.status === 'running') return null
+  if (r?.data) return { data: r.data, fresh: true }
+  const l = latest.value[selected.value]
+  return l ? { data: l.data, ts: l.ts, failed: !!r } : null
+})
 
 // ---------- bbr ----------
+const bbrTool = ref('tune_net')
+const bbrRun = computed(() => runs.value[bbrTool.value])
 const tune = ref({ profile: 'balanced', bandwidth_mbps: 1000 })
 const profiles = [{ label: '保守', value: 'conservative' }, { label: '均衡', value: 'balanced' }, { label: '激进', value: 'aggressive' }]
 function tuneArgs(dry) { return { profile: tune.value.profile, bandwidth_mbps: String(tune.value.bandwidth_mbps || 1000), dry_run: dry ? '1' : '0' } }
-async function previewTune() { await runTool('tune_net', tuneArgs(true)) }
+async function previewTune() { bbrTool.value = 'tune_net'; await runTool('tune_net', tuneArgs(true)) }
 async function applyTune() {
   if (!(await ask('应用网络优化', '会写入 /etc/sysctl.d/99-vpspanel.conf 并立即生效，原值自动备份，可随时还原。'))) return
+  bbrTool.value = 'tune_net'
   runTool('tune_net', tuneArgs(false))
 }
 async function restoreTune() {
   if (!(await ask('还原网络参数', '把所有项改回优化前的数值并删除 /etc/sysctl.d/99-vpspanel.conf。'))) return
+  bbrTool.value = 'restore_net'
   runTool('restore_net')
 }
 
@@ -92,7 +116,7 @@ async function loadHistory() {
 watch(hTool, loadHistory)
 function toggleCmp(id, v) { const s = new Set(compare.value); v ? s.add(id) : s.delete(id); compare.value = s }
 function showCompare() { cmp.value = { show: true, items: history.value.filter((h) => compare.value.has(h.id)) } }
-const hToolOpts = [{ label: '全部工具', value: '' }, ...['diagnose', 'unlock', 'ip_quality', 'trace', 'speedtest', 'reality_scan', 'tune_net'].map((v) => ({ label: toolName(v), value: v }))]
+const hToolOpts = [{ label: '全部工具', value: '' }, ...['diagnose', 'unlock', 'ip_quality', 'trace', 'speedtest', 'reality_scan', 'iperf', 'tune_net'].map((v) => ({ label: toolName(v), value: v }))]
 
 // ---------- scripts ----------
 const scripts = ref([])
@@ -177,21 +201,31 @@ function cronText(c) {
       <n-tab-pane name="check" tab="检测">
         <div class="tools-grid">
           <div class="tool-list">
-            <button v-for="t in toolDefs" :key="t.id" type="button" :class="['tool', { on: current.tool === t.id }]" :disabled="!sv?.online" @click="runTool(t.id)">
-              <b>{{ t.name }}</b><span class="muted small">{{ t.desc }}</span>
+            <button v-for="t in toolDefs" :key="t.id" type="button" :class="['tool', { on: selected === t.id }]" @click="selected = t.id">
+              <span class="t-title"><b>{{ t.name }}</b><span v-if="isRunning(t.id)" class="t-run"><span class="dot warn" />运行中</span></span>
+              <span class="muted small">{{ t.id === 'iperf' ? `测 ${sv?.name || '本机'} 到另一台 VPS 的带宽` : t.desc }}</span>
               <span v-if="latest[t.id]" class="small last">上次 {{ ago(latest[t.id].ts) }}：{{ latest[t.id].summary }}</span>
             </button>
-            <div class="tool iperf">
-              <b>iperf3 互测</b><span class="muted small">测 {{ sv?.name || '本机' }} 到另一台 VPS 的带宽</span>
-              <div class="row"><n-select v-model:value="iperfTo" size="small" :options="serverOpts.filter((o) => o.value !== server)" placeholder="对端" style="flex: 1" /><n-button size="small" :disabled="!sv?.online" @click="runIperf">开始</n-button></div>
-            </div>
           </div>
           <div class="card s-card out">
-            <div class="s-card-head"><h3>{{ current.tool ? toolName(current.tool) : '输出' }}</h3><span class="f-hint">{{ sv?.name }}</span></div>
-            <div v-if="!current.task" class="empty">{{ sv?.online ? '选择左侧的工具开始' : '服务器离线' }}</div>
-            <div v-else class="out-body">
-              <task-log :task-id="current.task" height="300px" @done="onDone" />
-              <tool-result v-if="current.data" :tool="current.tool" :data="current.data" />
+            <div class="s-card-head">
+              <h3>{{ toolName(selected) }}</h3><span class="f-hint">{{ sv?.name }}</span>
+              <span class="spacer" />
+              <n-select v-if="selected === 'iperf'" v-model:value="iperfTo" size="small" :options="serverOpts.filter((o) => o.value !== server)" placeholder="选择对端" style="width: 180px" />
+              <n-button type="primary" size="small" :loading="isRunning(selected)" :disabled="!sv?.online || isRunning(selected)" @click="execSelected">{{ isRunning(selected) ? '执行中' : shown ? '重新执行' : '执行' }}</n-button>
+            </div>
+            <div class="out-body">
+              <template v-for="(r, t) in runs" :key="r.task">
+                <details v-if="toolDefs.some((d) => d.id === t)" v-show="t === selected" class="log" :open="r.status === 'running' || !r.data">
+                  <summary class="small muted">执行输出</summary>
+                  <task-log :task-id="r.task" height="300px" @done="(st) => onDone(t, st)" />
+                </details>
+              </template>
+              <template v-if="shown">
+                <div v-if="!shown.fresh" class="small muted">{{ shown.failed ? '本次执行失败，下面是上次成功的结果' : '上次结果' }} · {{ dt(shown.ts) }}（{{ ago(shown.ts) }}）</div>
+                <tool-result :tool="selected" :data="shown.data" />
+              </template>
+              <div v-else-if="!sel" class="empty">{{ !sv?.online ? '服务器离线' : selected === 'iperf' ? '选择对端后点「执行」' : selected === 'net_status' ? '点「执行」读取当前网络参数' : '还没有结果，点「执行」开始检测' }}</div>
             </div>
           </div>
         </div>
@@ -232,10 +266,10 @@ function cronText(c) {
           <section class="s-group">
           <div class="s-head"><h2>改动预览</h2><p>预览、应用或还原时的输出，列出会修改哪些参数。</p></div>
           <div class="card s-card">
-            <div v-if="!current.task || !['tune_net', 'restore_net'].includes(current.tool)" class="empty">点「预览改动」查看会修改哪些参数</div>
+            <div v-if="!bbrRun" class="empty">点「预览改动」查看会修改哪些参数</div>
             <div v-else class="out-body">
-              <task-log :task-id="current.task" height="260px" @done="onDone" />
-              <tool-result v-if="current.data" tool="tune_net" :data="current.data" />
+              <task-log :key="bbrRun.task" :task-id="bbrRun.task" height="260px" @done="(st) => onDone(bbrTool, st)" />
+              <tool-result v-if="bbrRun.data" tool="tune_net" :data="bbrRun.data" />
             </div>
           </div>
           </section>
@@ -397,11 +431,14 @@ function cronText(c) {
 .tool:hover:not(:disabled) { border-color: var(--c-primary); }
 .tool.on { border-color: var(--c-primary); background: var(--c-primary-soft); }
 .tool:disabled { opacity: .55; cursor: not-allowed; }
-.tool.iperf { cursor: default; }
+.t-title { display: flex; align-items: center; gap: 8px; }
+.t-run { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--c-warning); }
 .tool .last { color: var(--c-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .seg { display: flex; }
 .seg :deep(.n-radio-button) { flex: 1; text-align: center; }
-.out-body { display: flex; flex-direction: column; gap: 14px; padding-bottom: 16px; }
+.out-body { display: flex; flex-direction: column; gap: 14px; padding-bottom: 18px; }
+.log > summary { cursor: pointer; user-select: none; padding: 2px 0; }
+.log[open] > summary { margin-bottom: 8px; }
 .scripts { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; align-items: start; }
 .s-list { display: flex; flex-direction: column; gap: 2px; padding-bottom: 12px; margin: 0 -8px; }
 .s-item { display: flex; align-items: center; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; min-height: 40px; }

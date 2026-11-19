@@ -324,7 +324,7 @@ function diffClass(line) {
         </div>
         <span class="spacer" />
         <n-button v-if="sv.mode === 'node'" :disabled="!sv.online" @click="runTool('restart_xray', '重启 Xray')">重启 Xray</n-button>
-        <n-button :disabled="!sv.online" @click="router.push({ name: 'tools', query: { server: sv.id, tool: 'diagnose' } })">一键诊断</n-button>
+        <n-button :disabled="!sv.online" @click="router.push({ name: 'tools', query: { server: sv.id, tool: 'diagnose', run: 1 } })">一键诊断</n-button>
         <n-dropdown :options="moreOptions" trigger="click" @select="onMore"><n-button>更多</n-button></n-dropdown>
       </div>
 
