@@ -76,8 +76,7 @@ const groups = {
       N('traffic_spike_factor', '突增倍数', 5, '某小时流量超过近 7 天同一时段均值的这个倍数时告警', '倍'),
       N('traffic_spike_min_gb', '最小流量', 2, '这一小时的流量低于此值时不算突增', 'GB'),
     ] },
-    { title: '更新', desc: '检查面板新版本的来源，以及 Agent 升级包的签名校验。', fields: [
-      S('panel_repo', '面板发布仓库', '', 'GitHub 的 owner/repo，用于检查面板新版本'),
+    { title: 'Agent 升级签名', desc: 'Agent 升级包的签名校验。', fields: [
       { k: 'sign_pubkey', label: 'Agent 签名公钥', type: 'text', def: '', hint: 'Ed25519 公钥（base64）。设置后 Agent 只接受签名正确的升级包' },
     ] },
     { title: '公开状态页', desc: '不用登录的只读页面，可以分享给别人。', link: 'status', fields: [

@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +16,7 @@ import (
 	"golang.org/x/net/websocket"
 
 	"vpspanel/internal/common/proto"
+	"vpspanel/internal/common/version"
 	"vpspanel/internal/panel/secret"
 	"vpspanel/internal/panel/service"
 	"vpspanel/internal/panel/store"
@@ -35,7 +35,6 @@ func (a *API) mountOps(r *gin.Engine, g *gin.RouterGroup) {
 	g.POST("/updates", a.startUpdate)
 	g.GET("/updates/history", a.updateHistory)
 	g.GET("/system/version", a.panelVersion)
-	g.POST("/system/update", a.panelUpdate)
 
 	g.GET("/tools", a.toolMeta)
 	g.POST("/servers/:id/tools/:tool", a.runTool)
@@ -223,30 +222,7 @@ func lastLines(s string, n int) string {
 }
 
 func (a *API) panelVersion(c *gin.Context) {
-	v, err := a.P.CheckPanelVersion()
-	if err != nil {
-		ok(c, gin.H{"current": v.Current, "error": err.Error(), "repo": v.Repo})
-		return
-	}
-	ok(c, v)
-}
-
-func (a *API) panelUpdate(c *gin.Context) {
-	if !a.P.Auth.VerifySensitive(c.GetHeader("X-Confirm")) {
-		fail(c, http.StatusForbidden, "二次验证失败")
-		return
-	}
-	ver, err := a.P.SelfUpdate(runtime.GOOS, runtime.GOARCH)
-	if err != nil {
-		bad(c, err)
-		return
-	}
-	a.P.Audit("system", "panel_update", ver, "", c.ClientIP())
-	ok(c, gin.H{"version": ver, "restarting": true})
-	go func() {
-		time.Sleep(time.Second)
-		os.Exit(0) // systemd / docker restarts the new binary
-	}()
+	ok(c, gin.H{"current": version.Version})
 }
 
 // ---------- tools ----------

@@ -162,8 +162,8 @@ var settingKeys = []string{
 	"alert_quiet", "alert_recovery", "traffic_spike_factor", "traffic_spike_min_gb",
 	// public status page
 	"status_enabled", "status_title", "status_servers", "status_show_latency",
-	// updates & signing
-	"sign_pubkey", "panel_repo",
+	// agent update signing
+	"sign_pubkey",
 	// backups
 	"backup_enabled", "backup_time", "backup_keep", "backup_target", "backup_s3_endpoint", "backup_s3_bucket", "backup_s3_region",
 	"backup_s3_access_key", "backup_s3_prefix", "backup_webdav_url", "backup_webdav_user", "backup_tg_channel",

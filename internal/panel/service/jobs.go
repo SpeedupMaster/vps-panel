@@ -24,9 +24,6 @@ func (p *Panel) StartJobs(s *scheduler.Scheduler) {
 		_ = p.SyncXrayReleases()
 		p.CheckAgentVersions()
 		p.PruneRelayCache()
-		if p.St.Get("panel_repo", "") != "" {
-			_, _ = p.CheckPanelVersion()
-		}
 	})
 
 	p.SeedScripts()
