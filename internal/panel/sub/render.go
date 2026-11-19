@@ -71,11 +71,40 @@ const (
 	TestURL       = "https://www.gstatic.com/generate_204"
 )
 
-// regions groups node names by region code, sorted by code.
+// countryNames maps ISO 3166-1 alpha-2 codes to Chinese display names.
+var countryNames = map[string]string{
+	"HK": "香港", "TW": "台湾", "MO": "澳门", "CN": "中国",
+	"JP": "日本", "SG": "新加坡", "KR": "韩国", "US": "美国",
+	"GB": "英国", "UK": "英国", "DE": "德国", "FR": "法国",
+	"NL": "荷兰", "CA": "加拿大", "AU": "澳大利亚", "NZ": "新西兰",
+	"RU": "俄罗斯", "IN": "印度", "MY": "马来西亚", "TH": "泰国",
+	"VN": "越南", "PH": "菲律宾", "ID": "印度尼西亚", "TR": "土耳其",
+	"IT": "意大利", "ES": "西班牙", "SE": "瑞典", "CH": "瑞士",
+	"FI": "芬兰", "NO": "挪威", "PL": "波兰", "IE": "爱尔兰",
+	"AT": "奥地利", "BE": "比利时", "LU": "卢森堡", "CZ": "捷克",
+	"BR": "巴西", "AR": "阿根廷", "CL": "智利", "MX": "墨西哥",
+	"ZA": "南非", "AE": "阿联酋", "IL": "以色列", "UA": "乌克兰",
+	"OT": "其他地区",
+}
+
+// aiExcludedRegions lists regions commonly restricted by major overseas AI
+// providers (OpenAI / Anthropic / Google Gemini), excluded from {{regions_ai}}.
+var aiExcludedRegions = map[string]bool{
+	"CN": true,
+	"HK": true,
+	"MO": true,
+	"RU": true,
+}
+
+func isAIExcludedRegion(cc string) bool {
+	return aiExcludedRegions[strings.ToUpper(strings.TrimSpace(cc))]
+}
+
+// regions groups node names by region code, sorted by code with "OT" last.
 func regions(nodes []Node) ([]string, map[string][]string) {
 	m := map[string][]string{}
 	for _, n := range nodes {
-		cc := strings.ToUpper(n.RegionCode)
+		cc := strings.ToUpper(strings.TrimSpace(n.RegionCode))
 		if cc == "" {
 			cc = "OT"
 		}
@@ -85,26 +114,57 @@ func regions(nodes []Node) ([]string, map[string][]string) {
 	for c := range m {
 		codes = append(codes, c)
 	}
-	sort.Strings(codes)
+	sort.Slice(codes, func(i, j int) bool {
+		if codes[i] == "OT" {
+			return false
+		}
+		if codes[j] == "OT" {
+			return true
+		}
+		return codes[i] < codes[j]
+	})
 	return codes, m
 }
 
-func regionGroupName(cc string) string { return Flag(cc) + " " + cc }
+func regionGroupName(cc string) string {
+	cc = strings.ToUpper(strings.TrimSpace(cc))
+	if cc == "" || cc == "OT" {
+		return "🏳 " + countryNames["OT"]
+	}
+	name := countryNames[cc]
+	if name == "" {
+		name = cc
+	}
+	return Flag(cc) + " " + name
+}
 
-// expand replaces the {{all}} / {{regions}} / {{groups}} tokens in a proxy list.
-func expand(list []string, all, regionNames []string) []string {
+// expand replaces the {{all}} / {{regions}} / {{regions_ai}} / {{groups}}
+// tokens in a proxy list, deduplicating while preserving order.
+func expand(list []string, all, regionNames, aiRegionNames []string) []string {
 	var out []string
+	seen := make(map[string]bool, len(list))
+	add := func(items ...string) {
+		for _, item := range items {
+			if item == "" || seen[item] {
+				continue
+			}
+			seen[item] = true
+			out = append(out, item)
+		}
+	}
 	for _, x := range list {
 		switch x {
 		case "{{all}}":
-			out = append(out, all...)
+			add(all...)
 		case "{{regions}}":
-			out = append(out, regionNames...)
+			add(regionNames...)
+		case "{{regions_ai}}":
+			add(aiRegionNames...)
 		case "{{groups}}":
-			out = append(out, GroupSelect, GroupAuto, GroupFallback)
-			out = append(out, regionNames...)
+			add(GroupSelect, GroupAuto, GroupFallback)
+			add(regionNames...)
 		default:
-			out = append(out, x)
+			add(x)
 		}
 	}
 	return out
@@ -122,8 +182,8 @@ func mihomoProxy(n Node) map[string]any {
 }
 
 // Mihomo renders a Clash Meta config. The template supplies everything but
-// proxies and the three generated groups; its own groups may use the
-// {{all}} / {{regions}} / {{groups}} tokens inside `proxies`.
+// proxies and the generated groups; its own groups may use the
+// {{all}} / {{regions}} / {{regions_ai}} / {{groups}} tokens inside `proxies`.
 func Mihomo(nodes []Node, tpl string) ([]byte, error) {
 	if strings.TrimSpace(tpl) == "" {
 		tpl = DefaultMihomo
@@ -144,15 +204,19 @@ func Mihomo(nodes []Node, tpl string) ([]byte, error) {
 		proxies[i] = mihomoProxy(n)
 	}
 	codes, byRegion := regions(nodes)
-	var regionNames []string
+	var regionNames, aiRegionNames []string
 	for _, c := range codes {
-		regionNames = append(regionNames, regionGroupName(c))
+		name := regionGroupName(c)
+		regionNames = append(regionNames, name)
+		if !isAIExcludedRegion(c) {
+			aiRegionNames = append(aiRegionNames, name)
+		}
 	}
 	if len(all) == 0 {
 		all = []string{"DIRECT"}
 	}
 	gen := []any{
-		map[string]any{"name": GroupSelect, "type": "select", "proxies": append(append([]string{GroupAuto, GroupFallback}, regionNames...), append(all, "DIRECT")...)},
+		map[string]any{"name": GroupSelect, "type": "select", "proxies": expand(append(append([]string{GroupAuto, GroupFallback}, regionNames...), append(all, "DIRECT")...), nil, nil, nil)},
 		map[string]any{"name": GroupAuto, "type": "url-test", "url": TestURL, "interval": 300, "tolerance": 50, "lazy": true, "proxies": all},
 		map[string]any{"name": GroupFallback, "type": "fallback", "url": TestURL, "interval": 300, "lazy": true, "proxies": all},
 	}
@@ -174,7 +238,7 @@ func Mihomo(nodes []Node, tpl string) ([]byte, error) {
 				list = append(list, fmt.Sprint(x))
 			}
 		}
-		g["proxies"] = expand(list, all, regionNames)
+		g["proxies"] = expand(list, all, regionNames, aiRegionNames)
 		gen = append(gen, g)
 	}
 	if err := mapSet(root, "proxies", proxies); err != nil {
@@ -233,8 +297,8 @@ func singboxOutbound(n Node) map[string]any {
 }
 
 // SingBox renders a sing-box config. Template outbounds whose "outbounds"
-// contain {{all}} / {{regions}} / {{groups}} are expanded; generated groups
-// and nodes are inserted before them.
+// contain {{all}} / {{regions}} / {{regions_ai}} / {{groups}} are expanded;
+// generated groups and nodes are inserted before them.
 func SingBox(nodes []Node, tpl string) ([]byte, error) {
 	if strings.TrimSpace(tpl) == "" {
 		tpl = DefaultSingBox
@@ -248,15 +312,19 @@ func SingBox(nodes []Node, tpl string) ([]byte, error) {
 		all[i] = n.Name
 	}
 	codes, byRegion := regions(nodes)
-	var regionNames []string
+	var regionNames, aiRegionNames []string
 	for _, c := range codes {
-		regionNames = append(regionNames, regionGroupName(c))
+		name := regionGroupName(c)
+		regionNames = append(regionNames, name)
+		if !isAIExcludedRegion(c) {
+			aiRegionNames = append(aiRegionNames, name)
+		}
 	}
 	if len(all) == 0 {
 		all = []string{"direct"}
 	}
 	outs := []any{
-		map[string]any{"type": "selector", "tag": GroupSelect, "outbounds": append(append([]string{GroupAuto}, regionNames...), all...), "default": GroupAuto},
+		map[string]any{"type": "selector", "tag": GroupSelect, "outbounds": expand(append(append([]string{GroupAuto}, regionNames...), all...), nil, nil, nil), "default": GroupAuto},
 		map[string]any{"type": "urltest", "tag": GroupAuto, "outbounds": all, "url": TestURL, "interval": "5m", "tolerance": 50},
 	}
 	for _, c := range codes {
@@ -273,7 +341,7 @@ func SingBox(nodes []Node, tpl string) ([]byte, error) {
 				for _, x := range raw {
 					list = append(list, fmt.Sprint(x))
 				}
-				exp := expand(list, all, regionNames)
+				exp := expand(list, all, regionNames, aiRegionNames)
 				// sing-box has no fallback group; drop the name if present.
 				var keep []string
 				for _, x := range exp {

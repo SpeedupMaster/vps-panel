@@ -113,7 +113,7 @@ async function saveSettings() {
 async function copyPreview() { if (await copy(preview.value.content)) ui.message.success('已复制') }
 
 // templates
-const tplHint = '节点会注入到模板的 proxies / outbounds；代理组里用 {{all}} 引用全部节点、{{regions}} 引用按地区生成的组、{{groups}} 引用全部分组。保存前会用当前节点渲染一次校验。'
+const tplHint = '节点会注入到模板的 proxies / outbounds；代理组里用 {{all}} 引用全部节点、{{regions}} 引用按国家动态生成的组、{{regions_ai}} 引用避开香港/大陆等 AI 受限地区的国家组、{{groups}} 引用全部分组。保存前会用当前节点渲染一次校验。'
 const tpl = ref({ show: false, id: 0, target: 'mihomo', name: '', content: '', active: true })
 const builtin = ref(null)
 async function editTemplate(t) {
@@ -251,7 +251,7 @@ async function activate(t, v) {
 
     <section class="l-sec">
     <div class="sec-head">
-      <div class="s-head"><h2>规则模板</h2><p>分流规则模板。没有启用自定义模板时，使用内置的国内直连 + AI / 流媒体分组。</p></div>
+      <div class="s-head"><h2>规则模板</h2><p>分流规则模板。没有启用自定义模板时，使用内置防 DNS 泄露、按国家动态分组与多场景分流模板。</p></div>
       <span class="spacer" />
       <n-button @click="editTemplate(null)">自定义模板</n-button>
     </div>

@@ -127,11 +127,16 @@ func TestChainConfigAndSubscription(t *testing.T) {
 	}
 	var ai map[string]any
 	for _, g := range groups {
-		if g.(map[string]any)["name"] == "AI" {
+		if g.(map[string]any)["name"] == "🤖 AI 服务" {
 			ai = g.(map[string]any)
 		}
 	}
-	if ai == nil || len(ai["proxies"].([]any)) != 3 { // 🇭🇰 HK, 🇯🇵 JP, 节点选择
+	if ai == nil {
+		t.Fatalf("AI group missing from %+v", groups)
+	}
+	aiProxies := ai["proxies"].([]any)
+	// 🇯🇵 日本 (non-HK first via {{regions_ai}}), 节点选择, 🇭🇰 香港, 故障转移, + 2 nodes
+	if len(aiProxies) != 6 || aiProxies[0] != "🇯🇵 日本" || aiProxies[1] != "节点选择" || aiProxies[2] != "🇭🇰 香港" {
 		t.Fatalf("AI group %+v", ai)
 	}
 	js, err := p.PreviewSub("singbox")
