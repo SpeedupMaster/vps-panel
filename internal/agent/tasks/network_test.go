@@ -19,3 +19,20 @@ func TestParseHopsSkipsHeader(t *testing.T) {
 		t.Fatalf("got %v want %v", got, want)
 	}
 }
+
+func TestGeminiVerdict(t *testing.T) {
+	cases := []struct{ body, status, region string }{
+		{`x,2,1,200,"USA"y "45631641\":true,\"45841483\":true`, "yes", "US"},
+		{`x,2,1,200,"JPN"y [45631641,null,true]`, "yes", "JP"},
+		{`x,2,1,200,"HKG"y "45631641\":false`, "no", "HK"},
+		{`x,2,1,200,"CHN"y no flag here`, "no", "CN"},
+		{`x,2,1,200,"DEU"y no flag here`, "yes", "DE"},
+		{`unrelated page`, "unknown", ""},
+	}
+	for _, c := range cases {
+		s, r, _ := geminiVerdict(c.body)
+		if s != c.status || r != c.region {
+			t.Errorf("%q: got %s/%s want %s/%s", c.body, s, r, c.status, c.region)
+		}
+	}
+}

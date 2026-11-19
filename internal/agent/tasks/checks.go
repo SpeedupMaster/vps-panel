@@ -175,17 +175,50 @@ func checkGemini(ctx context.Context) UnlockItem {
 	it := UnlockItem{Name: "Gemini", Status: "unknown"}
 	_, body, err := get(ctx, "https://gemini.google.com/", true)
 	if err != nil {
+		it.Detail = "请求失败"
 		return it
 	}
-	if strings.Contains(body, "45631641,null,true") {
-		it.Status = "yes"
-	} else {
-		it.Status = "no"
-	}
-	if m := regexp.MustCompile(`,2,1,200,"([A-Z]{3})"`).FindStringSubmatch(body); m != nil {
-		it.Region = m[1]
-	}
+	it.Status, it.Region, it.Detail = geminiVerdict(body)
 	return it
+}
+
+var (
+	// Availability flag in the page's bootstrap data. Google moved it from an
+	// array ("45631641,null,true") to an escaped JSON object ("45631641\":true").
+	reGeminiFlag   = regexp.MustCompile(`45631641(?:,null,|\\?":)(true|false)`)
+	reGeminiRegion = regexp.MustCompile(`,2,1,200,"([A-Z]{3})"`)
+	// Regions where the Gemini app is not offered.
+	geminiBlocked = map[string]bool{"CHN": true, "HKG": true, "MAC": true, "RUS": true, "BLR": true, "CUB": true, "IRN": true, "PRK": true, "SYR": true}
+	alpha3to2     = map[string]string{
+		"USA": "US", "CAN": "CA", "MEX": "MX", "BRA": "BR", "ARG": "AR", "GBR": "GB", "DEU": "DE", "FRA": "FR", "NLD": "NL",
+		"ITA": "IT", "ESP": "ES", "CHE": "CH", "SWE": "SE", "POL": "PL", "FIN": "FI", "IRL": "IE", "TUR": "TR", "RUS": "RU",
+		"JPN": "JP", "KOR": "KR", "SGP": "SG", "HKG": "HK", "TWN": "TW", "MAC": "MO", "CHN": "CN", "IND": "IN", "MYS": "MY",
+		"THA": "TH", "VNM": "VN", "IDN": "ID", "PHL": "PH", "AUS": "AU", "NZL": "NZ", "ARE": "AE", "ISR": "IL", "ZAF": "ZA",
+	}
+)
+
+// geminiVerdict reads gemini.google.com's HTML. The flag decides when present;
+// otherwise the detected region does, so a page change can't mark every node as blocked.
+func geminiVerdict(body string) (status, region, detail string) {
+	if m := reGeminiRegion.FindStringSubmatch(body); m != nil {
+		region = m[1]
+	}
+	blocked := geminiBlocked[region]
+	if r, ok := alpha3to2[region]; ok {
+		region = r
+	}
+	switch m := reGeminiFlag.FindStringSubmatch(body); {
+	case m != nil && m[1] == "true":
+		return "yes", region, ""
+	case m != nil:
+		return "no", region, "地区不支持"
+	case region == "":
+		return "unknown", "", "页面结构已变化，无法判断"
+	case blocked:
+		return "no", region, "地区不支持"
+	default:
+		return "yes", region, ""
+	}
 }
 
 func checkDisney(ctx context.Context) UnlockItem {
