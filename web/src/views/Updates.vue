@@ -15,7 +15,6 @@ const picked = ref(new Set())
 const history = ref([])
 const batch = ref('')
 const batchTasks = ref([])
-const panel = ref(null)
 const busy = ref(false)
 
 async function load() {
@@ -26,8 +25,7 @@ async function load() {
   picked.value = new Set()
 }
 async function loadHistory() { history.value = (await run(() => api.get('/updates/history'))) || [] }
-async function loadPanel() { panel.value = await api.get('/system/version').catch((e) => ({ error: e.message })) }
-onMounted(() => { load(); loadHistory(); loadPanel() })
+onMounted(() => { load(); loadHistory() })
 watch(comp, load)
 const off = on('task', (d) => { if (batch.value) loadBatch(); if (['update_agent', 'update_xray', 'update_geo'].includes(d.type)) loadHistory() })
 onBeforeUnmount(off)
@@ -93,13 +91,6 @@ async function delRelease(r) {
   if (await run(() => api.del(`/releases/agent/${r.version}`), '已删除')) load()
 }
 const archs = (r) => { try { return Object.keys(JSON.parse(r.assets || '{}')).join(' / ') } catch { return '' } }
-
-// ---- panel self update ----
-async function selfUpdate() {
-  if (!(await ask('更新面板', `更新到 ${panel.value.latest}？下载后会校验 sha256${data.value.signing ? '与签名' : ''}，旧版本自动备份，然后重启面板（约几秒不可用）。`))) return
-  const r = await run(() => api.post('/system/update', {}, { confirm: '更新面板需要确认身份' }))
-  if (r) { ui.message.success(`正在更新到 ${r.version}，面板重启后请刷新页面`); setTimeout(() => location.reload(), 8000) }
-}
 </script>
 
 <template>
@@ -108,18 +99,6 @@ async function selfUpdate() {
       <div class="ph"><h1>更新中心</h1><p class="page-desc">Agent、Xray 和规则文件的版本与批量更新。上次检查：{{ data.synced_at ? ago(data.synced_at) : '从未' }}</p></div>
       <span class="spacer" />
       <n-button @click="sync">立即检查</n-button>
-    </div>
-
-    <div v-if="panel && (panel.available || panel.error || panel.repo)" :class="['banner', panel.available ? 'warn' : 'info']">
-      <span>
-        面板 {{ panel.current }}
-        <template v-if="panel.available">· 有新版本 <b>{{ panel.latest }}</b></template>
-        <template v-else-if="panel.error">· 检查失败：{{ panel.error }}</template>
-        <template v-else>· 已是最新</template>
-        <span class="muted small" v-if="panel.repo">（{{ panel.repo }}）</span>
-      </span>
-      <span class="spacer" />
-      <n-button v-if="panel.available" size="small" type="primary" @click="selfUpdate">更新面板</n-button>
     </div>
 
     <section class="l-sec">

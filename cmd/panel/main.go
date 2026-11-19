@@ -78,10 +78,12 @@ func main() {
 		log.Printf("首次启动：管理员 %s，初始密码 %s（登录后请立即修改并开启两步验证）", *adminUser, pw)
 	}
 
-	seedAgents(*dataDir, env("VPSPANEL_AGENT_DIR", ""), st.Get("agent_published", "") == "")
+	agentSrc := bundledAgentDir(env("VPSPANEL_AGENT_DIR", ""))
+	seedAgents(*dataDir, agentSrc, st.Get("agent_published", "") == "")
 
 	h := hub.New(st, box)
 	p := service.New(st, box, au, h, *dataDir)
+	p.RegisterBundledAgent(agentSrc)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

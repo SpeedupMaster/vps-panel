@@ -125,7 +125,12 @@ func (p *Panel) LatestXray(pre bool) string {
 func (p *Panel) Releases(component string) []store.Release {
 	var rs []store.Release
 	p.St.DB.Where("component = ?", component).Find(&rs)
-	sort.Slice(rs, func(i, j int) bool { return xrayconf.CompareVersion(rs[i].Version, rs[j].Version) > 0 })
+	sort.SliceStable(rs, func(i, j int) bool {
+		if c := xrayconf.CompareVersion(rs[i].Version, rs[j].Version); c != 0 {
+			return c > 0
+		}
+		return rs[i].PublishedAt.After(rs[j].PublishedAt) // e.g. commit-hash versions
+	})
 	return rs
 }
 
@@ -305,6 +310,57 @@ func (p *Panel) AddAgentRelease(ver, arch string, bin []byte, sig, notes string)
 	return &r, nil
 }
 
+// RegisterBundledAgent records the agent binaries shipped next to the panel
+// (built with the same version stamp) as an agent release, so they show up in
+// the update center and can be rolled out without uploading them by hand.
+func (p *Panel) RegisterBundledAgent(src string) {
+	ver := strings.TrimPrefix(version.Version, "v")
+	es, err := os.ReadDir(src)
+	if err != nil || !verRe.MatchString(ver) {
+		return
+	}
+	have := map[string]AgentAsset{}
+	var r store.Release
+	if p.St.DB.Where("component = ? AND version = ?", "agent", ver).First(&r).Error == nil {
+		_ = json.Unmarshal([]byte(r.Assets), &have)
+	}
+	custom := p.St.Get("agent_published", "") == ver // a hand-published release with the same name wins
+	n := 0
+	for _, e := range es {
+		arch, okk := strings.CutPrefix(e.Name(), "vpsagent-linux-")
+		if e.IsDir() || !okk || !archRe.MatchString(arch) {
+			continue
+		}
+		bin, err := os.ReadFile(filepath.Join(src, e.Name()))
+		if err != nil {
+			continue
+		}
+		sum := sha256.Sum256(bin)
+		if a, exists := have[arch]; exists && (custom || a.SHA256 == hex.EncodeToString(sum[:])) {
+			n++
+			continue
+		}
+		sig, _ := os.ReadFile(filepath.Join(src, e.Name()+".sig"))
+		if _, err := p.AddAgentRelease(ver, arch, bin, string(sig), "随面板内置"); err != nil {
+			log.Printf("bundled agent %s/%s not registered: %v", ver, arch, err)
+			continue
+		}
+		n++
+	}
+	if n > 0 {
+		_ = p.St.Set("agent_bundled", ver)
+	}
+}
+
+// AgentCurrent is the version /dl/agent serves: the hand-published release,
+// or the build bundled with the panel when none was published.
+func (p *Panel) AgentCurrent() string {
+	if v := p.St.Get("agent_published", ""); v != "" {
+		return v
+	}
+	return p.St.Get("agent_bundled", "")
+}
+
 // PublishAgent makes a version the one served by /dl/agent (new installs).
 func (p *Panel) PublishAgent(ver string) error {
 	ver = strings.TrimPrefix(ver, "v")
@@ -331,7 +387,7 @@ func (p *Panel) PublishAgent(ver string) error {
 
 func (p *Panel) DeleteAgentRelease(ver string) error {
 	ver = strings.TrimPrefix(ver, "v")
-	if p.St.Get("agent_published", "") == ver {
+	if p.AgentCurrent() == ver {
 		return errors.New("不能删除当前发布的版本")
 	}
 	os.RemoveAll(p.agentDir(ver))
@@ -525,7 +581,7 @@ func (p *Panel) waitAgentVersion(id uint, ver string, d time.Duration) bool {
 
 // CheckAgentVersions announces outdated agents once per published version.
 func (p *Panel) CheckAgentVersions() {
-	pub := p.St.Get("agent_published", "")
+	pub := p.AgentCurrent()
 	if pub == "" || p.St.Get("agent_outdated_notified", "") == pub {
 		return
 	}

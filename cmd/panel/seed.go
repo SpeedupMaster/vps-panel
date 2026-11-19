@@ -10,16 +10,23 @@ import (
 	"strings"
 )
 
-// seedAgents copies bundled agent binaries into the data dir so /install.sh
-// works right after the first start. When no custom release has been manually
-// published (overwrite == true), it also refreshes changed bundled binaries so
-// upgrading the panel image updates /dl/agent automatically.
-func seedAgents(dataDir, src string, overwrite bool) {
+// bundledAgentDir returns src, or the "agent" directory next to the panel
+// executable when src is empty.
+func bundledAgentDir(src string) string {
 	if src == "" {
 		if exe, err := os.Executable(); err == nil {
 			src = filepath.Join(filepath.Dir(exe), "agent")
 		}
 	}
+	return src
+}
+
+// seedAgents copies bundled agent binaries into the data dir so /install.sh
+// works right after the first start. When no custom release has been manually
+// published (overwrite == true), it also refreshes changed bundled binaries so
+// upgrading the panel image updates /dl/agent automatically.
+func seedAgents(dataDir, src string, overwrite bool) {
+	src = bundledAgentDir(src)
 	es, err := os.ReadDir(src)
 	if err != nil {
 		return

@@ -99,7 +99,7 @@ func (a *API) listReleases(c *gin.Context) {
 		Published bool `json:"published,omitempty"`
 	}
 	var out []view
-	pub := a.P.St.Get("agent_published", "")
+	pub := a.P.AgentCurrent()
 	for _, r := range a.P.Releases(comp) {
 		out = append(out, view{r, comp == "agent" && r.Version == pub})
 	}
