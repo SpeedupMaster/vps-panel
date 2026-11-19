@@ -157,7 +157,7 @@ var settingKeys = []string{
 	"auto_install_xray", "drift_autofix", "reality_default_target", "landing_firewall", "xray_access_log", "xray_block_bt",
 	"xray_probe_url", "xray_pinned_version", "xray_relay", "geo_source",
 	// subscriptions
-	"sub_name_tpl", "sub_profile_name", "sub_update_hours", "sub_userinfo", "sub_exclude_blocked", "sub_exclude_offline",
+	"sub_name_tpl", "sub_profile_name", "sub_update_hours", "sub_userinfo", "sub_exclude_blocked", "sub_exclude_offline", "sub_routes",
 	// alerts
 	"alert_quiet", "alert_recovery", "traffic_spike_factor", "traffic_spike_min_gb",
 	// public status page

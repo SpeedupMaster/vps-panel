@@ -36,6 +36,7 @@ async function loadSettings() {
   settings.value = {
     sub_name_tpl: s.sub_name_tpl || '{flag} {name}', sub_profile_name: s.sub_profile_name || '', sub_update_hours: Number(s.sub_update_hours || 12),
     sub_userinfo: s.sub_userinfo || 'all', sub_exclude_blocked: s.sub_exclude_blocked !== '0', sub_exclude_offline: s.sub_exclude_offline === '1', sub_url: s.sub_url || '',
+    sub_routes: s.sub_routes === 'all' ? '' : s.sub_routes || '',
   }
   settingsOrig.value = JSON.stringify(settings.value)
 }
@@ -47,7 +48,24 @@ onMounted(() => {
 watch(() => preview.value.target, loadPreview)
 watch(logToken, loadLogs)
 
-const inSub = computed(() => routes.value.filter((r) => r.enabled && r.in_sub))
+// sub_routes: comma separated route IDs picked for subscriptions; '' = all.
+const parseIds = (v) => String(v || '').split(',').map(Number).filter((x) => x > 0)
+const pickedIds = computed(() => parseIds(settings.value.sub_routes))
+const savedPick = computed(() => {
+  const ids = parseIds(JSON.parse(settingsOrig.value).sub_routes)
+  return ids.length ? new Set(ids) : null
+})
+const inSub = computed(() => routes.value.filter((r) => r.enabled && r.in_sub && (!savedPick.value || savedPick.value.has(r.id))))
+const routeOpts = computed(() => {
+  const known = new Set(routes.value.map((r) => r.id))
+  return [
+    ...routes.value.map((r) => {
+      const off = !r.enabled ? '（已停用）' : !r.in_sub ? '（未加入订阅）' : ''
+      return { label: r.name + off, value: r.id, disabled: !!off && !pickedIds.value.includes(r.id) }
+    }),
+    ...pickedIds.value.filter((id) => !known.has(id)).map((id) => ({ label: `已删除的线路 #${id}`, value: id })),
+  ]
+})
 const excluded = computed(() => inSub.value.filter((r) => r.entry_blocked).length)
 const tokenOpts = computed(() => [{ label: '全部设备', value: 0 }, ...tokens.value.map((t) => ({ label: t.name, value: t.id }))])
 const tokenName = (id) => tokens.value.find((t) => t.id === id)?.name || '#' + id
@@ -188,6 +206,11 @@ async function activate(t, v) {
         <div class="field">
           <div class="f-label"><span class="f-name">订阅域名<i v-if="subDirty('sub_url')" class="f-dot" /></span><span class="f-hint">留空用面板地址；可填 CDN 或另一个域名</span></div>
           <div class="f-ctl"><n-input v-model:value="settings.sub_url" placeholder="https://sub.example.com" clearable /></div>
+        </div>
+        <div class="field">
+          <div class="f-label"><span class="f-name">订阅中的线路<i v-if="subDirty('sub_routes')" class="f-dot" /></span><span class="f-hint">不选 = 全部；选了之后，新建的线路要在这里勾选才会下发</span></div>
+          <div class="f-ctl"><n-select multiple clearable filterable placeholder="全部线路" max-tag-count="responsive" aria-label="订阅中的线路"
+            :value="pickedIds" :options="routeOpts" @update:value="(v) => (settings.sub_routes = v.join(','))" /></div>
         </div>
         <div class="field f-bool">
           <div class="f-label"><span class="f-name">移出疑似被封的线路<i v-if="subDirty('sub_exclude_blocked')" class="f-dot" /></span><span class="f-hint">恢复后自动加回</span></div>

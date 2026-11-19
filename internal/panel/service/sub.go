@@ -99,10 +99,33 @@ func nodeFor(r *store.Route, entry, landing *store.Server, ri *store.RealityInbo
 
 func VLESSLink(n sub.Node) string { return sub.Link(n) }
 
+// SubRouteIDs parses sub_routes: the route IDs picked for subscriptions.
+// nil means no picking (every enabled in_sub route goes in).
+func (p *Panel) SubRouteIDs() []uint {
+	spec := strings.TrimSpace(p.St.Get("sub_routes", ""))
+	if spec == "" || spec == "all" {
+		return nil
+	}
+	ids := []uint{}
+	for _, s := range strings.Split(spec, ",") {
+		if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil && n > 0 {
+			ids = append(ids, uint(n))
+		}
+	}
+	return ids
+}
+
 // SubNodes lists the routes that go into subscriptions.
 func (p *Panel) SubNodes() []sub.Node {
 	var rs []store.Route
-	p.St.DB.Where("enabled = ? AND in_sub = ?", true, true).Order("sort, id").Find(&rs)
+	q := p.St.DB.Where("enabled = ? AND in_sub = ?", true, true)
+	if ids := p.SubRouteIDs(); ids != nil {
+		if len(ids) == 0 {
+			return nil
+		}
+		q = q.Where("id IN ?", ids)
+	}
+	q.Order("sort, id").Find(&rs)
 	var svs []store.Server
 	p.St.DB.Find(&svs)
 	byID := map[uint]*store.Server{}
