@@ -5,7 +5,7 @@ import { NButton, NTabs, NTabPane, NSelect, NInput, NInputNumber, NDatePicker, N
 import { api } from '../api'
 import { state, loadServers, on, ui } from '../store'
 import { run, ask } from '../helpers'
-import { bytes, rate, pct, ago, dt, date, daysUntil, flag, dur, carrierLabel } from '../format'
+import { bytes, rate, pct, ago, dt, date, daysUntil, flag, dur, carrierLabel, overallLoss, lossText, lossClass } from '../format'
 import { isMobile } from '../mobile'
 import Chart from '../components/Chart.vue'
 import TaskModal from '../components/TaskModal.vue'
@@ -56,6 +56,13 @@ const bhEmpty = computed(() => {
   return '探测目标已启用，但这台机器近 24 小时没有上报结果。可能刚连上（约 1 分钟出第一轮）；一直没有的话，用 journalctl -u vpsagent 看 Agent 日志。'
 })
 const bhColors = { telecom: '#2f6fd0', unicom: '#b8650a', mobile: '#0f7b45' }
+// Overall 24h loss per carrier (total lost / total sent), only for carriers with data.
+const bhLoss = computed(() => {
+  const { targets, series } = backhaul.value
+  return ['telecom', 'unicom', 'mobile']
+    .map((c) => ({ c, v: overallLoss(targets.filter((t) => t.carrier === c).flatMap((t) => series[t.id] || [])) }))
+    .filter((x) => x.v != null)
+})
 const bhOpt = computed(() => {
   const { targets, series } = backhaul.value
   const buckets = new Map()
@@ -360,6 +367,10 @@ function diffClass(line) {
               <div class="s-head">
                 <h2>回程延迟</h2>
                 <p>近 24 小时到国内三网的延迟中位数。<router-link :to="{ name: 'latency', query: { server: id } }">查看详细</router-link></p>
+                <div v-if="bhOpt && bhLoss.length" class="bh-loss" title="近 24 小时的整体丢包率（总丢包数 / 总发包数）">
+                  <span class="muted">24 小时整体丢包</span>
+                  <span v-for="x in bhLoss" :key="x.c" class="bh-loss-item"><span class="muted">{{ carrierLabel[x.c] }}</span> <b :class="lossClass(x.v)">{{ lossText(x.v) }}</b></span>
+                </div>
               </div>
               <div class="card s-card">
                 <div v-if="!bhOpt" class="empty">还没有探测数据<div class="small muted" style="margin-top: 6px">{{ bhEmpty }}</div></div>
@@ -944,6 +955,11 @@ function diffClass(line) {
 .big { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .big small { font-size: 15px; color: var(--c-muted); font-weight: 500; }
 .bad-text { color: var(--c-danger); }
+.warn-text { color: var(--c-warning); }
+.bh-loss { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; font-size: 13px; }
+.bh-loss > .muted:first-child { flex-basis: 100%; }
+.bh-loss b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.bh-loss b.muted { font-weight: 500; }
 .ctl-row .cur { flex: none; width: 96px; }
 .form-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
 .sub-h { font-size: 14px; margin: 18px 0 8px; }

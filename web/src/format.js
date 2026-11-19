@@ -69,6 +69,23 @@ export async function copy(text) {
   document.body.appendChild(ta); ta.select()
   const ok = document.execCommand('copy'); ta.remove(); return ok
 }
+// Overall packet loss (%) of probe rows over a period. Every row is one round of
+// the same probe_count packets, so total lost / total sent equals the mean of the
+// rows' loss percentages. Hourly rollups (ranges over 2 days) weigh each hour
+// equally. Returns null when there are no rows.
+export function overallLoss(rows) {
+  let sum = 0, n = 0
+  for (const r of rows) { if (r && typeof r.loss === 'number') { sum += r.loss; n++ } }
+  return n ? sum / n : null
+}
+export function lossText(v) {
+  if (v == null) return '—'
+  if (v <= 0) return '0%'
+  if (v < 0.1) return '<0.1%'
+  return `${v >= 10 ? Math.round(v) : v.toFixed(1)}%`
+}
+// Same thresholds as the chart markers: orange 1–20%, red above 20%.
+export const lossClass = (v) => (v == null || v < 1 ? 'muted' : v > 20 ? 'bad-text' : 'warn-text')
 export function latClass(v) {
   if (v == null || v <= 0) return 'off'
   if (v < 120) return 'ok'

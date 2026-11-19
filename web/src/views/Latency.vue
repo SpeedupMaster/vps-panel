@@ -8,7 +8,7 @@ import { NButton, NSelect } from 'naive-ui'
 import { api } from '../api'
 import { state, loadServers, on } from '../store'
 import { run } from '../helpers'
-import { carrierLabel, flag, latClass } from '../format'
+import { carrierLabel, flag, latClass, overallLoss, lossText, lossClass } from '../format'
 import Chart from '../components/Chart.vue'
 import TargetManager from '../components/TargetManager.vue'
 
@@ -97,6 +97,9 @@ function smokeOpt(c) {
   }
 }
 const carriers = computed(() => ['telecom', 'unicom', 'mobile'].filter((c) => enabled.value.some((t) => t.carrier === c)))
+// Overall loss of the selected server per carrier over the selected range.
+const carrierLoss = computed(() => Object.fromEntries(carriers.value.map((c) => [c,
+  overallLoss(enabled.value.filter((t) => t.carrier === c).flatMap((t) => series.value[t.id] || []))])))
 
 // ---- summary: latest per server × carrier ----
 const summary = computed(() => {
@@ -163,7 +166,7 @@ function peerStyle(c) {
           <div class="s-card-head"><span class="legend small"><i class="band" />最小 ~ 最大 <i class="line" />中位数 <i class="pt warn" />丢包 1–20% <i class="pt bad" />丢包 &gt; 20%</span></div>
           <div class="smokes">
             <div v-for="c in carriers" :key="c">
-              <div class="chart-h">{{ carrierLabel[c] }} <span class="muted">· {{ enabled.filter((t) => t.carrier === c).length }} 个目标</span></div>
+              <div class="chart-h">{{ carrierLabel[c] }} <span class="muted">· {{ enabled.filter((t) => t.carrier === c).length }} 个目标</span><template v-if="carrierLoss[c] != null"> <span class="muted">·</span> <span :class="['loss-sum', lossClass(carrierLoss[c])]" title="所选时间范围内的整体丢包率（总丢包数 / 总发包数）">丢包 {{ lossText(carrierLoss[c]) }}</span></template></div>
               <chart :option="smokeOpt(c)" height="170px" />
             </div>
           </div>
@@ -252,6 +255,8 @@ function peerStyle(c) {
 .pt { width: 8px; height: 8px; border-radius: 50%; }
 .pt.warn { background: #d98613; } .pt.bad { background: #b4233a; }
 .warn-text { color: var(--c-warning); }
+.bad-text { color: var(--c-danger); }
+.loss-sum { font-weight: 500; }
 tr.click { cursor: pointer; }
 table.peer { border-collapse: separate; border-spacing: 2px; }
 table.peer th { font-weight: 500; color: var(--c-muted); padding: 4px 6px; text-align: center; }
