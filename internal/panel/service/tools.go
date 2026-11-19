@@ -240,13 +240,20 @@ func toolSummary(tool string, data []byte) string {
 		var cs []struct {
 			Domain string
 			OK     bool
+			CDN    string
 		}
 		_ = json.Unmarshal(data, &cs)
-		n := 0
+		n, cdn := 0, 0
 		for _, c := range cs {
 			if c.OK {
 				n++
 			}
+			if c.CDN != "" {
+				cdn++
+			}
+		}
+		if cdn > 0 {
+			return fmt.Sprintf("%d/%d 个可用，%d 个走 CDN", n, len(cs), cdn)
 		}
 		return fmt.Sprintf("%d/%d 个可用", n, len(cs))
 	}

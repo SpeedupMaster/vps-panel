@@ -554,6 +554,10 @@ type RealityCandidate struct {
 	Redirect  string  `json:"redirect,omitempty"`
 	Handshake float64 `json:"handshake_ms"`
 	Error     string  `json:"error,omitempty"`
+	// CDN in front of the target ("" = none found; the key is always sent so
+	// the UI can tell results from agents without CDN detection apart).
+	CDN   string `json:"cdn"`
+	CDNBy string `json:"cdn_by,omitempty"`
 }
 
 // DefaultRealityCandidates are well-known sites that usually satisfy Reality's
@@ -592,7 +596,11 @@ func RealityScan(ctx context.Context, candidates string, out func(string)) []Rea
 		return res[i].Handshake < res[j].Handshake
 	})
 	for _, r := range res {
-		out(fmt.Sprintf("%-26s ok=%-5v tls13=%-5v h2=%-5v x25519=%-5v %6.1fms %s%s\n", r.Domain, r.OK, r.TLS13, r.H2, r.X25519, r.Handshake, r.Redirect, r.Error))
+		cdn := ""
+		if r.CDN != "" {
+			cdn = " CDN:" + r.CDN + "（" + r.CDNBy + "）"
+		}
+		out(fmt.Sprintf("%-26s ok=%-5v tls13=%-5v h2=%-5v x25519=%-5v %6.1fms %s%s%s\n", r.Domain, r.OK, r.TLS13, r.H2, r.X25519, r.Handshake, r.Redirect, r.Error, cdn))
 	}
 	return res
 }
@@ -628,6 +636,11 @@ func scanOne(ctx context.Context, domain string) RealityCandidate {
 			r.Redirect = "跳转到 " + u.URL.Host
 		}
 	}
-	r.OK = r.TLS13 && r.H2 && r.X25519 && r.Redirect == ""
+	var hdr http.Header
+	if err == nil {
+		hdr = resp.Header
+	}
+	r.CDN, r.CDNBy = detectCDN(ctx, domain, hdr)
+	r.OK = r.TLS13 && r.H2 && r.X25519 && r.Redirect == "" && r.CDN == ""
 	return r
 }

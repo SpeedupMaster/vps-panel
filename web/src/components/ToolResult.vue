@@ -64,6 +64,11 @@ const hopTag = (ip) => hopTags.find(([re]) => re.test(ip))
 // ---------- reality ----------
 const realitySorted = computed(() => [...arr.value].sort((a, b) => (b.ok - a.ok) || (a.handshake_ms || 1e9) - (b.handshake_ms || 1e9)))
 const realityOk = computed(() => arr.value.filter((c) => c.ok).length)
+const realityCdn = computed(() => arr.value.filter((c) => c.cdn).length)
+// Results from agents before CDN detection have no "cdn" key at all.
+const cdnChecked = computed(() => arr.value.some((c) => 'cdn' in c))
+const realityVerdict = (c) => (c.ok ? '可用' : c.cdn ? '走 CDN' : c.redirect ? '有跳转' : '不可用')
+const realityReason = (c) => (c.ok ? '' : c.cdn ? c.cdn_by || '' : c.redirect ? '→ ' + c.redirect.replace(/^跳转到\s*/, '') : c.error || '')
 const hsClass = (v) => (!v ? '' : v < 50 ? 'ok-text' : v < 200 ? '' : 'warn-text')
 
 // ---------- net status ----------
@@ -190,21 +195,34 @@ function sysctlHint(k, v) {
   <div v-else-if="tool === 'reality_scan' && Array.isArray(d)" class="res">
     <div class="sum">
       <span class="small muted">{{ realityOk }} / {{ d.length }} 个可用</span>
+      <span v-if="realityCdn" class="tag warn">{{ realityCdn }} 个走 CDN</span>
       <span v-if="realitySorted[0]?.ok" class="small">推荐 <b class="mono">{{ realitySorted[0].domain }}</b>（握手 {{ Math.round(realitySorted[0].handshake_ms) }} ms）</span>
     </div>
+    <div v-if="!cdnChecked" class="banner warn">这份结果来自旧版 Agent，没有检测目标是否走 CDN。升级 Agent 后重新扫描。</div>
+    <div v-else-if="realityCdn" class="banner warn"><span>
+      Reality 会把未通过认证的连接原样转发给目标站。目标走 CDN 时，扫描器会把这台 VPS 当成该 CDN 的中转 IP，用它访问 CDN 上的其他网站，跑掉 VPS 的流量。
+      <template v-if="!realityOk">默认列表里的大站基本都在 CDN 后面，可以在上方填入自己的候选域名重新扫描，优先选和 VPS 同机房、不走 CDN 的网站。</template>
+    </span></div>
     <div class="table-wrap">
       <table class="plain">
-        <thead><tr><th>目标站</th><th>TLS 1.3</th><th>H2</th><th>X25519</th><th>握手</th><th>结论</th></tr></thead>
+        <thead><tr><th>目标站</th><th title="TLS 1.3、HTTP/2、X25519 三项都要支持">握手特性</th><th>握手</th><th>CDN</th><th>结论</th></tr></thead>
         <tbody>
           <tr v-for="c in realitySorted" :key="c.domain" :class="{ dim: !c.ok }">
             <td class="mono small">{{ c.domain }}</td>
-            <td><span :class="c.tls13 ? 'ok-text' : 'bad-text'">{{ c.tls13 ? '✓' : '✕' }}</span></td>
-            <td><span :class="c.h2 ? 'ok-text' : 'bad-text'">{{ c.h2 ? '✓' : '✕' }}</span></td>
-            <td><span :class="c.x25519 ? 'ok-text' : 'bad-text'">{{ c.x25519 ? '✓' : '✕' }}</span></td>
+            <td class="nowrap feats">
+              <span :class="c.tls13 ? 'ok-text' : 'bad-text'">{{ c.tls13 ? '' : '✕' }}TLS1.3</span>
+              <span :class="c.h2 ? 'ok-text' : 'bad-text'">{{ c.h2 ? '' : '✕' }}H2</span>
+              <span :class="c.x25519 ? 'ok-text' : 'bad-text'">{{ c.x25519 ? '' : '✕' }}X25519</span>
+            </td>
             <td :class="['mono', 'nowrap', hsClass(c.handshake_ms)]">{{ c.handshake_ms ? Math.round(c.handshake_ms) + ' ms' : '—' }}</td>
-            <td>
-              <span :class="['tag', c.ok ? 'ok' : 'bad']">{{ c.ok ? '可用' : c.redirect ? '有跳转' : '不可用' }}</span>
-              <span v-if="!c.ok && (c.redirect || c.error)" class="small muted reason">{{ c.redirect ? '→ ' + c.redirect : c.error }}</span>
+            <td class="nowrap">
+              <span v-if="!('cdn' in c)" class="muted small">未检测</span>
+              <span v-else-if="c.cdn" class="warn-text" :title="c.cdn_by">{{ c.cdn }}</span>
+              <span v-else class="ok-text small">无</span>
+            </td>
+            <td class="verdict">
+              <span :class="['tag', c.ok ? 'ok' : 'bad']">{{ realityVerdict(c) }}</span>
+              <span v-if="realityReason(c)" class="small muted reason" :title="realityReason(c)">{{ realityReason(c) }}</span>
             </td>
           </tr>
         </tbody>
@@ -292,7 +310,9 @@ function sysctlHint(k, v) {
 .h-tag { height: 18px; padding: 0 6px; font-size: 11px; }
 
 table.plain tr.dim td { color: var(--c-muted); }
-.reason { margin-left: 6px; }
+.feats { font-family: var(--mono); font-size: 11px; }
+.feats span + span { margin-left: 6px; }
+.verdict .reason { display: block; margin-top: 3px; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ok-text { color: var(--c-primary); }
 .bad-text { color: var(--c-danger); }
 .warn-text { color: var(--c-warning); }

@@ -72,7 +72,13 @@ async function runIperf() {
   const r = await run(() => api.post('/tools/iperf', { from: server.value, to: iperfTo.value }))
   if (r) startRun('iperf', r.task_id)
 }
-function execSelected() { selected.value === 'iperf' ? runIperf() : runTool(selected.value) }
+// Reality scan: optional own candidate list (comma / space separated); empty = the agent's defaults.
+const realityCands = ref('')
+function execSelected() {
+  if (selected.value === 'iperf') runIperf()
+  else if (selected.value === 'reality_scan') runTool('reality_scan', realityCands.value.trim() ? { candidates: realityCands.value.trim() } : {})
+  else runTool(selected.value)
+}
 // What the result area shows: this page's finished run, or else the last saved result.
 const sel = computed(() => runs.value[selected.value])
 const shown = computed(() => {
@@ -212,6 +218,7 @@ function cronText(c) {
               <h3>{{ toolName(selected) }}</h3><span class="f-hint">{{ sv?.name }}</span>
               <span class="spacer" />
               <n-select v-if="selected === 'iperf'" v-model:value="iperfTo" size="small" :options="serverOpts.filter((o) => o.value !== server)" placeholder="选择对端" style="width: 180px" />
+              <n-input v-if="selected === 'reality_scan'" v-model:value="realityCands" size="small" clearable placeholder="自定义候选域名，逗号分隔；留空用默认列表" style="width: 300px" @keyup.enter="execSelected" />
               <n-button type="primary" size="small" :loading="isRunning(selected)" :disabled="!sv?.online || isRunning(selected)" @click="execSelected">{{ isRunning(selected) ? '执行中' : shown ? '重新执行' : '执行' }}</n-button>
             </div>
             <div class="out-body">
