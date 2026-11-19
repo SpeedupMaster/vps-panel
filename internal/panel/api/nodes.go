@@ -75,6 +75,7 @@ func (a *API) mountNodes(r *gin.Engine, g *gin.RouterGroup) {
 	g.POST("/sub/rotate-all", a.rotateAll)
 
 	r.GET("/s/:token", a.serveSub)
+	r.HEAD("/s/:token", a.serveSub)
 }
 
 // ---------- xray / inbounds ----------
@@ -306,12 +307,16 @@ func (a *API) listSubTokens(c *gin.Context) {
 }
 
 func (a *API) createSubToken(c *gin.Context) {
-	var in struct{ Name, Target string }
+	var in struct {
+		Name   string `json:"name"`
+		Target string `json:"target"`
+		Token  string `json:"token"`
+	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		bad(c, err)
 		return
 	}
-	t, err := a.P.CreateSubToken(in.Name, in.Target)
+	t, err := a.P.CreateSubToken(in.Name, in.Target, in.Token)
 	if err != nil {
 		bad(c, err)
 		return
@@ -322,15 +327,22 @@ func (a *API) createSubToken(c *gin.Context) {
 
 func (a *API) updateSubToken(c *gin.Context) {
 	var in struct {
-		Name    string `json:"name"`
-		Target  string `json:"target_default"`
-		Enabled bool   `json:"enabled"`
+		Name    string  `json:"name"`
+		Target  string  `json:"target_default"`
+		Enabled bool    `json:"enabled"`
+		Token   *string `json:"token"`
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		bad(c, err)
 		return
 	}
-	a.P.St.DB.Model(&store.SubToken{}).Where("id = ?", idParam(c)).Updates(map[string]any{"name": in.Name, "target_default": in.Target, "enabled": in.Enabled})
+	if err := a.P.UpdateSubToken(idParam(c), in.Name, in.Target, in.Enabled, in.Token); err != nil {
+		bad(c, err)
+		return
+	}
+	if in.Token != nil {
+		a.P.Audit("sub", "update_token", in.Name, "更新订阅后缀", c.ClientIP())
+	}
 	ok(c, gin.H{"ok": true})
 }
 
@@ -414,9 +426,13 @@ func (a *API) rotateAll(c *gin.Context) {
 	ok(c, gin.H{"ok": true})
 }
 
-// serveSub is public: /s/{token}?target=mihomo|singbox|base64
+// serveSub is public: /{token} and legacy /s/{token}?target=mihomo|singbox|base64
 func (a *API) serveSub(c *gin.Context) {
-	res, err := a.P.ServeSub(c.Param("token"), c.Query("target"), c.GetHeader("User-Agent"), c.ClientIP())
+	a.serveSubToken(c, c.Param("token"))
+}
+
+func (a *API) serveSubToken(c *gin.Context, token string) {
+	res, err := a.P.ServeSub(token, c.Query("target"), c.GetHeader("User-Agent"), c.ClientIP())
 	switch {
 	case errors.Is(err, service.ErrSubNotFound):
 		c.String(http.StatusNotFound, "not found")
@@ -432,6 +448,12 @@ func (a *API) serveSub(c *gin.Context) {
 		c.Header(k, v)
 	}
 	c.Header("Cache-Control", "no-store")
+	if c.Request.Method == http.MethodHead {
+		c.Header("Content-Type", res.ContentType)
+		c.Header("Content-Length", strconv.Itoa(len(res.Body)))
+		c.Status(http.StatusOK)
+		return
+	}
 	c.Data(http.StatusOK, res.ContentType, res.Body)
 }
 

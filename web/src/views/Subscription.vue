@@ -8,6 +8,7 @@ import { ago, dt, copy } from '../format'
 import QrModal from '../components/QrModal.vue'
 
 const tokens = ref([])
+const subBase = ref('')
 const routes = ref([])
 const settings = ref({})
 const settingsOrig = ref('{}')
@@ -18,12 +19,23 @@ const logs = ref([])
 const logToken = ref(0)
 const templates = ref([])
 const qr = ref({ show: false, text: '', title: '' })
-const adding = ref({ show: false, name: '', target: 'auto' })
+const adding = ref({ show: false, name: '', target: 'auto', token: '' })
+const editing = ref({ show: false, id: 0, name: '', target: 'auto', enabled: true, token: '', origToken: '' })
 
 const targets = [{ label: '自动识别', value: 'auto' }, { label: 'mihomo', value: 'mihomo' }, { label: 'sing-box', value: 'singbox' }, { label: 'Base64（通用）', value: 'base64' }]
 const targetLabel = Object.fromEntries(targets.map((t) => [t.value, t.label]))
+const urlBase = computed(() => (subBase.value || window.location.origin).replace(/\/+$/, ''))
+function randSuffix() {
+  const b = new Uint8Array(24)
+  crypto.getRandomValues(b)
+  return btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
 
-async function loadTokens() { const r = await run(() => api.get('/sub/tokens')); tokens.value = r?.tokens || [] }
+async function loadTokens() {
+  const r = await run(() => api.get('/sub/tokens'))
+  tokens.value = r?.tokens || []
+  subBase.value = r?.base || ''
+}
 async function loadPreview() {
   const r = await run(() => api.get(`/sub/preview?target=${preview.value.target}`))
   if (r) { preview.value.content = r.content; preview.value.nodes = r.nodes }
@@ -85,8 +97,23 @@ const nameExample = computed(() => {
 async function addToken() {
   const a = adding.value
   if (!a.name.trim()) { ui.message.warning('请填写设备名'); return }
-  if (await run(() => api.post('/sub/tokens', { name: a.name.trim(), target: a.target === 'auto' ? '' : a.target }), '已创建')) {
-    adding.value = { show: false, name: '', target: 'auto' }; loadTokens()
+  const body = { name: a.name.trim(), target: a.target === 'auto' ? '' : a.target, token: a.token.trim() }
+  if (await run(() => api.post('/sub/tokens', body), '已创建')) {
+    adding.value = { show: false, name: '', target: 'auto', token: '' }; loadTokens()
+  }
+}
+function openEdit(t) {
+  editing.value = { show: true, id: t.id, name: t.name, target: t.target_default || 'auto', enabled: t.enabled, token: t.token || '', origToken: t.token || '' }
+}
+async function saveEdit() {
+  const e = editing.value
+  if (!e.name.trim()) { ui.message.warning('请填写设备名'); return }
+  const tok = e.token.trim()
+  if (!tok) { ui.message.warning('请填写订阅后缀'); return }
+  const body = { name: e.name.trim(), target_default: e.target === 'auto' ? '' : e.target, enabled: e.enabled }
+  if (tok !== e.origToken) body.token = tok
+  if (await run(() => api.put(`/sub/tokens/${e.id}`, body), '已保存')) {
+    editing.value.show = false; loadTokens()
   }
 }
 async function updateToken(t, patch) {
@@ -108,7 +135,7 @@ async function rotateAll() {
 }
 async function saveSettings() {
   const s = settings.value
-  if (await run(() => api.put('/settings', { ...s, sub_update_hours: String(s.sub_update_hours) }), '已保存')) { settingsOrig.value = JSON.stringify(s); loadPreview() }
+  if (await run(() => api.put('/settings', { ...s, sub_update_hours: String(s.sub_update_hours) }), '已保存')) { settingsOrig.value = JSON.stringify(s); loadPreview(); loadTokens() }
 }
 async function copyPreview() { if (await copy(preview.value.content)) ui.message.success('已复制') }
 
@@ -167,6 +194,7 @@ async function activate(t, v) {
                 <td class="nowrap">
                   <n-button size="tiny" quaternary @click="copyUrl(t)">复制</n-button>
                   <n-button size="tiny" quaternary @click="qr = { show: true, text: t.url, title: t.name }">二维码</n-button>
+                  <n-button size="tiny" quaternary @click="openEdit(t)">编辑</n-button>
                   <n-button size="tiny" quaternary @click="resetToken(t)">重置</n-button>
                   <n-button size="tiny" quaternary type="error" @click="delToken(t)">删除</n-button>
                 </td>
@@ -182,6 +210,7 @@ async function activate(t, v) {
             <div class="row">
               <n-button size="small" type="primary" @click="copyUrl(t)">复制</n-button>
               <n-button size="small" @click="qr = { show: true, text: t.url, title: t.name }">二维码</n-button>
+              <n-button size="small" @click="openEdit(t)">编辑</n-button>
               <n-button size="small" @click="resetToken(t)">重置</n-button>
               <n-button size="small" type="error" quaternary @click="delToken(t)">删除</n-button>
             </div>
@@ -204,7 +233,7 @@ async function activate(t, v) {
           <div class="f-ctl"><n-input v-model:value="settings.sub_profile_name" placeholder="默认 VPS Panel" clearable /></div>
         </div>
         <div class="field">
-          <div class="f-label"><span class="f-name">订阅域名<i v-if="subDirty('sub_url')" class="f-dot" /></span><span class="f-hint">留空用面板地址；可填 CDN 或另一个域名</span></div>
+          <div class="f-label"><span class="f-name">订阅域名<i v-if="subDirty('sub_url')" class="f-dot" /></span><span class="f-hint">留空用面板地址；填写独立域名或 CDN 时需先将该域名解析并反代到面板（独立域名仅提供订阅接口，不暴露后台）</span></div>
           <div class="f-ctl"><n-input v-model:value="settings.sub_url" placeholder="https://sub.example.com" clearable /></div>
         </div>
         <div class="field">
@@ -295,7 +324,7 @@ async function activate(t, v) {
     </div>
     </section>
 
-    <n-modal v-model:show="adding.show" preset="card" title="添加设备" style="width: min(420px, 94vw)">
+    <n-modal v-model:show="adding.show" preset="card" title="添加设备" style="width: min(460px, 94vw)">
       <div class="m-form">
         <div class="field">
           <div class="f-label"><span class="f-name">设备名</span></div>
@@ -305,8 +334,41 @@ async function activate(t, v) {
           <div class="f-label"><span class="f-name">默认格式</span><span class="f-hint">「自动识别」会按客户端 User-Agent 选择格式</span></div>
           <div class="f-ctl"><n-select v-model:value="adding.target" :options="targets" /></div>
         </div>
+        <div class="field stacked">
+          <div class="f-label"><span class="f-name">自定义后缀</span><span class="f-hint">留空自动随机生成；支持字母、数字、-、_ 和 .</span></div>
+          <div class="f-ctl ctl-col">
+            <n-input v-model:value="adding.token" placeholder="留空自动生成，如 my-phone" clearable @keyup.enter="addToken" />
+            <div class="sub-preview mono small">{{ urlBase }}/{{ adding.token.trim() || '&lt;随机后缀&gt;' }}</div>
+            <div v-if="adding.token.trim() && adding.token.trim().length < 8" class="sub-warn small">后缀较短容易被猜到，建议包含不易猜测的字符</div>
+          </div>
+        </div>
       </div>
       <template #footer><div class="m-foot"><n-button @click="adding.show = false">取消</n-button><n-button type="primary" @click="addToken">创建</n-button></div></template>
+    </n-modal>
+
+    <n-modal v-model:show="editing.show" preset="card" title="编辑设备" style="width: min(460px, 94vw)">
+      <div class="m-form">
+        <div class="field">
+          <div class="f-label"><span class="f-name">设备名</span></div>
+          <div class="f-ctl"><n-input v-model:value="editing.name" placeholder="如 iPhone / 笔记本" @keyup.enter="saveEdit" /></div>
+        </div>
+        <div class="field">
+          <div class="f-label"><span class="f-name">默认格式</span><span class="f-hint">「自动识别」会按客户端 User-Agent 选择格式</span></div>
+          <div class="f-ctl"><n-select v-model:value="editing.target" :options="targets" /></div>
+        </div>
+        <div class="field stacked">
+          <div class="f-label"><span class="f-name">订阅后缀</span><span class="f-hint">支持字母、数字、-、_ 和 .；修改后旧链接立即失效</span></div>
+          <div class="f-ctl ctl-col">
+            <div class="ctl-row">
+              <n-input v-model:value="editing.token" placeholder="例如 my-phone" @keyup.enter="saveEdit" />
+              <n-button @click="editing.token = randSuffix()">随机</n-button>
+            </div>
+            <div class="sub-preview mono small">{{ urlBase }}/{{ editing.token.trim() || '…' }}</div>
+            <div v-if="editing.token.trim() && editing.token.trim().length < 8" class="sub-warn small">后缀较短容易被猜到，建议包含不易猜测的字符</div>
+          </div>
+        </div>
+      </div>
+      <template #footer><div class="m-foot"><n-button @click="editing.show = false">取消</n-button><n-button type="primary" @click="saveEdit">保存</n-button></div></template>
     </n-modal>
 
     <n-modal v-model:show="tpl.show" preset="card" :title="tpl.id ? '编辑模板' : '自定义模板'" style="width: min(860px, 96vw)">
@@ -338,6 +400,8 @@ async function activate(t, v) {
 
 <style scoped>
 .url { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub-preview { padding: 6px 10px; border-radius: 4px; background: var(--c-surface); color: var(--c-text-2); overflow-wrap: anywhere; }
+.sub-warn { color: var(--c-warning); line-height: 1.5; }
 .sw { margin-top: 6px; font-size: 13px; }
 .preview { max-height: 520px; min-height: 200px; font-size: 11.5px; }
 .ua { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

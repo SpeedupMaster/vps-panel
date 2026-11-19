@@ -44,6 +44,10 @@ const pwa = VitePWA({
     globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
     maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
     navigateFallback: 'index.html',
+    navigateFallbackAllowlist: [
+      /\/$/,
+      /\/(login|offline|servers(\/.*)?|routes(\/.*)?|topology|latency|subscription|updates|alerts|tools|settings)$/,
+    ],
     navigateFallbackDenylist: [/^\/api\//, /^\/s\//, /^\/dl\//, /^\/install\.sh/, /^\/healthz/, /^\/status/],
     cleanupOutdatedCaches: true,
     clientsClaim: true,

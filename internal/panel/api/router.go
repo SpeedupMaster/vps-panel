@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"html"
 	"io/fs"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -41,6 +42,7 @@ func (a *API) Router() *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
+	r.Use(a.subHostOnly)
 	proxies := a.TrustedProxies
 	if len(proxies) == 0 {
 		proxies = []string{"127.0.0.1", "::1"}
@@ -118,13 +120,61 @@ func (a *API) requireSession(c *gin.Context) {
 	}
 }
 
-// mountSPA serves the embedded UI. With admin_path set, the UI is served
-// only under that prefix.
-func (a *API) mountSPA(r *gin.Engine) {
-	if a.Web == nil {
+func hostOnly(hostport string) string {
+	h := strings.TrimSpace(hostport)
+	if host, _, err := net.SplitHostPort(h); err == nil {
+		return strings.ToLower(host)
+	}
+	return strings.ToLower(strings.Trim(h, "[]"))
+}
+
+// subHostOnly restricts a dedicated subscription domain (sub_url with a host
+// distinct from panel_url) to subscription endpoints only, returning 404 for
+// the panel UI, API, and all other paths.
+func (a *API) subHostOnly(c *gin.Context) {
+	subHost := a.P.SubOnlyHost()
+	if subHost == "" || hostOnly(c.Request.Host) != subHost {
 		return
 	}
-	fileServer := http.FileServer(http.FS(a.Web))
+	if c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead {
+		p := c.Request.URL.Path
+		var tok string
+		if strings.HasPrefix(p, "/s/") {
+			tok = strings.TrimPrefix(p, "/s/")
+		} else {
+			tok = strings.TrimPrefix(p, "/")
+		}
+		if tok != "" && !strings.Contains(tok, "/") {
+			a.serveSubToken(c, tok)
+			c.Abort()
+			return
+		}
+	}
+	c.String(http.StatusNotFound, "not found")
+	c.Abort()
+}
+
+// tryRootSub serves root-level subscription URLs (/<token>) when the path is a
+// single segment matching a stored subscription token.
+func (a *API) tryRootSub(c *gin.Context) bool {
+	if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
+		return false
+	}
+	seg := strings.TrimPrefix(c.Request.URL.Path, "/")
+	if seg == "" || strings.Contains(seg, "/") || !a.P.HasSubToken(seg) {
+		return false
+	}
+	a.serveSubToken(c, seg)
+	return true
+}
+
+// mountSPA serves root-level subscription tokens and the embedded UI. With
+// admin_path set, the UI is served only under that prefix.
+func (a *API) mountSPA(r *gin.Engine) {
+	var fileServer http.Handler
+	if a.Web != nil {
+		fileServer = http.FileServer(http.FS(a.Web))
+	}
 	r.NoRoute(func(c *gin.Context) {
 		path := c.Request.URL.Path
 		if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/s/") {
@@ -133,15 +183,24 @@ func (a *API) mountSPA(r *gin.Engine) {
 		}
 		prefix := "/" + strings.Trim(a.P.St.Get("admin_path", ""), "/")
 		if prefix != "/" {
-			if path == prefix {
+			if path == prefix && a.Web != nil {
 				c.Redirect(http.StatusFound, prefix+"/")
 				return
 			}
 			if !strings.HasPrefix(path, prefix+"/") {
+				if a.tryRootSub(c) {
+					return
+				}
 				c.Status(http.StatusNotFound)
 				return
 			}
 			path = strings.TrimPrefix(path, prefix)
+		} else if a.tryRootSub(c) {
+			return
+		}
+		if a.Web == nil {
+			c.Status(http.StatusNotFound)
+			return
 		}
 		name := strings.TrimPrefix(path, "/")
 		if name == "" {

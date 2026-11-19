@@ -149,7 +149,7 @@ func TestChainConfigAndSubscription(t *testing.T) {
 	}
 
 	// Token serving + stranger detection
-	tok, err := p.CreateSubToken("phone", "")
+	tok, err := p.CreateSubToken("phone", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

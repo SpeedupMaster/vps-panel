@@ -60,7 +60,7 @@
 
 ```text
           浏览器 / PWA / Telegram Bot                   客户端（mihomo / sing-box / v2rayN）
-                      │ HTTPS                                           │ 拉取订阅 (/s/:token)
+                      │ HTTPS                                           │ 拉取订阅 (/:token)
        ┌──────────────▼─────────────────────────────────────────────────▼──────────────┐
        │  vps-panel（建议部署在一台稳定 VPS 上，单端口同时承载 HTTP / WebSocket / gRPC） │
        │  Web UI · REST API · 订阅渲染器 · 告警引擎 · Xray 配置生成器 · 定时任务调度器  │
@@ -110,7 +110,7 @@ VPSPANEL_ADMIN=admin
 TZ=Asia/Shanghai
 ```
 
-> 💡 **独立订阅域名（可选）**：若希望将管理后台与订阅域名分离（订阅域名仅暴露 `/s/*` 路径，其余路径返回 `404`），可取消注释 [`Caddyfile.docker`](deploy/Caddyfile.docker) 中的 `sub.example.com` 配置段并替换为你的订阅域名。
+> 💡 **独立订阅域名（可选）**：若希望将管理后台与订阅域名分离，可取消注释 [`Caddyfile.docker`](deploy/Caddyfile.docker) 中的 `sub.example.com` 配置段并替换为你的订阅域名，同时在面板「订阅 → 订阅域名」中填入 `https://sub.example.com`。面板会自动限制该独立域名仅响应订阅链接，后台页面与 API 一律返回 `404`。
 
 启动服务并查看初始管理员密码：
 
@@ -271,13 +271,13 @@ Agent 首次安装时会将公钥钉死在本地 `/etc/vpsagent/sign.pub`，后�
 
 ### 1. 客户端订阅地址与参数
 
-在面板「订阅」页面创建设备 Token 后，订阅地址格式如下：
+在面板「订阅」页面创建或编辑设备订阅时可自定义链接后缀（留空则自动生成随机后缀），订阅地址格式如下（同时继续兼容旧版 `/s/<token>`）：
 
 ```text
-https://panel.example.com/s/<token>                  # 根据客户端 User-Agent 自动返回对应格式
-https://panel.example.com/s/<token>?target=mihomo    # 强制输出 Clash Meta (mihomo) YAML
-https://panel.example.com/s/<token>?target=singbox   # 强制输出 sing-box JSON
-https://panel.example.com/s/<token>?target=base64    # 强制输出 Base64 通用节点链接
+https://panel.example.com/<自定义后缀>                  # 根据客户端 User-Agent 自动返回对应格式
+https://panel.example.com/<自定义后缀>?target=mihomo    # 强制输出 Clash Meta (mihomo) YAML
+https://panel.example.com/<自定义后缀>?target=singbox   # 强制输出 sing-box JSON
+https://panel.example.com/<自定义后缀>?target=base64    # 强制输出 Base64 通用节点链接
 ```
 
 - 响应头自动附带 `Subscription-Userinfo`（展示流量用量与到期时间）与 `Profile-Update-Interval`。

@@ -224,6 +224,13 @@ func (a *API) putSettings(c *gin.Context) {
 				return
 			}
 		}
+		if k == "admin_path" && strings.Trim(strings.TrimSpace(s), "/") != "" {
+			seg, _, _ := strings.Cut(strings.Trim(strings.TrimSpace(s), "/"), "/")
+			if a.P.HasSubToken(seg) || a.P.HasSubToken(strings.ToLower(seg)) {
+				bad(c, errors.New("后台路径与现有订阅后缀冲突，请更换后台路径或先修改对应设备的订阅后缀"))
+				return
+			}
+		}
 		_ = a.P.St.Set(k, s)
 		changed = append(changed, k)
 	}

@@ -10,12 +10,10 @@
 	}
 }
 
-# Optional separate subscription domain: only /s/* is exposed.
-# Uncomment and replace sub.example.com if you use a dedicated subscription domain.
+# Optional separate subscription domain.
+# Uncomment and replace sub.example.com, then set "订阅域名" to https://sub.example.com in the panel.
+# The panel automatically restricts this host to subscription links (/<token> and legacy /s/<token>)
+# and returns 404 for the admin UI and API.
 # sub.example.com {
-# 	@sub path /s/*
-# 	handle @sub {
-# 		reverse_proxy h2c://panel:8080
-# 	}
-# 	respond 404
+# 	reverse_proxy h2c://panel:8080
 # }

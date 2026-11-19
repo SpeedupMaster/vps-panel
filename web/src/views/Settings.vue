@@ -64,7 +64,7 @@ const groups = {
     { title: '访问', desc: 'Agent、安装命令和订阅链接使用的地址，以及谁能打开面板。', fields: [
       S('panel_url', '面板地址', '', 'Agent 连接和安装命令里使用，例如 https://panel.example.com'),
       S('panel_urls_backup', '备用面板地址', '', '逗号分隔；主地址不可达时 Agent 依次尝试'),
-      S('sub_url', '订阅地址', '', '留空 = 用面板地址；可填 CDN 或另一个域名'),
+      S('sub_url', '订阅地址', '', '留空 = 用面板地址；填写独立域名或 CDN 时需先将其解析并反代到面板（独立域名仅暴露订阅接口）'),
       S('admin_path', '后台路径', '', '例如 /x7k2，留空 = 根路径；改后旧路径返回 404'),
       S('allow_ips', '允许访问的 IP', '', '逗号分隔，支持 CIDR；留空 = 不限制。订阅与 Agent 连接不受影响'),
     ] },
