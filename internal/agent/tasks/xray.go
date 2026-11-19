@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -78,7 +79,10 @@ func registerXray(a *agent.Agent) {
 			return mgr.State(), nil
 		}
 		if err := xraymgr.RestartService(ctx); err != nil {
-			return nil, errors.New(xraymgr.RecentLog(ctx, 10))
+			if logs := xraymgr.RecentLog(ctx, 10); logs != "" {
+				return nil, fmt.Errorf("%v\n%s", err, logs)
+			}
+			return nil, err
 		}
 		out("Xray 已重启\n")
 		return mgr.State(), nil

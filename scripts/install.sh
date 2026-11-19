@@ -161,7 +161,8 @@ ExecStart=/usr/local/bin/vpsagent run
 Restart=always
 RestartSec=3
 LimitNOFILE=65535
-MemoryMax=64M
+MemoryHigh=96M
+MemoryMax=192M
 
 [Install]
 WantedBy=multi-user.target

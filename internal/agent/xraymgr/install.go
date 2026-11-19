@@ -2,7 +2,6 @@ package xraymgr
 
 import (
 	"archive/zip"
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -15,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -49,6 +49,44 @@ func fetch(ctx context.Context, url string, max int64) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(resp.Body, max))
 }
 
+// fetchToFile streams url to dst while computing its SHA-256 digest, avoiding
+// holding multi-megabyte archives in memory under tight cgroup limits.
+func fetchToFile(ctx context.Context, url, dst string, max int64, mode os.FileMode) (string, int64, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", 0, err
+	}
+	req.Header.Set("User-Agent", "vpsagent")
+	resp, err := (&http.Client{Timeout: 5 * time.Minute}).Do(req)
+	if err != nil {
+		return "", 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", 0, fmt.Errorf("%s 返回 %d", url, resp.StatusCode)
+	}
+	f, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+	if err != nil {
+		return "", 0, err
+	}
+	h := sha256.New()
+	n, copyErr := io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, max+1))
+	closeErr := f.Close()
+	if copyErr != nil {
+		_ = os.Remove(dst)
+		return "", 0, copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(dst)
+		return "", 0, closeErr
+	}
+	if n > max {
+		_ = os.Remove(dst)
+		return "", 0, fmt.Errorf("%s 超过大小限制", url)
+	}
+	return hex.EncodeToString(h.Sum(nil)), n, nil
+}
+
 // LatestVersion asks GitHub for the newest Xray release tag (without "v").
 func LatestVersion(ctx context.Context) (string, error) {
 	b, err := fetch(ctx, "https://api.github.com/repos/XTLS/Xray-core/releases/latest", 1<<20)
@@ -78,30 +116,51 @@ func (s Source) url(file string) string {
 	return fmt.Sprintf("https://github.com/XTLS/Xray-core/releases/download/v%s/%s", s.Version, file)
 }
 
-// download fetches and verifies the release zip against its .dgst file.
-func download(ctx context.Context, src Source, out func(string)) (*zip.Reader, error) {
+// download streams the release zip to a temporary file and verifies it against
+// its .dgst file before opening the archive from disk.
+func download(ctx context.Context, src Source, out func(string)) (*zip.ReadCloser, func(), error) {
 	name := assetName()
 	out("下载 " + src.url(name) + "\n")
-	data, err := fetch(ctx, src.url(name), 200<<20)
+	f, err := os.CreateTemp("", "xray-*.zip")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	tmpPath := f.Name()
+	f.Close()
+	sumHex, _, err := fetchToFile(ctx, src.url(name), tmpPath, 200<<20, 0o600)
+	if err != nil {
+		_ = os.Remove(tmpPath)
+		return nil, nil, err
 	}
 	dg, err := fetch(ctx, src.url(name+".dgst"), 1<<16)
 	if err != nil {
-		return nil, fmt.Errorf("下载校验文件失败：%w", err)
+		_ = os.Remove(tmpPath)
+		return nil, nil, fmt.Errorf("下载校验文件失败：%w", err)
 	}
-	sum := sha256.Sum256(data)
 	want := ""
 	for _, l := range strings.Split(string(dg), "\n") {
 		if k, v, ok := strings.Cut(l, "="); ok && strings.TrimSpace(k) == "SHA2-256" {
 			want = strings.TrimSpace(v)
 		}
 	}
-	if want == "" || !strings.EqualFold(want, hex.EncodeToString(sum[:])) {
-		return nil, errors.New(".dgst 校验失败")
+	if want == "" || !strings.EqualFold(want, sumHex) {
+		_ = os.Remove(tmpPath)
+		return nil, nil, errors.New(".dgst 校验失败")
 	}
 	out("SHA2-256 校验通过\n")
-	return zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	zr, err := zip.OpenReader(tmpPath)
+	if err != nil {
+		_ = os.Remove(tmpPath)
+		return nil, nil, err
+	}
+	var once sync.Once
+	cleanup := func() {
+		once.Do(func() {
+			_ = zr.Close()
+			_ = os.Remove(tmpPath)
+		})
+	}
+	return zr, cleanup, nil
 }
 
 func extract(zr *zip.Reader, name, dst string, mode os.FileMode) error {
@@ -121,9 +180,13 @@ func extract(zr *zip.Reader, name, dst string, mode os.FileMode) error {
 		}
 		if _, err := io.Copy(w, io.LimitReader(rc, 300<<20)); err != nil {
 			w.Close()
+			_ = os.Remove(tmp)
 			return err
 		}
-		w.Close()
+		if err := w.Close(); err != nil {
+			_ = os.Remove(tmp)
+			return err
+		}
 		return os.Rename(tmp, dst)
 	}
 	return fmt.Errorf("压缩包里没有 %s", name)
@@ -141,21 +204,23 @@ func (m *Manager) Install(ctx context.Context, src Source, out func(string)) err
 		}
 		src.Version = v
 	}
-	zr, err := download(ctx, src, out)
+	zr, cleanup, err := download(ctx, src, out)
 	if err != nil {
 		return err
 	}
+	defer cleanup()
 	for _, d := range []string{filepath.Dir(Bin), ConfDir, AssetDir} {
 		_ = os.MkdirAll(d, 0o755)
 	}
-	if err := extract(zr, "xray", Bin, 0o755); err != nil {
+	if err := extract(&zr.Reader, "xray", Bin, 0o755); err != nil {
 		return err
 	}
 	for _, f := range []string{"geoip.dat", "geosite.dat"} {
-		if err := extract(zr, f, filepath.Join(AssetDir, f), 0o644); err != nil {
+		if err := extract(&zr.Reader, f, filepath.Join(AssetDir, f), 0o644); err != nil {
 			out("警告：" + err.Error() + "\n")
 		}
 	}
+	cleanup()
 	if _, err := os.Stat(confPath()); err != nil {
 		placeholder := fmt.Sprintf(`{"log":{"loglevel":"warning"},"api":{"tag":"api","services":["HandlerService","StatsService"]},"stats":{},"policy":{"levels":{"0":{"statsUserUplink":true,"statsUserDownlink":true}},"system":{"statsInboundUplink":true,"statsInboundDownlink":true,"statsOutboundUplink":true,"statsOutboundDownlink":true}},"inbounds":[{"tag":"api","listen":"127.0.0.1","port":%s,"protocol":"dokodemo-door","settings":{"address":"127.0.0.1"}}],"outbounds":[{"tag":"direct","protocol":"freedom"}],"routing":{"rules":[{"inboundTag":["api"],"outboundTag":"api"}]}}`,
 			APIAddr[strings.LastIndex(APIAddr, ":")+1:])
@@ -164,8 +229,8 @@ func (m *Manager) Install(ctx context.Context, src Source, out func(string)) err
 	if err := installService(); err != nil {
 		return fmt.Errorf("注册服务失败：%w", err)
 	}
-	if err := RestartService(ctx); err != nil {
-		return fmt.Errorf("启动失败：%s", RecentLog(ctx, 10))
+	if err := RestartService(ctx); err != nil || !waitActive(ctx, 4*time.Second) {
+		return fmt.Errorf("启动失败：%s", startErrDetail(ctx, err))
 	}
 	m.mu.Lock()
 	m.version = ""
@@ -179,7 +244,7 @@ func (m *Manager) Install(ctx context.Context, src Source, out func(string)) err
 func (m *Manager) Update(ctx context.Context, src Source, out func(string)) error {
 	m.busy.Lock()
 	defer m.busy.Unlock()
-	if !Installed() {
+	if _, err := os.Stat(Bin); err != nil {
 		return errors.New("Xray 未安装")
 	}
 	if src.Version == "" || src.Version == "latest" {
@@ -194,19 +259,25 @@ func (m *Manager) Update(ctx context.Context, src Source, out func(string)) erro
 		out("已经是 " + old + "\n")
 		return nil
 	}
-	zr, err := download(ctx, src, out)
+	zr, cleanup, err := download(ctx, src, out)
 	if err != nil {
 		return err
 	}
+	defer cleanup()
 	newBin := Bin + ".new"
-	if err := extract(zr, "xray", newBin, 0o755); err != nil {
+	if err := extract(&zr.Reader, "xray", newBin, 0o755); err != nil {
 		return err
 	}
+	cleanup()
 	out("用新版本校验现有配置\n")
 	s, terr := m.test(ctx, newBin, confPath())
 	if terr != nil {
 		os.Remove(newBin)
 		return fmt.Errorf("新版本不兼容当前配置，未更新：%s", lastLines(s, 6))
+	}
+	if err := ensureService(); err != nil {
+		os.Remove(newBin)
+		return fmt.Errorf("注册服务失败：%w", err)
 	}
 	backup := Bin + ".old"
 	_ = os.Rename(Bin, backup)
@@ -219,9 +290,10 @@ func (m *Manager) Update(ctx context.Context, src Source, out func(string)) erro
 	m.mu.Unlock()
 	if err := RestartService(ctx); err != nil || !waitActive(ctx, 5*time.Second) {
 		out("新版本启动失败，回滚到 " + old + "\n")
+		detail := startErrDetail(ctx, err)
 		_ = os.Rename(backup, Bin)
 		_ = RestartService(ctx)
-		return errors.New("健康检查失败，已回滚")
+		return fmt.Errorf("健康检查失败，已回滚：%s", detail)
 	}
 	out(fmt.Sprintf("Xray %s → %s\n", old, m.Version()))
 	return nil
@@ -262,29 +334,35 @@ func (m *Manager) UpdateGeo(ctx context.Context, source string, out func(string)
 	}
 	names := []string{"geoip.dat", "geosite.dat"}
 	var backups []string
-	for i, u := range urls {
-		data, err := fetch(ctx, u, 100<<20)
-		if err != nil {
-			return err
-		}
-		if sumFile, err := fetch(ctx, u+".sha256sum", 4096); err == nil {
-			sum := sha256.Sum256(data)
-			if f := strings.Fields(string(sumFile)); len(f) == 0 || !strings.EqualFold(f[0], hex.EncodeToString(sum[:])) {
-				return fmt.Errorf("%s 校验失败", names[i])
-			}
-		}
-		dst := filepath.Join(AssetDir, names[i])
-		_ = os.Rename(dst, dst+".bak")
-		backups = append(backups, dst)
-		if err := os.WriteFile(dst, data, 0o644); err != nil {
-			return err
-		}
-		out(fmt.Sprintf("%s %.1f MB\n", names[i], float64(len(data))/1e6))
-	}
 	restore := func() {
 		for _, b := range backups {
 			_ = os.Rename(b+".bak", b)
 		}
+	}
+	_ = os.MkdirAll(AssetDir, 0o755)
+	for i, u := range urls {
+		dst := filepath.Join(AssetDir, names[i])
+		tmp := dst + ".new"
+		sumHex, size, err := fetchToFile(ctx, u, tmp, 100<<20, 0o644)
+		if err != nil {
+			restore()
+			return err
+		}
+		if sumFile, err := fetch(ctx, u+".sha256sum", 4096); err == nil {
+			if f := strings.Fields(string(sumFile)); len(f) == 0 || !strings.EqualFold(f[0], sumHex) {
+				_ = os.Remove(tmp)
+				restore()
+				return fmt.Errorf("%s 校验失败", names[i])
+			}
+		}
+		_ = os.Rename(dst, dst+".bak")
+		backups = append(backups, dst)
+		if err := os.Rename(tmp, dst); err != nil {
+			_ = os.Remove(tmp)
+			restore()
+			return err
+		}
+		out(fmt.Sprintf("%s %.1f MB\n", names[i], float64(size)/1e6))
 	}
 	if s, err := m.test(ctx, Bin, confPath()); err != nil {
 		restore()
@@ -292,9 +370,10 @@ func (m *Manager) UpdateGeo(ctx context.Context, source string, out func(string)
 	}
 	if ServiceActive() {
 		if err := RestartService(ctx); err != nil || !waitActive(ctx, 5*time.Second) {
+			detail := startErrDetail(ctx, err)
 			restore()
 			_ = RestartService(ctx)
-			return errors.New("重启失败，已还原规则文件")
+			return fmt.Errorf("重启失败，已还原规则文件：%s", detail)
 		}
 	}
 	out("规则文件已更新\n")

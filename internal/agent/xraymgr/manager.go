@@ -72,7 +72,7 @@ func hashBytes(b []byte) string { return xrayconf.Hash(b) }
 
 func Installed() bool {
 	_, err := os.Stat(Bin)
-	return err == nil
+	return err == nil && serviceInstalled()
 }
 
 // Version returns e.g. "25.10.15", cached until the binary changes.
@@ -186,7 +186,7 @@ func (m *Manager) test(ctx context.Context, bin, path string) (string, error) {
 func (m *Manager) Apply(ctx context.Context, ac *proto.ApplyConfig, out func(string)) error {
 	m.busy.Lock()
 	defer m.busy.Unlock()
-	if !Installed() {
+	if _, err := os.Stat(Bin); err != nil {
 		return errors.New("Xray 未安装")
 	}
 	if ac.Firewall != nil {
@@ -229,15 +229,18 @@ func (m *Manager) Apply(ctx context.Context, ac *proto.ApplyConfig, out func(str
 	if err := os.Rename(tmp, confPath()); err != nil {
 		return err
 	}
+	if err := ensureService(); err != nil {
+		return fmt.Errorf("注册服务失败：%w", err)
+	}
 	out("重启 Xray\n")
 	if err := RestartService(ctx); err != nil || !waitActive(ctx, 4*time.Second) {
 		out("Xray 启动失败，回滚到上一份配置\n")
-		logs := RecentLog(ctx, 15)
+		detail := startErrDetail(ctx, err)
 		if len(cur) > 0 {
 			_ = os.WriteFile(confPath(), cur, 0o600)
 			_ = RestartService(ctx)
 		}
-		return fmt.Errorf("新配置启动失败，已回滚：%s", logs)
+		return fmt.Errorf("新配置启动失败，已回滚：%s", detail)
 	}
 	m.saveState(hashBytes(cfg), ac.Version)
 	out(fmt.Sprintf("已应用配置 v%d\n", ac.Version))
