@@ -86,6 +86,7 @@ function applyEvent(t, d) {
     if (!s) return
     if (d.status) { s.status = d.status; s.online = d.status === 'online' }
     if (d.blocked !== undefined) s.blocked = d.blocked
+    if (d.system) s.system = d.system
   } else if (t === 'alert') {
     refreshAlertCount()
   }

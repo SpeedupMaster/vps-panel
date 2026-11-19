@@ -1,12 +1,14 @@
 package tasks
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,6 +18,9 @@ import (
 )
 
 const sysctlFile = "/etc/sysctl.d/99-vpspanel.conf"
+
+// bbrModulesConf loads tcp_bbr at boot when we had to load it ourselves.
+const bbrModulesConf = "/etc/modules-load.d/vpspanel-bbr.conf"
 
 func sysctlPath(key string) string {
 	return "/proc/sys/" + strings.ReplaceAll(key, ".", "/")
@@ -111,11 +116,56 @@ func bufferSize(profile string, bwMbps, rttMs float64) int {
 type TuneResult struct {
 	Diff    []string `json:"diff"`
 	Applied bool     `json:"applied"`
+	// Status is the state afterwards, so the panel can refresh what it shows.
+	Status *NetInfo `json:"status,omitempty"`
+}
+
+func bbrAvailable() bool {
+	return slices.Contains(strings.Fields(readSysctl("net.ipv4.tcp_available_congestion_control")), "bbr")
+}
+
+// ensureBBR makes the bbr congestion control available. The available list
+// only names loaded algorithms, so "reno cubic" usually just means tcp_bbr is
+// a module nobody loaded yet; some minimal images ship it in an extra package.
+func ensureBBR(ctx context.Context, out func(string)) error {
+	if bbrAvailable() {
+		return nil
+	}
+	load := func() bool { return exec.CommandContext(ctx, "modprobe", "tcp_bbr").Run() == nil && bbrAvailable() }
+	out("BBR 未加载，加载 tcp_bbr 模块\n")
+	if !load() {
+		rel := readFirst("/proc/sys/kernel/osrelease")
+		var cmds [][]string
+		switch {
+		case have("apt-get"):
+			cmds = [][]string{{"apt-get", "update", "-qq"}, {"apt-get", "install", "-y", "-qq", "linux-modules-" + rel}, {"apt-get", "install", "-y", "-qq", "linux-modules-extra-" + rel}}
+		case have("dnf"):
+			cmds = [][]string{{"dnf", "install", "-y", "-q", "kernel-modules-" + rel}, {"dnf", "install", "-y", "-q", "kernel-modules-extra-" + rel}}
+		case have("yum"):
+			cmds = [][]string{{"yum", "install", "-y", "-q", "kernel-modules-" + rel}, {"yum", "install", "-y", "-q", "kernel-modules-extra-" + rel}}
+		}
+		for _, c := range cmds {
+			if c[1] != "install" {
+				_ = exec.CommandContext(ctx, c[0], c[1:]...).Run()
+				continue
+			}
+			out("内核里没有 tcp_bbr，安装 " + c[len(c)-1] + "\n")
+			if exec.CommandContext(ctx, c[0], c[1:]...).Run() == nil && load() {
+				break
+			}
+		}
+		if !bbrAvailable() {
+			return fmt.Errorf("当前内核 %s 没有 BBR 模块，也没能装上。需要换成带 BBR 的内核并重启后再优化；本次没有修改任何参数", rel)
+		}
+	}
+	_ = os.WriteFile(bbrModulesConf, []byte("tcp_bbr\n"), 0o644)
+	out("BBR 已可用\n")
+	return nil
 }
 
 // TuneNet enables BBR + fq and sizes TCP buffers. The previous values are
 // saved once so RestoreNet can put them back.
-func TuneNet(profile, bw, rtt string, dryRun bool, out func(string)) (*TuneResult, error) {
+func TuneNet(ctx context.Context, profile, bw, rtt string, dryRun bool, out func(string)) (*TuneResult, error) {
 	st := NetStatus()
 	if !st.Supported {
 		return nil, errors.New(st.Reason)
@@ -150,11 +200,15 @@ func TuneNet(profile, bw, rtt string, dryRun bool, out func(string)) (*TuneResul
 		}
 	}
 	if dryRun {
+		if !bbrAvailable() {
+			out("BBR 尚未加载，应用时会先加载 tcp_bbr 模块，内核里没有时尝试安装\n")
+		}
 		return res, nil
 	}
-	if !strings.Contains(st.Available, "bbr") {
-		out("加载 tcp_bbr 模块\n")
-		_ = exec.Command("modprobe", "tcp_bbr").Run()
+	// Nothing is changed unless BBR can actually be switched on.
+	if err := ensureBBR(ctx, out); err != nil {
+		res.Status = NetStatus()
+		return res, err
 	}
 	backup := filepath.Join(config.DataDir, "sysctl-backup.json")
 	if _, err := os.Stat(backup); errors.Is(err, os.ErrNotExist) {
@@ -176,7 +230,8 @@ func TuneNet(profile, bw, rtt string, dryRun bool, out func(string)) (*TuneResul
 		return nil, err
 	}
 	out("已写入 " + sysctlFile + "\n")
-	if got := readSysctl("net.ipv4.tcp_congestion_control"); got != "bbr" {
+	res.Status = NetStatus()
+	if got := res.Status.Congestion; got != "bbr" {
 		return res, fmt.Errorf("拥塞控制仍为 %s，内核可能未编译 BBR", got)
 	}
 	res.Applied = true
@@ -202,6 +257,7 @@ func RestoreNet(out func(string)) (any, error) {
 		}
 	}
 	_ = os.Remove(sysctlFile)
+	_ = os.Remove(bbrModulesConf)
 	_ = os.Remove(backup)
 	out("已还原并删除 " + sysctlFile + "\n")
 	return NetStatus(), nil

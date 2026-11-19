@@ -63,6 +63,8 @@ async function onDone(tool, status) {
   if (runs.value[tool]?.task !== task) return
   runs.value = { ...runs.value, [tool]: { ...cur, status, data: t?.data ?? null } }
   if (status === 'success' || status === 'finished') loadLatest()
+  // Congestion control / qdisc changed: pick up the panel's refreshed system info.
+  if (['tune_net', 'restore_net', 'net_status'].includes(tool)) loadServers().catch(() => {})
 }
 const toolName = (id) => toolDefs.find((t) => t.id === id)?.name || { tune_net: '网络优化', restore_net: '还原网络参数' }[id] || id
 const iperfTo = ref(null)
@@ -92,7 +94,10 @@ const shown = computed(() => {
 // ---------- bbr ----------
 const bbrTool = ref('tune_net')
 const bbrRun = computed(() => runs.value[bbrTool.value])
-const tune = ref({ profile: 'balanced', bandwidth_mbps: 1000 })
+const tune = ref({ profile: 'balanced', bandwidth_mbps: null })
+// Start from the port speed set on the server page; empty falls back to 1000.
+watch(() => [server.value, sv.value?.bandwidth_mbps], () => { tune.value.bandwidth_mbps = sv.value?.bandwidth_mbps || null }, { immediate: true })
+const bbrLoaded = computed(() => (sv.value?.system?.avail_cc || '').split(/\s+/).includes('bbr'))
 const profiles = [{ label: '保守', value: 'conservative' }, { label: '均衡', value: 'balanced' }, { label: '激进', value: 'aggressive' }]
 function tuneArgs(dry) { return { profile: tune.value.profile, bandwidth_mbps: String(tune.value.bandwidth_mbps || 1000), dry_run: dry ? '1' : '0' } }
 async function previewTune() { bbrTool.value = 'tune_net'; await runTool('tune_net', tuneArgs(true)) }
@@ -246,17 +251,23 @@ function cronText(c) {
             <div v-if="sv && !sv.switches?.allow_system_tune" class="banner warn">此机器的 Agent 关闭了系统调优：在 VPS 上执行 <code class="mono">vpsagent config set allow_system_tune true</code> 后重启 Agent。</div>
             <div v-else-if="sv?.system?.virt && ['openvz', 'lxc'].includes(sv.system.virt)" class="banner warn">此机器是 {{ sv.system.virt }} 容器，无法修改拥塞控制。</div>
             <div class="field f-inline">
-              <div class="f-label"><span class="f-name">当前</span><span class="f-hint">可用：{{ sv?.system?.avail_cc || '—' }}</span></div>
-              <div class="f-ctl"><span class="mono">{{ sv?.system?.congestion || '—' }} · {{ sv?.system?.qdisc || '—' }}</span></div>
+              <div class="f-label">
+                <span class="f-name">当前</span>
+                <span class="f-hint">已加载：{{ sv?.system?.avail_cc || '—' }}<template v-if="sv?.system?.avail_cc && !bbrLoaded"><span class="warn-text"> · BBR 未加载</span>，应用优化时会先加载 tcp_bbr 模块，内核里没有时自动安装</template></span>
+              </div>
+              <div class="f-ctl"><span :class="['mono', sv?.system?.congestion === 'bbr' ? 'ok-text' : '']">{{ sv?.system?.congestion || '—' }} · {{ sv?.system?.qdisc || '—' }}</span></div>
             </div>
             <div class="field">
               <div class="f-label"><span class="f-name">档位</span><span class="f-hint">TCP 缓冲区上限：保守为带宽时延积的 1 倍，均衡 2 倍，激进 4 倍</span></div>
               <div class="f-ctl"><n-radio-group v-model:value="tune.profile" class="seg"><n-radio-button v-for="p in profiles" :key="p.value" :value="p.value">{{ p.label }}</n-radio-button></n-radio-group></div>
             </div>
             <div class="field">
-              <div class="f-label"><span class="f-name">带宽</span><span class="f-hint">缓冲区按 带宽 × 回程 RTT 计算，RTT 自动取这台机器的回程延迟</span></div>
+              <div class="f-label">
+                <span class="f-name">带宽</span>
+                <span class="f-hint">缓冲区按 带宽 × 回程 RTT 计算，RTT 自动取这台机器的回程延迟。<template v-if="sv?.bandwidth_mbps">已填入服务器设置的 {{ sv.bandwidth_mbps }} Mbps</template><template v-else-if="sv">这台服务器没设置带宽，按 1000 Mbps 算；可在<router-link :to="`/servers/${sv.id}`">服务器详情</router-link>里设置</template></span>
+              </div>
               <div class="f-ctl">
-                <n-input-number v-model:value="tune.bandwidth_mbps" :min="10" :max="100000" :step="100" :show-button="false" placeholder="默认 1000">
+                <n-input-number v-model:value="tune.bandwidth_mbps" :min="10" :max="100000" :step="100" :show-button="false" placeholder="1000">
                   <template #suffix><span class="f-unit">Mbps</span></template>
                 </n-input-number>
               </div>
@@ -432,6 +443,9 @@ function cronText(c) {
 </template>
 
 <style scoped>
+.ok-text { color: var(--c-primary); }
+.warn-text { color: var(--c-warning); }
+.f-hint a { color: var(--c-primary); }
 .tools-grid { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; }
 .tool-list { display: flex; flex-direction: column; gap: 8px; }
 .tool { text-align: left; font: inherit; color: inherit; background: #fff; border: 1px solid var(--c-border); border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 3px; cursor: pointer; }

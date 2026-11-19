@@ -30,7 +30,7 @@ var Tools = map[string]struct {
 	"speedtest":     {proto.TaskSpeedtest, 180, false, true},
 	"reality_scan":  {proto.TaskRealityScan, 180, false, true},
 	"net_status":    {proto.TaskNetStatus, 30, false, false},
-	"tune_net":      {proto.TaskTuneNet, 120, false, true},
+	"tune_net":      {proto.TaskTuneNet, 300, false, true},
 	"restore_net":   {proto.TaskRestoreNet, 60, false, false},
 	"xray_log":      {proto.TaskXrayLog, 30, true, false},
 	"restart_xray":  {proto.TaskRestartXray, 60, true, false},
@@ -104,8 +104,43 @@ func (p *Panel) RunIperf(from, to uint) (uint64, error) {
 	return t.ID, nil
 }
 
+// syncNetState copies the congestion control / qdisc reported by a network
+// task into the server's system info. That info otherwise only refreshes
+// when the agent reconnects, so the tools page kept showing the old values.
+func (p *Panel) syncNetState(t *store.Task, r *proto.TaskResult) {
+	if t.Type != proto.TaskTuneNet && t.Type != proto.TaskRestoreNet && t.Type != proto.TaskNetStatus || r.Data == nil {
+		return
+	}
+	type netState struct{ Congestion, Qdisc, Available string }
+	var d struct {
+		netState
+		Status *netState `json:"status"`
+	}
+	b, _ := json.Marshal(r.Data)
+	if json.Unmarshal(b, &d) != nil {
+		return
+	}
+	ns := d.netState
+	if d.Status != nil {
+		ns = *d.Status
+	}
+	if ns.Congestion == "" {
+		return
+	}
+	var sv store.Server
+	if p.St.DB.First(&sv, t.ServerID).Error != nil {
+		return
+	}
+	sys := SystemInfo(&sv)
+	sys.Congestion, sys.Qdisc, sys.AvailCC = ns.Congestion, ns.Qdisc, ns.Available
+	sj, _ := json.Marshal(sys)
+	p.St.DB.Model(&sv).Update("system_json", string(sj))
+	p.Bus.Publish("server", map[string]any{"id": sv.ID, "system": sys})
+}
+
 // afterToolTask keeps finished tool results for the tools page / route wizard.
 func (p *Panel) afterToolTask(t *store.Task, r *proto.TaskResult) {
+	p.syncNetState(t, r)
 	var tool string
 	for name, def := range Tools {
 		if def.Task == t.Type && def.Save {

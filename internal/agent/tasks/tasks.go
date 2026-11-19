@@ -37,7 +37,7 @@ func Register(a *agent.Agent) {
 		if !a.Local.Switches.AllowSystemTune {
 			return nil, errors.New("本机 agent.yaml 中 allow_system_tune 为 false")
 		}
-		return TuneNet(t.Args["profile"], t.Args["bandwidth_mbps"], t.Args["rtt_ms"], t.Args["dry_run"] == "1", out)
+		return TuneNet(ctx, t.Args["profile"], t.Args["bandwidth_mbps"], t.Args["rtt_ms"], t.Args["dry_run"] == "1", out)
 	}
 	a.Tasks[proto.TaskRestoreNet] = func(ctx context.Context, t *proto.Task, out func(string)) (any, error) {
 		if !a.Local.Switches.AllowSystemTune {
