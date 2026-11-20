@@ -404,4 +404,24 @@ func TestSubTokenPerLinkRoutesAPI(t *testing.T) {
 	if !strings.Contains(string(dec), r1.UUID) || !strings.Contains(string(dec), r2.UUID) {
 		t.Fatalf("after clear decoded = %q, want both r1 and r2", string(dec))
 	}
+
+	// Custom Chinese profile name propagates to both Profile-Title and Content-Disposition.
+	w = doReq(r, http.MethodPut, "/api/settings", "panel.example.com", sid, map[string]any{
+		"sub_profile_name": "加速师",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("PUT /api/settings sub_profile_name = %d %s", w.Code, w.Body.String())
+	}
+	w = doReq(r, http.MethodHead, "/hk-only?target=mihomo", "panel.example.com", "", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("HEAD /hk-only = %d", w.Code)
+	}
+	wantTitle := "base64:" + base64.StdEncoding.EncodeToString([]byte("加速师"))
+	if got := w.Header().Get("Profile-Title"); got != wantTitle {
+		t.Fatalf("Profile-Title = %q, want %q", got, wantTitle)
+	}
+	wantCD := `attachment; filename="%E5%8A%A0%E9%80%9F%E5%B8%88"; filename*=UTF-8''%E5%8A%A0%E9%80%9F%E5%B8%88`
+	if got := w.Header().Get("Content-Disposition"); got != wantCD {
+		t.Fatalf("Content-Disposition = %q, want %q", got, wantCD)
+	}
 }

@@ -276,7 +276,7 @@ async function activate(t, v) {
           <div class="f-ctl"><n-input v-model:value="settings.sub_name_tpl" placeholder="默认 {flag} {name}" /></div>
         </div>
         <div class="field">
-          <div class="f-label"><span class="f-name">配置名称<i v-if="subDirty('sub_profile_name')" class="f-dot" /></span><span class="f-hint">客户端里显示的订阅名称</span></div>
+          <div class="f-label"><span class="f-name">配置名称<i v-if="subDirty('sub_profile_name')" class="f-dot" /></span><span class="f-hint">客户端里显示的订阅名称（部分客户端仅在首次导入时读取）</span></div>
           <div class="f-ctl"><n-input v-model:value="settings.sub_profile_name" placeholder="默认 VPS Panel" clearable /></div>
         </div>
         <div class="field">
@@ -301,7 +301,7 @@ async function activate(t, v) {
           <div class="f-ctl"><n-select v-model:value="settings.sub_update_hours" :options="hours" /></div>
         </div>
         <div class="field">
-          <div class="f-label"><span class="f-name">流量信息<i v-if="subDirty('sub_userinfo')" class="f-dot" /></span><span class="f-hint">客户端显示的已用流量与额度（subscription-userinfo）；选「仅订阅中的节点服务器」时按各设备实际订阅的线路统计</span></div>
+          <div class="f-label"><span class="f-name">流量信息<i v-if="subDirty('sub_userinfo')" class="f-dot" /></span><span class="f-hint">客户端显示的已用流量与额度（subscription-userinfo）；指定线路后默认也会按所选线路对应的节点服务器统计</span></div>
           <div class="f-ctl"><n-select v-model:value="settings.sub_userinfo" :options="userinfoOpts" /></div>
         </div>
         <div class="f-actions">

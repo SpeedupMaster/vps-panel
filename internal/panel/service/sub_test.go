@@ -314,8 +314,9 @@ func TestSubTokenPerLinkRoutes(t *testing.T) {
 	}
 
 	// Restrict global sub_routes to r2 only: tGlobal follows global (r2), tCustom overrides (r1, r3).
+	// Even under default sub_userinfo ("all"), route selection scopes userinfo to those routes' servers.
 	_ = p.St.Set("sub_routes", strconv.FormatUint(uint64(r2.ID), 10))
-	_ = p.St.Set("sub_userinfo", "sub")
+	_ = p.St.Set("sub_userinfo", "all")
 
 	decodeBase64 := func(b []byte) string {
 		dec, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(b)))
@@ -333,10 +334,21 @@ func TestSubTokenPerLinkRoutes(t *testing.T) {
 	if !strings.Contains(bodyGlobal, r2.UUID) || strings.Contains(bodyGlobal, r1.UUID) || strings.Contains(bodyGlobal, r3.UUID) {
 		t.Fatalf("tGlobal body unexpected: %s", bodyGlobal)
 	}
-	// r2 uses hk + jp
+	// r2 uses hk + jp (400G total, not all 600G)
 	wantGlobalUI := fmt.Sprintf("upload=%d; download=%d; total=%d", 60, 80, uint64(400)<<30)
 	if got := resGlobal.Headers["Subscription-Userinfo"]; got != wantGlobalUI {
-		t.Fatalf("tGlobal userinfo = %q, want %q", got, wantGlobalUI)
+		t.Fatalf("tGlobal userinfo (all + global sub_routes) = %q, want %q", got, wantGlobalUI)
+	}
+
+	// Clearing global sub_routes: tGlobal gets all node servers (600G), while tCustom still scopes to r1+r3 (300G).
+	_ = p.St.Set("sub_routes", "")
+	resGlobalAll, err := p.ServeSub("tok-global", "base64", "curl/8", "1.1.1.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAllUI := fmt.Sprintf("upload=%d; download=%d; total=%d", 90, 120, uint64(600)<<30)
+	if got := resGlobalAll.Headers["Subscription-Userinfo"]; got != wantAllUI {
+		t.Fatalf("tGlobal userinfo (all, no pick) = %q, want %q", got, wantAllUI)
 	}
 
 	resCustom, err := p.ServeSub("tok-custom", "base64", "curl/8", "1.1.1.2")
@@ -347,10 +359,17 @@ func TestSubTokenPerLinkRoutes(t *testing.T) {
 	if !strings.Contains(bodyCustom, r1.UUID) || !strings.Contains(bodyCustom, r3.UUID) || strings.Contains(bodyCustom, r2.UUID) {
 		t.Fatalf("tCustom body unexpected: %s", bodyCustom)
 	}
-	// r1 + r3 use hk + sg
+	// r1 + r3 use hk + sg (300G total, even with sub_userinfo="all")
 	wantCustomUI := fmt.Sprintf("upload=%d; download=%d; total=%d", 40, 60, uint64(300)<<30)
 	if got := resCustom.Headers["Subscription-Userinfo"]; got != wantCustomUI {
-		t.Fatalf("tCustom userinfo = %q, want %q", got, wantCustomUI)
+		t.Fatalf("tCustom userinfo (all + per-token routes) = %q, want %q", got, wantCustomUI)
+	}
+
+	// Restore global sub_routes to r2 for preview and fallback checks below.
+	_ = p.St.Set("sub_routes", strconv.FormatUint(uint64(r2.ID), 10))
+	_ = p.St.Set("sub_userinfo", "sub")
+	if got := p.subUserinfoFor(tCustom); got != wantCustomUI {
+		t.Fatalf("tCustom userinfo (sub) = %q, want %q", got, wantCustomUI)
 	}
 
 	// PreviewSubFor matches global (0) vs token-specific routes.
@@ -401,4 +420,39 @@ func TestSubTokenPerLinkRoutes(t *testing.T) {
 		t.Fatalf("cleared token routes = %+v, want r2", nodes)
 	}
 	_ = tGlobal
+}
+
+func TestSubProfileNameHeaders(t *testing.T) {
+	p := newTestPanel(t)
+	if _, err := p.CreateSubToken("手机", "", "my-sub", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// Default ASCII name: plain Profile-Title + dual Content-Disposition parameters.
+	res, err := p.ServeSub("my-sub", "mihomo", "clash.meta/1.19", "1.2.3.4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := res.Headers["Profile-Title"]; got != "vps-panel" {
+		t.Fatalf("default Profile-Title = %q, want vps-panel", got)
+	}
+	wantDefaultCD := `attachment; filename="vps-panel"; filename*=UTF-8''vps-panel`
+	if got := res.Headers["Content-Disposition"]; got != wantDefaultCD {
+		t.Fatalf("default Content-Disposition = %q, want %q", got, wantDefaultCD)
+	}
+
+	// Non-ASCII Chinese name: base64-encoded Profile-Title + percent-escaped Content-Disposition.
+	_ = p.St.Set("sub_profile_name", " 加速师 ")
+	res, err = p.ServeSub("my-sub", "mihomo", "clash.meta/1.19", "1.2.3.4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantTitle := "base64:" + base64.StdEncoding.EncodeToString([]byte("加速师"))
+	if got := res.Headers["Profile-Title"]; got != wantTitle {
+		t.Fatalf("chinese Profile-Title = %q, want %q", got, wantTitle)
+	}
+	wantCD := `attachment; filename="%E5%8A%A0%E9%80%9F%E5%B8%88"; filename*=UTF-8''%E5%8A%A0%E9%80%9F%E5%B8%88`
+	if got := res.Headers["Content-Disposition"]; got != wantCD {
+		t.Fatalf("chinese Content-Disposition = %q, want %q", got, wantCD)
+	}
 }

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
@@ -442,9 +443,14 @@ func (p *Panel) ServeSub(token, target, ua, ip string) (*SubResponse, error) {
 	p.logSubAccess(&t, ip, ua, target)
 
 	nodes := p.SubNodesFor(&t)
+	profileName := strings.TrimSpace(p.St.Get("sub_profile_name", ""))
+	if profileName == "" {
+		profileName = "vps-panel"
+	}
 	res := &SubResponse{Headers: map[string]string{
+		"Profile-Title":           formatProfileTitle(profileName),
 		"Profile-Update-Interval": strconv.Itoa(p.St.GetInt("sub_update_hours", 12)),
-		"Content-Disposition":     "attachment; filename*=UTF-8''" + urlPathEscape(p.St.Get("sub_profile_name", "vps-panel")),
+		"Content-Disposition":     formatContentDisposition(profileName),
 	}}
 	if ui := p.subUserinfoFor(&t); ui != "" {
 		res.Headers["Subscription-Userinfo"] = ui
@@ -532,6 +538,32 @@ func urlPathEscape(s string) string {
 	return b.String()
 }
 
+// formatProfileTitle encodes the subscription display name for the
+// Profile-Title header (plain ASCII when safe, or "base64:<std-b64>" for UTF-8
+// names as expected by sing-box / Hiddify / v2rayN / Clash Verge / FlClash /
+// Mihomo Party / Shadowrocket).
+func formatProfileTitle(name string) string {
+	ascii := true
+	for i := 0; i < len(name); i++ {
+		if name[i] < 0x20 || name[i] > 0x7e {
+			ascii = false
+			break
+		}
+	}
+	if ascii && !strings.HasPrefix(strings.ToLower(name), "base64:") {
+		return name
+	}
+	return "base64:" + base64.StdEncoding.EncodeToString([]byte(name))
+}
+
+// formatContentDisposition emits both filename="..." and RFC 5987
+// filename*=UTF-8''... using percent-escaped ASCII so clients that only parse
+// filename= as well as RFC 5987 clients decode non-ASCII names cleanly.
+func formatContentDisposition(name string) string {
+	esc := urlPathEscape(name)
+	return fmt.Sprintf(`attachment; filename="%s"; filename*=UTF-8''%s`, esc, esc)
+}
+
 // subRouteServerIDsFor returns the unique server IDs (entry, landing, and
 // backup landings) used by routes currently included for token t (or global
 // default when t is nil).
@@ -599,15 +631,17 @@ func (p *Panel) subUserinfo() string {
 
 // subUserinfoFor sums the billing-cycle usage of node servers for token t
 // (all node servers, only servers used by routes included for t, or the single
-// server set in sub_userinfo).
+// server set in sub_userinfo). When route selection is active (either on token
+// t or via global sub_routes), "all" automatically scopes to the node servers
+// used by those selected routes.
 func (p *Panel) subUserinfoFor(t *store.SubToken) string {
 	mode := p.St.Get("sub_userinfo", "all")
 	if mode == "none" {
 		return ""
 	}
 	var svs []store.Server
-	switch mode {
-	case "sub":
+	switch {
+	case mode == "sub" || (mode == "all" && p.effectiveRouteIDs(t) != nil):
 		if ids := p.subRouteServerIDsFor(t); len(ids) > 0 {
 			p.St.DB.Where("mode = ? AND id IN ?", "node", ids).Find(&svs)
 		}
