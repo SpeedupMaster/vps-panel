@@ -177,6 +177,43 @@ func TestDefaultMihomoAntiDNSLeakAndDynamicRegions(t *testing.T) {
 	assertValidMihomo(t, outEmpty, nil)
 }
 
+func TestMihomoRealitySupportX25519MLKEM768(t *testing.T) {
+	nodes := []Node{
+		{Name: "default-ver", Server: "1.1.1.2", Port: 443, UUID: "u1", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "US"},
+		{Name: "xray-26", Server: "1.1.1.3", Port: 443, UUID: "u2", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "US", XrayVersion: "26.9.8"},
+		{Name: "xray-legacy", Server: "1.1.1.4", Port: 443, UUID: "u3", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "US", XrayVersion: "25.1.1"},
+	}
+	out, err := Mihomo(nodes, "")
+	if err != nil {
+		t.Fatalf("Mihomo: %v", err)
+	}
+	var cfg map[string]any
+	if err := yaml.Unmarshal(out, &cfg); err != nil {
+		t.Fatalf("unmarshal mihomo: %v", err)
+	}
+	want := map[string]bool{
+		"default-ver": true,
+		"xray-26":     true,
+		"xray-legacy": false,
+	}
+	for _, p := range cfg["proxies"].([]any) {
+		pm := p.(map[string]any)
+		name := fmt.Sprint(pm["name"])
+		ro, ok := pm["reality-opts"].(map[string]any)
+		if !ok {
+			t.Fatalf("proxy %q missing reality-opts", name)
+		}
+		v, has := ro["support-x25519mlkem768"]
+		if want[name] {
+			if !has || v != true {
+				t.Errorf("proxy %q reality-opts.support-x25519mlkem768 = %v (present=%v), want true", name, v, has)
+			}
+		} else if has {
+			t.Errorf("proxy %q should omit support-x25519mlkem768 for legacy Xray, got %v", name, v)
+		}
+	}
+}
+
 func TestDefaultSingBoxAntiDNSLeakAndDynamicRegions(t *testing.T) {
 	nodes := []Node{
 		{Name: "🇭🇰 香港直连", Server: "1.1.1.2", Port: 443, UUID: "u1", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "HK"},

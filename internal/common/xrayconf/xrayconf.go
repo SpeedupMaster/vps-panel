@@ -186,6 +186,16 @@ func SupportsTarget(v string) bool {
 	return compareVersion(v, "25.1.1") >= 0
 }
 
+// SupportsX25519MLKEM768 reports whether the Xray version supports the
+// X25519MLKEM768 post-quantum key share in Reality handshakes (introduced in
+// Xray 25.5.16 and required by Xray 26.9.8+).
+func SupportsX25519MLKEM768(v string) bool {
+	if v == "" {
+		return true
+	}
+	return compareVersion(v, "25.5.16") >= 0
+}
+
 func compareVersion(a, b string) int {
 	pa, pb := strings.Split(strings.TrimPrefix(a, "v"), "."), strings.Split(strings.TrimPrefix(b, "v"), ".")
 	for i := 0; i < 3; i++ {

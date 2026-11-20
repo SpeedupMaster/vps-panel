@@ -122,8 +122,12 @@ func TestChainConfigAndSubscription(t *testing.T) {
 		t.Fatal(err)
 	}
 	groups := m["proxy-groups"].([]any)
-	if len(m["proxies"].([]any)) != 2 || groups[0].(map[string]any)["name"] != "节点选择" {
+	proxies := m["proxies"].([]any)
+	if len(proxies) != 2 || groups[0].(map[string]any)["name"] != "节点选择" {
 		t.Fatalf("mihomo:\n%s", y)
+	}
+	if ro, _ := proxies[0].(map[string]any)["reality-opts"].(map[string]any); ro["support-x25519mlkem768"] != true {
+		t.Fatalf("mihomo proxy missing support-x25519mlkem768: %+v", proxies[0])
 	}
 	var ai map[string]any
 	for _, g := range groups {

@@ -48,3 +48,24 @@ func TestObservatoryServiceFollowsBalancers(t *testing.T) {
 		t.Fatalf("ObservatoryService missing: %v", svcs)
 	}
 }
+
+func TestSupportsX25519MLKEM768(t *testing.T) {
+	cases := []struct {
+		ver  string
+		want bool
+	}{
+		{"", true},
+		{"26.9.8", true},
+		{"v26.9.8", true},
+		{"25.10.15", true},
+		{"25.5.16", true},
+		{"25.5.15", false},
+		{"25.1.1", false},
+		{"1.8.24", false},
+	}
+	for _, tc := range cases {
+		if got := SupportsX25519MLKEM768(tc.ver); got != tc.want {
+			t.Errorf("SupportsX25519MLKEM768(%q) = %v, want %v", tc.ver, got, tc.want)
+		}
+	}
+}

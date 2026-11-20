@@ -248,6 +248,7 @@ func nodeFor(r *store.Route, entry, landing *store.Server, ri *store.RealityInbo
 	return sub.Node{
 		Name: strings.TrimSpace(name), Server: addr, Port: ri.Port, UUID: r.UUID, SNI: sni,
 		PublicKey: ri.PublicKey, ShortID: sid, FP: fp, RegionCode: region,
+		XrayVersion: entry.XrayVersion,
 	}
 }
 

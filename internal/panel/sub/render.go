@@ -14,18 +14,21 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"vpspanel/internal/common/xrayconf"
 )
 
 type Node struct {
-	Name       string
-	Server     string
-	Port       int
-	UUID       string
-	SNI        string
-	PublicKey  string
-	ShortID    string
-	FP         string
-	RegionCode string // landing country for chains, entry country for direct
+	Name        string
+	Server      string
+	Port        int
+	UUID        string
+	SNI         string
+	PublicKey   string
+	ShortID     string
+	FP          string
+	RegionCode  string // landing country for chains, entry country for direct
+	XrayVersion string // entry server's Xray version; empty = latest
 }
 
 // Flag converts an ISO country code to its flag emoji.
@@ -173,11 +176,15 @@ func expand(list []string, all, regionNames, aiRegionNames []string) []string {
 // ---------- mihomo ----------
 
 func mihomoProxy(n Node) map[string]any {
+	realityOpts := map[string]any{"public-key": n.PublicKey, "short-id": n.ShortID}
+	if xrayconf.SupportsX25519MLKEM768(n.XrayVersion) {
+		realityOpts["support-x25519mlkem768"] = true
+	}
 	return map[string]any{
 		"name": n.Name, "type": "vless", "server": n.Server, "port": n.Port, "uuid": n.UUID,
 		"network": "tcp", "tls": true, "udp": true, "flow": "xtls-rprx-vision",
 		"servername": n.SNI, "client-fingerprint": n.FP,
-		"reality-opts": map[string]any{"public-key": n.PublicKey, "short-id": n.ShortID},
+		"reality-opts": realityOpts,
 	}
 }
 
