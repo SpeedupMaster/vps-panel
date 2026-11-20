@@ -257,6 +257,166 @@ func TestDefaultSingBoxAntiDNSLeakAndDynamicRegions(t *testing.T) {
 	}
 }
 
+func TestDefaultMihomoClaudeSplitFromAI(t *testing.T) {
+	nodes := []Node{
+		{Name: "🇭🇰 香港直连", Server: "1.1.1.2", Port: 443, UUID: "u1", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "HK"},
+		{Name: "🇺🇸 美国直连", Server: "1.1.1.3", Port: 443, UUID: "u2", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "US"},
+		{Name: "🇯🇵 日本直连", Server: "1.1.1.4", Port: 443, UUID: "u3", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "JP"},
+	}
+	out, err := Mihomo(nodes, "")
+	if err != nil {
+		t.Fatalf("Mihomo(default): %v", err)
+	}
+	assertValidMihomo(t, out, nodes)
+
+	var cfg map[string]any
+	if err := yaml.Unmarshal(out, &cfg); err != nil {
+		t.Fatalf("unmarshal mihomo: %v", err)
+	}
+
+	groups := mihomoGroupMap(cfg)
+	claudeGroup, ok := groups["🧠 Claude"]
+	if !ok {
+		t.Fatalf("missing dedicated proxy-group 🧠 Claude")
+	}
+	claudeProxies := toStrings(claudeGroup["proxies"])
+	if len(claudeProxies) < 4 || claudeProxies[0] != "🇯🇵 日本" || claudeProxies[1] != "🇺🇸 美国" {
+		t.Fatalf("🧠 Claude proxies = %v, want [🇯🇵 日本, 🇺🇸 美国, ...]", claudeProxies)
+	}
+
+	rules := toStrings(cfg["rules"])
+	idxCategoryAI := indexOf(rules, "GEOSITE,category-ai-!cn,🤖 AI 服务")
+	if idxCategoryAI < 0 {
+		t.Fatalf("missing GEOSITE,category-ai-!cn,🤖 AI 服务 rule")
+	}
+
+	wantClaudeRules := []string{
+		"GEOSITE,anthropic,🧠 Claude",
+		"DOMAIN-SUFFIX,anthropic.com,🧠 Claude",
+		"DOMAIN-SUFFIX,claude.ai,🧠 Claude",
+		"DOMAIN-SUFFIX,claude.com,🧠 Claude",
+		"DOMAIN-SUFFIX,claudeusercontent.com,🧠 Claude",
+		"DOMAIN-SUFFIX,clau.de,🧠 Claude",
+	}
+	for _, want := range wantClaudeRules {
+		idx := indexOf(rules, want)
+		if idx < 0 {
+			t.Errorf("missing Mihomo Claude rule %q", want)
+		} else if idx > idxCategoryAI {
+			t.Errorf("Mihomo Claude rule %q (index %d) must precede GEOSITE,category-ai-!cn (index %d)", want, idx, idxCategoryAI)
+		}
+	}
+
+	for _, r := range rules {
+		if !strings.HasSuffix(r, ",🤖 AI 服务") {
+			continue
+		}
+		lower := strings.ToLower(r)
+		if strings.Contains(lower, "anthropic") || strings.Contains(lower, "claude") || strings.Contains(lower, "clau.de") {
+			t.Errorf("Claude/Anthropic rule still routed to 🤖 AI 服务: %q", r)
+		}
+	}
+
+	if indexOf(rules, "GEOSITE,openai,🤖 AI 服务") < 0 {
+		t.Errorf("non-Claude AI rule GEOSITE,openai,🤖 AI 服务 should remain in 🤖 AI 服务")
+	}
+}
+
+func TestDefaultSingBoxClaudeSplitFromAI(t *testing.T) {
+	nodes := []Node{
+		{Name: "🇭🇰 香港直连", Server: "1.1.1.2", Port: 443, UUID: "u1", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "HK"},
+		{Name: "🇺🇸 美国直连", Server: "1.1.1.3", Port: 443, UUID: "u2", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "US"},
+		{Name: "🇯🇵 日本直连", Server: "1.1.1.4", Port: 443, UUID: "u3", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "JP"},
+	}
+	out, err := SingBox(nodes, "")
+	if err != nil {
+		t.Fatalf("SingBox(default): %v", err)
+	}
+	assertValidSingBox(t, out, nodes)
+
+	var cfg map[string]any
+	if err := json.Unmarshal(out, &cfg); err != nil {
+		t.Fatalf("unmarshal singbox: %v", err)
+	}
+
+	outs := singboxOutboundMap(cfg)
+	claudeOut, ok := outs["🧠 Claude"]
+	if !ok {
+		t.Fatalf("missing dedicated singbox outbound 🧠 Claude")
+	}
+	claudeMembers := toStrings(claudeOut["outbounds"])
+	if len(claudeMembers) < 3 || claudeMembers[0] != "🇯🇵 日本" || claudeMembers[1] != "🇺🇸 美国" {
+		t.Fatalf("singbox 🧠 Claude outbounds = %v, want [🇯🇵 日本, 🇺🇸 美国, ...]", claudeMembers)
+	}
+
+	route, _ := cfg["route"].(map[string]any)
+	rulesRaw, _ := route["rules"].([]any)
+
+	idxCategoryAI := -1
+	idxAnthropicRS := -1
+	idxClaudeDomains := -1
+	claudeDomainSeen := map[string]bool{}
+	openAIInAI := false
+
+	for i, rr := range rulesRaw {
+		rm := rr.(map[string]any)
+		ob, _ := rm["outbound"].(string)
+		rs := stringOrSlice(rm["rule_set"])
+		ds := toStrings(rm["domain_suffix"])
+
+		if ob == "🤖 AI 服务" {
+			if indexOf(rs, "geosite-category-ai-!cn") >= 0 {
+				idxCategoryAI = i
+			}
+			if indexOf(rs, "geosite-openai") >= 0 {
+				openAIInAI = true
+			}
+			if indexOf(rs, "geosite-anthropic") >= 0 {
+				t.Errorf("geosite-anthropic still routed to 🤖 AI 服务")
+			}
+			for _, d := range ds {
+				dl := strings.ToLower(d)
+				if strings.Contains(dl, "anthropic") || strings.Contains(dl, "claude") || dl == "clau.de" {
+					t.Errorf("Claude/Anthropic domain %q still routed to 🤖 AI 服务", d)
+				}
+			}
+		}
+		if ob == "🧠 Claude" {
+			if indexOf(rs, "geosite-anthropic") >= 0 {
+				idxAnthropicRS = i
+			}
+			if len(ds) > 0 {
+				idxClaudeDomains = i
+				for _, d := range ds {
+					claudeDomainSeen[d] = true
+				}
+			}
+		}
+	}
+
+	if idxCategoryAI < 0 {
+		t.Fatalf("missing geosite-category-ai-!cn rule targeting 🤖 AI 服务")
+	}
+	if idxAnthropicRS < 0 {
+		t.Errorf("missing geosite-anthropic rule targeting 🧠 Claude")
+	} else if idxAnthropicRS > idxCategoryAI {
+		t.Errorf("geosite-anthropic rule (index %d) must precede geosite-category-ai-!cn (index %d)", idxAnthropicRS, idxCategoryAI)
+	}
+	if idxClaudeDomains < 0 {
+		t.Errorf("missing domain_suffix rule targeting 🧠 Claude")
+	} else if idxClaudeDomains > idxCategoryAI {
+		t.Errorf("Claude domain_suffix rule (index %d) must precede geosite-category-ai-!cn (index %d)", idxClaudeDomains, idxCategoryAI)
+	}
+	for _, wantDomain := range []string{"anthropic.com", "claude.ai", "claude.com", "claudeusercontent.com", "clau.de"} {
+		if !claudeDomainSeen[wantDomain] {
+			t.Errorf("missing domain_suffix %q in 🧠 Claude rule", wantDomain)
+		}
+	}
+	if !openAIInAI {
+		t.Errorf("geosite-openai should remain routed to 🤖 AI 服务")
+	}
+}
+
 func assertValidMihomo(t *testing.T, rendered []byte, nodes []Node) {
 	t.Helper()
 	for _, line := range strings.Split(string(rendered), "\n") {
@@ -438,6 +598,13 @@ func toStrings(v any) []string {
 		out = append(out, fmt.Sprint(x))
 	}
 	return out
+}
+
+func stringOrSlice(v any) []string {
+	if s, ok := v.(string); ok {
+		return []string{s}
+	}
+	return toStrings(v)
 }
 
 func indexOf(list []string, target string) int {

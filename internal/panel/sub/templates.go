@@ -109,6 +109,7 @@ dns:
       - https://1.12.12.12/dns-query
 proxy-groups:
   - {name: 🤖 AI 服务, type: select, proxies: ["{{regions_ai}}", 节点选择, "{{regions}}", 故障转移, "{{all}}"]}
+  - {name: 🧠 Claude, type: select, proxies: ["{{regions_ai}}", 节点选择, "{{regions}}", 故障转移, "{{all}}"]}
   - {name: 📺 YouTube, type: select, proxies: [节点选择, "{{regions}}", 自动选择, 故障转移, "{{all}}"]}
   - {name: 🎬 国际流媒体, type: select, proxies: [节点选择, "{{regions}}", 自动选择, 故障转移, "{{all}}"]}
   - {name: 💬 社交通讯, type: select, proxies: [节点选择, "{{regions}}", 自动选择, 故障转移, "{{all}}"]}
@@ -137,18 +138,21 @@ rules:
   - IP-CIDR,8.8.4.4/32,节点选择,no-resolve
   # 3. 广告与追踪拦截
   - GEOSITE,category-ads-all,🛡️ 广告拦截
-  # 4. AI 服务（置于 Google / Microsoft / GitHub 之前）
+  # 4. Claude（置于 AI 服务之前，避免被 category-ai-!cn 提前命中）
+  - GEOSITE,anthropic,🧠 Claude
+  - DOMAIN-SUFFIX,anthropic.com,🧠 Claude
+  - DOMAIN-SUFFIX,claude.ai,🧠 Claude
+  - DOMAIN-SUFFIX,claude.com,🧠 Claude
+  - DOMAIN-SUFFIX,claudeusercontent.com,🧠 Claude
+  - DOMAIN-SUFFIX,clau.de,🧠 Claude
+  # 5. AI 服务（置于 Google / Microsoft / GitHub 之前）
   - GEOSITE,category-ai-!cn,🤖 AI 服务
   - GEOSITE,openai,🤖 AI 服务
-  - GEOSITE,anthropic,🤖 AI 服务
   - GEOSITE,google-gemini,🤖 AI 服务
   - DOMAIN-SUFFIX,openai.com,🤖 AI 服务
   - DOMAIN-SUFFIX,chatgpt.com,🤖 AI 服务
   - DOMAIN-SUFFIX,oaistatic.com,🤖 AI 服务
   - DOMAIN-SUFFIX,oaiusercontent.com,🤖 AI 服务
-  - DOMAIN-SUFFIX,anthropic.com,🤖 AI 服务
-  - DOMAIN-SUFFIX,claude.ai,🤖 AI 服务
-  - DOMAIN-SUFFIX,claude.com,🤖 AI 服务
   - DOMAIN-SUFFIX,gemini.google.com,🤖 AI 服务
   - DOMAIN-SUFFIX,aistudio.google.com,🤖 AI 服务
   - DOMAIN-SUFFIX,generativelanguage.googleapis.com,🤖 AI 服务
@@ -166,9 +170,9 @@ rules:
   - DOMAIN-SUFFIX,openrouter.ai,🤖 AI 服务
   - DOMAIN-SUFFIX,groq.com,🤖 AI 服务
   - DOMAIN-SUFFIX,huggingface.co,🤖 AI 服务
-  # 5. YouTube（置于 Google 之前）
+  # 6. YouTube（置于 Google 之前）
   - GEOSITE,youtube,📺 YouTube
-  # 6. 国际流媒体
+  # 7. 国际流媒体
   - GEOSITE,netflix,🎬 国际流媒体
   - GEOIP,netflix,🎬 国际流媒体,no-resolve
   - GEOSITE,disney,🎬 国际流媒体
@@ -179,9 +183,9 @@ rules:
   - GEOSITE,bahamut,🎬 国际流媒体
   - GEOSITE,bilibili@!cn,🎬 国际流媒体
   - DOMAIN-SUFFIX,biliintl.com,🎬 国际流媒体
-  # 7. 国内媒体（置于 cn 之前，支持手动切港澳台番剧）
+  # 8. 国内媒体（置于 cn 之前，支持手动切港澳台番剧）
   - GEOSITE,bilibili,📺 国内媒体
-  # 8. 社交通讯
+  # 9. 社交通讯
   - GEOSITE,telegram,💬 社交通讯
   - GEOIP,telegram,💬 社交通讯,no-resolve
   - GEOSITE,discord,💬 社交通讯
@@ -192,36 +196,36 @@ rules:
   - GEOSITE,instagram,💬 社交通讯
   - GEOSITE,whatsapp,💬 社交通讯
   - GEOSITE,reddit,💬 社交通讯
-  # 9. 开发与海外学术（GitHub 置于微软之前）
+  # 10. 开发与海外学术（GitHub 置于微软之前）
   - GEOSITE,github,💻 开发与学术
   - GEOSITE,category-dev,💻 开发与学术
   - GEOSITE,category-scholar-!cn,💻 开发与学术
-  # 10. Google 服务
+  # 11. Google 服务
   - GEOSITE,google,🔍 Google
   - GEOIP,google,🔍 Google,no-resolve
-  # 11. Apple 服务
+  # 12. Apple 服务
   - GEOSITE,apple-cn,DIRECT
   - GEOSITE,icloud,🍎 Apple 服务
   - GEOSITE,apple,🍎 Apple 服务
-  # 12. 微软服务
+  # 13. 微软服务
   - GEOSITE,microsoft@cn,DIRECT
   - GEOSITE,onedrive,🪟 微软服务
   - GEOSITE,microsoft,🪟 微软服务
-  # 13. 游戏平台
+  # 14. 游戏平台
   - GEOSITE,steam@cn,DIRECT
   - GEOSITE,category-games@cn,DIRECT
   - GEOSITE,steam,🎮 游戏平台
   - GEOSITE,category-games,🎮 游戏平台
-  # 14. 金融与加密资产
+  # 15. 金融与加密资产
   - GEOSITE,paypal,💰 金融与加密
   - GEOSITE,category-cryptocurrency,💰 金融与加密
-  # 15. 其他境外常见域名
+  # 16. 其他境外常见域名
   - GEOSITE,geolocation-!cn,节点选择
-  # 16. 中国大陆直连
+  # 17. 中国大陆直连
   - GEOSITE,cn,DIRECT
   - DOMAIN-SUFFIX,cn,DIRECT
   - GEOIP,CN,DIRECT,no-resolve
-  # 17. 兜底规则
+  # 18. 兜底规则
   - MATCH,🌐 漏网之鱼
 `
 
@@ -249,6 +253,7 @@ const DefaultSingBox = `{
   ],
   "outbounds": [
     {"type": "selector", "tag": "🤖 AI 服务", "outbounds": ["{{regions_ai}}", "节点选择", "{{regions}}", "{{all}}"]},
+    {"type": "selector", "tag": "🧠 Claude", "outbounds": ["{{regions_ai}}", "节点选择", "{{regions}}", "{{all}}"]},
     {"type": "selector", "tag": "📺 YouTube", "outbounds": ["节点选择", "{{regions}}", "自动选择", "{{all}}"]},
     {"type": "selector", "tag": "🎬 国际流媒体", "outbounds": ["节点选择", "{{regions}}", "自动选择", "{{all}}"]},
     {"type": "selector", "tag": "💬 社交通讯", "outbounds": ["节点选择", "{{regions}}", "自动选择", "{{all}}"]},
@@ -268,8 +273,10 @@ const DefaultSingBox = `{
       {"ip_is_private": true, "outbound": "direct"},
       {"rule_set": "geosite-private", "outbound": "direct"},
       {"rule_set": "geosite-category-ads-all", "action": "reject"},
-      {"rule_set": ["geosite-category-ai-!cn", "geosite-openai", "geosite-anthropic", "geosite-google-gemini"], "outbound": "🤖 AI 服务"},
-      {"domain_suffix": ["openai.com", "chatgpt.com", "claude.ai", "claude.com", "perplexity.ai", "x.ai", "grok.com", "poe.com", "cursor.sh", "cursor.com", "copilot.microsoft.com", "githubcopilot.com", "openrouter.ai"], "outbound": "🤖 AI 服务"},
+      {"rule_set": "geosite-anthropic", "outbound": "🧠 Claude"},
+      {"domain_suffix": ["anthropic.com", "claude.ai", "claude.com", "claudeusercontent.com", "clau.de"], "outbound": "🧠 Claude"},
+      {"rule_set": ["geosite-category-ai-!cn", "geosite-openai", "geosite-google-gemini"], "outbound": "🤖 AI 服务"},
+      {"domain_suffix": ["openai.com", "chatgpt.com", "perplexity.ai", "x.ai", "grok.com", "poe.com", "cursor.sh", "cursor.com", "copilot.microsoft.com", "githubcopilot.com", "openrouter.ai"], "outbound": "🤖 AI 服务"},
       {"rule_set": "geosite-youtube", "outbound": "📺 YouTube"},
       {"rule_set": ["geosite-netflix", "geoip-netflix", "geosite-disney", "geosite-tiktok", "geosite-spotify", "geosite-bahamut", "geosite-bilibili@!cn"], "outbound": "🎬 国际流媒体"},
       {"domain_suffix": ["biliintl.com"], "outbound": "🎬 国际流媒体"},
@@ -292,9 +299,9 @@ const DefaultSingBox = `{
       {"type": "remote", "tag": "geoip-cn", "format": "binary", "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs", "download_detour": "节点选择"},
       {"type": "remote", "tag": "geosite-geolocation-!cn", "format": "binary", "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-!cn.srs", "download_detour": "节点选择"},
       {"type": "remote", "tag": "geosite-category-ads-all", "format": "binary", "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs", "download_detour": "节点选择"},
+      {"type": "remote", "tag": "geosite-anthropic", "format": "binary", "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-anthropic.srs", "download_detour": "节点选择"},
       {"type": "remote", "tag": "geosite-category-ai-!cn", "format": "binary", "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ai-!cn.srs", "download_detour": "节点选择"},
       {"type": "remote", "tag": "geosite-openai", "format": "binary", "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-openai.srs", "download_detour": "节点选择"},
-      {"type": "remote", "tag": "geosite-anthropic", "format": "binary", "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-anthropic.srs", "download_detour": "节点选择"},
       {"type": "remote", "tag": "geosite-google-gemini", "format": "binary", "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-google-gemini.srs", "download_detour": "节点选择"},
       {"type": "remote", "tag": "geosite-youtube", "format": "binary", "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-youtube.srs", "download_detour": "节点选择"},
       {"type": "remote", "tag": "geosite-netflix", "format": "binary", "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-netflix.srs", "download_detour": "节点选择"},
