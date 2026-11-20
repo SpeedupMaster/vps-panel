@@ -449,19 +449,85 @@ func urlPathEscape(s string) string {
 	return b.String()
 }
 
-// subUserinfo sums the billing-cycle usage of all servers (or the one set in
-// sub_userinfo).
+// subRouteServerIDs returns the unique server IDs (entry, landing, and backup
+// landings) used by routes currently included in subscriptions.
+func (p *Panel) subRouteServerIDs() []uint {
+	var rs []store.Route
+	q := p.St.DB.Where("enabled = ? AND in_sub = ?", true, true)
+	if ids := p.SubRouteIDs(); ids != nil {
+		if len(ids) == 0 {
+			return nil
+		}
+		q = q.Where("id IN ?", ids)
+	}
+	q.Find(&rs)
+	if len(rs) == 0 {
+		return nil
+	}
+	var svs []store.Server
+	p.St.DB.Where("mode = ?", "node").Find(&svs)
+	byID := map[uint]*store.Server{}
+	for i := range svs {
+		byID[svs[i].ID] = &svs[i]
+	}
+	var ris []store.RealityInbound
+	p.St.DB.Find(&ris)
+	riBy := map[uint]*store.RealityInbound{}
+	for i := range ris {
+		riBy[ris[i].ServerID] = &ris[i]
+	}
+	exBlocked := p.St.GetBool("sub_exclude_blocked", true)
+	exOffline := p.St.GetBool("sub_exclude_offline", false)
+
+	seen := map[uint]bool{}
+	var ids []uint
+	add := func(id uint) {
+		if id > 0 && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	for i := range rs {
+		r := &rs[i]
+		e, ri := byID[r.EntryServerID], riBy[r.EntryServerID]
+		if e == nil || ri == nil || serverAddr(e) == "" && ri.Address == "" {
+			continue
+		}
+		if exBlocked && e.Blocked || exOffline && e.Status == "offline" {
+			continue
+		}
+		add(r.EntryServerID)
+		if r.Type == "chain" {
+			add(r.LandingServerID)
+			for _, b := range parseIDs(r.BackupIDs) {
+				add(b)
+			}
+		}
+	}
+	return ids
+}
+
+// subUserinfo sums the billing-cycle usage of node servers (all node servers,
+// only servers used by routes in subscriptions, or the single server set in
+// sub_userinfo). Probe-only servers are never included in aggregate totals.
 func (p *Panel) subUserinfo() string {
 	mode := p.St.Get("sub_userinfo", "all")
 	if mode == "none" {
 		return ""
 	}
 	var svs []store.Server
-	q := p.St.DB
-	if id, err := strconv.Atoi(mode); err == nil {
-		q = q.Where("id = ?", id)
+	switch mode {
+	case "sub":
+		if ids := p.subRouteServerIDs(); len(ids) > 0 {
+			p.St.DB.Where("mode = ? AND id IN ?", "node", ids).Find(&svs)
+		}
+	default:
+		if id, err := strconv.Atoi(mode); err == nil {
+			p.St.DB.Where("id = ?", id).Find(&svs)
+		} else {
+			p.St.DB.Where("mode = ?", "node").Find(&svs)
+		}
 	}
-	q.Find(&svs)
 	var up, down, total uint64
 	var expire int64
 	for i := range svs {

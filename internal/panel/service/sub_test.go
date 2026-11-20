@@ -2,7 +2,11 @@ package service
 
 import (
 	"fmt"
+	"strconv"
 	"testing"
+	"time"
+
+	"vpspanel/internal/panel/store"
 )
 
 func TestSubNodesPickedRoutes(t *testing.T) {
@@ -192,4 +196,64 @@ func TestCustomSubTokenCreateAndUpdate(t *testing.T) {
 		t.Fatalf("updating with same token failed: %v", err)
 	}
 	_ = t2
+}
+
+func TestSubUserinfoExcludesProbeAndSupportsSubMode(t *testing.T) {
+	p := newTestPanel(t)
+	now := time.Now()
+	hour := now.Unix() / 3600 * 3600
+
+	probe, _, err := p.CreateServer(ServerInput{Name: "Probe-01", Mode: "probe", QuotaGB: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hk := addNode(t, p, "HK-01", "HK", "1.1.1.1", true, false)
+	jp := addNode(t, p, "JP-01", "JP", "2.2.2.2", false, true)
+	idle := addNode(t, p, "SG-Idle", "SG", "3.3.3.3", true, false)
+
+	p.St.DB.Model(hk).Update("quota_bytes", int64(100<<30))
+	p.St.DB.Model(jp).Update("quota_bytes", int64(200<<30))
+	p.St.DB.Model(idle).Update("quota_bytes", int64(500<<30))
+
+	addTraffic := func(sv *store.Server, up, down uint64) {
+		if err := p.St.DB.Create(&store.TrafficHourly{
+			Scope: "server", ScopeID: strconv.FormatUint(uint64(sv.ID), 10), Hour: hour, Up: up, Down: down,
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	addTraffic(probe, 100, 200)
+	addTraffic(hk, 10, 20)
+	addTraffic(jp, 30, 40)
+	addTraffic(idle, 50, 60)
+
+	if _, err := p.CreateRoute(RouteInput{Type: "chain", EntryServerID: hk.ID, LandingServerID: jp.ID, Name: "hk-jp"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Default ("all") sums node servers only and excludes probe-only servers.
+	wantAll := fmt.Sprintf("upload=%d; download=%d; total=%d", 90, 120, uint64(800)<<30)
+	if got := p.subUserinfo(); got != wantAll {
+		t.Fatalf("subUserinfo(all) = %q, want %q", got, wantAll)
+	}
+
+	// "sub" sums only node servers referenced by active in-subscription routes.
+	_ = p.St.Set("sub_userinfo", "sub")
+	wantSub := fmt.Sprintf("upload=%d; download=%d; total=%d", 40, 60, uint64(300)<<30)
+	if got := p.subUserinfo(); got != wantSub {
+		t.Fatalf("subUserinfo(sub) = %q, want %q", got, wantSub)
+	}
+
+	// Single server selection still works.
+	_ = p.St.Set("sub_userinfo", strconv.FormatUint(uint64(hk.ID), 10))
+	wantHK := fmt.Sprintf("upload=%d; download=%d; total=%d", 10, 20, uint64(100)<<30)
+	if got := p.subUserinfo(); got != wantHK {
+		t.Fatalf("subUserinfo(hk) = %q, want %q", got, wantHK)
+	}
+
+	// "none" omits the header.
+	_ = p.St.Set("sub_userinfo", "none")
+	if got := p.subUserinfo(); got != "" {
+		t.Fatalf("subUserinfo(none) = %q, want empty", got)
+	}
 }

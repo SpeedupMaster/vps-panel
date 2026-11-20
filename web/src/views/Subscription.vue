@@ -82,7 +82,8 @@ const excluded = computed(() => inSub.value.filter((r) => r.entry_blocked).lengt
 const tokenOpts = computed(() => [{ label: '全部设备', value: 0 }, ...tokens.value.map((t) => ({ label: t.name, value: t.id }))])
 const tokenName = (id) => tokens.value.find((t) => t.id === id)?.name || '#' + id
 const userinfoOpts = computed(() => [
-  { label: '所有服务器合计', value: 'all' },
+  { label: '所有节点服务器合计', value: 'all' },
+  { label: '仅订阅中的节点服务器', value: 'sub' },
   ...state.servers.filter((s) => s.mode === 'node').map((s) => ({ label: `${s.name}${s.cap_landing ? '（落地）' : ''}`, value: String(s.id) })),
   { label: '不显示', value: 'none' },
 ])
