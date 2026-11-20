@@ -160,12 +160,65 @@ func validateSubTarget(target string) error {
 	return nil
 }
 
-func (p *Panel) CreateSubToken(name, target, customToken string) (*store.SubToken, error) {
+// parseRouteIDSpec parses a comma-separated list of route IDs.
+// nil means unset / all; a non-nil empty slice means a non-empty spec
+// contained no valid positive IDs.
+func parseRouteIDSpec(spec string) []uint {
+	spec = strings.TrimSpace(spec)
+	if spec == "" || spec == "all" {
+		return nil
+	}
+	ids := []uint{}
+	seen := map[uint]bool{}
+	for _, s := range strings.Split(spec, ",") {
+		if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil && n > 0 {
+			id := uint(n)
+			if !seen[id] {
+				seen[id] = true
+				ids = append(ids, id)
+			}
+		}
+	}
+	return ids
+}
+
+// normalizeSubRoutes validates and canonicalizes a per-token route ID list.
+// Empty string or "all" normalizes to "" (follow the global sub_routes setting).
+func normalizeSubRoutes(raw string) (string, error) {
+	spec := strings.TrimSpace(raw)
+	if spec == "" || spec == "all" {
+		return "", nil
+	}
+	var parts []string
+	seen := map[uint]bool{}
+	for _, s := range strings.Split(spec, ",") {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		n, err := strconv.Atoi(s)
+		if err != nil || n <= 0 {
+			return "", fmt.Errorf("无效的线路 ID：%s", s)
+		}
+		id := uint(n)
+		if !seen[id] {
+			seen[id] = true
+			parts = append(parts, strconv.Itoa(n))
+		}
+	}
+	return strings.Join(parts, ","), nil
+}
+
+func (p *Panel) CreateSubToken(name, target, customToken, routes string) (*store.SubToken, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, errors.New("请填写设备名称")
 	}
 	if err := validateSubTarget(target); err != nil {
+		return nil, err
+	}
+	normRoutes, err := normalizeSubRoutes(routes)
+	if err != nil {
 		return nil, err
 	}
 	var tok string
@@ -182,11 +235,11 @@ func (p *Panel) CreateSubToken(name, target, customToken string) (*store.SubToke
 		tok = secret.RandomToken(24)
 	}
 	enc := p.Box.Seal(tok)
-	t := &store.SubToken{Name: name, TokenEnc: enc, TokenHash: secret.Hash(tok), TargetDefault: target, Enabled: true, CreatedAt: time.Now()}
+	t := &store.SubToken{Name: name, TokenEnc: enc, TokenHash: secret.Hash(tok), TargetDefault: target, Routes: normRoutes, Enabled: true, CreatedAt: time.Now()}
 	return t, p.St.DB.Create(t).Error
 }
 
-func (p *Panel) UpdateSubToken(id uint, name, target string, enabled bool, customToken *string) error {
+func (p *Panel) UpdateSubToken(id uint, name, target string, enabled bool, customToken, routes *string) error {
 	var existing store.SubToken
 	if err := p.St.DB.First(&existing, id).Error; err != nil {
 		return errors.New("设备订阅不存在")
@@ -199,6 +252,13 @@ func (p *Panel) UpdateSubToken(id uint, name, target string, enabled bool, custo
 		return err
 	}
 	upd := map[string]any{"name": name, "target_default": target, "enabled": enabled}
+	if routes != nil {
+		normRoutes, err := normalizeSubRoutes(*routes)
+		if err != nil {
+			return err
+		}
+		upd["routes"] = normRoutes
+	}
 	if customToken != nil {
 		tok, err := p.ValidateSubToken(*customToken)
 		if err != nil {
@@ -254,27 +314,34 @@ func nodeFor(r *store.Route, entry, landing *store.Server, ri *store.RealityInbo
 
 func VLESSLink(n sub.Node) string { return sub.Link(n) }
 
-// SubRouteIDs parses sub_routes: the route IDs picked for subscriptions.
-// nil means no picking (every enabled in_sub route goes in).
+// SubRouteIDs parses sub_routes: the global default route IDs picked for
+// subscriptions. nil means no picking (every enabled in_sub route goes in).
 func (p *Panel) SubRouteIDs() []uint {
-	spec := strings.TrimSpace(p.St.Get("sub_routes", ""))
-	if spec == "" || spec == "all" {
-		return nil
-	}
-	ids := []uint{}
-	for _, s := range strings.Split(spec, ",") {
-		if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil && n > 0 {
-			ids = append(ids, uint(n))
-		}
-	}
-	return ids
+	return parseRouteIDSpec(p.St.Get("sub_routes", ""))
 }
 
-// SubNodes lists the routes that go into subscriptions.
+// effectiveRouteIDs returns the route IDs for token t, falling back to the
+// global sub_routes setting when t is nil or has no custom routes set.
+func (p *Panel) effectiveRouteIDs(t *store.SubToken) []uint {
+	if t != nil {
+		if ids := parseRouteIDSpec(t.Routes); ids != nil {
+			return ids
+		}
+	}
+	return p.SubRouteIDs()
+}
+
+// SubNodes lists the routes that go into global default subscriptions.
 func (p *Panel) SubNodes() []sub.Node {
+	return p.SubNodesFor(nil)
+}
+
+// SubNodesFor lists the routes that go into subscriptions for token t
+// (or global default when t is nil).
+func (p *Panel) SubNodesFor(t *store.SubToken) []sub.Node {
 	var rs []store.Route
 	q := p.St.DB.Where("enabled = ? AND in_sub = ?", true, true)
-	if ids := p.SubRouteIDs(); ids != nil {
+	if ids := p.effectiveRouteIDs(t); ids != nil {
 		if len(ids) == 0 {
 			return nil
 		}
@@ -374,12 +441,12 @@ func (p *Panel) ServeSub(token, target, ua, ip string) (*SubResponse, error) {
 	}
 	p.logSubAccess(&t, ip, ua, target)
 
-	nodes := p.SubNodes()
+	nodes := p.SubNodesFor(&t)
 	res := &SubResponse{Headers: map[string]string{
 		"Profile-Update-Interval": strconv.Itoa(p.St.GetInt("sub_update_hours", 12)),
 		"Content-Disposition":     "attachment; filename*=UTF-8''" + urlPathEscape(p.St.Get("sub_profile_name", "vps-panel")),
 	}}
-	if ui := p.subUserinfo(); ui != "" {
+	if ui := p.subUserinfoFor(&t); ui != "" {
 		res.Headers["Subscription-Userinfo"] = ui
 	}
 	var err error
@@ -397,22 +464,38 @@ func (p *Panel) ServeSub(token, target, ua, ip string) (*SubResponse, error) {
 	return res, err
 }
 
-// Preview renders without logging or rate limiting (admin UI).
+// PreviewSub renders the global default subscription without logging or rate
+// limiting (admin UI).
 func (p *Panel) PreviewSub(target string) (string, error) {
-	nodes := p.SubNodes()
+	s, _, err := p.PreviewSubFor(target, 0)
+	return s, err
+}
+
+// PreviewSubFor renders the subscription for tokenID (0 = global default)
+// without logging or rate limiting, returning the rendered body and node count.
+func (p *Panel) PreviewSubFor(target string, tokenID uint) (string, int, error) {
+	var tok *store.SubToken
+	if tokenID > 0 {
+		var t store.SubToken
+		if err := p.St.DB.First(&t, tokenID).Error; err != nil {
+			return "", 0, errors.New("设备订阅不存在")
+		}
+		tok = &t
+	}
+	nodes := p.SubNodesFor(tok)
 	switch target {
 	case "mihomo":
 		b, err := sub.Mihomo(nodes, p.activeTemplate("mihomo"))
-		return string(b), err
+		return string(b), len(nodes), err
 	case "singbox":
 		b, err := sub.SingBox(nodes, p.activeTemplate("singbox"))
-		return string(b), err
+		return string(b), len(nodes), err
 	}
 	var links []string
 	for _, n := range nodes {
 		links = append(links, sub.Link(n))
 	}
-	return strings.Join(links, "\n"), nil
+	return strings.Join(links, "\n"), len(nodes), nil
 }
 
 func (p *Panel) activeTemplate(target string) string {
@@ -449,12 +532,13 @@ func urlPathEscape(s string) string {
 	return b.String()
 }
 
-// subRouteServerIDs returns the unique server IDs (entry, landing, and backup
-// landings) used by routes currently included in subscriptions.
-func (p *Panel) subRouteServerIDs() []uint {
+// subRouteServerIDsFor returns the unique server IDs (entry, landing, and
+// backup landings) used by routes currently included for token t (or global
+// default when t is nil).
+func (p *Panel) subRouteServerIDsFor(t *store.SubToken) []uint {
 	var rs []store.Route
 	q := p.St.DB.Where("enabled = ? AND in_sub = ?", true, true)
-	if ids := p.SubRouteIDs(); ids != nil {
+	if ids := p.effectiveRouteIDs(t); ids != nil {
 		if len(ids) == 0 {
 			return nil
 		}
@@ -507,10 +591,16 @@ func (p *Panel) subRouteServerIDs() []uint {
 	return ids
 }
 
-// subUserinfo sums the billing-cycle usage of node servers (all node servers,
-// only servers used by routes in subscriptions, or the single server set in
-// sub_userinfo). Probe-only servers are never included in aggregate totals.
+// subUserinfo sums the billing-cycle usage of node servers for global default
+// subscriptions. Probe-only servers are never included in aggregate totals.
 func (p *Panel) subUserinfo() string {
+	return p.subUserinfoFor(nil)
+}
+
+// subUserinfoFor sums the billing-cycle usage of node servers for token t
+// (all node servers, only servers used by routes included for t, or the single
+// server set in sub_userinfo).
+func (p *Panel) subUserinfoFor(t *store.SubToken) string {
 	mode := p.St.Get("sub_userinfo", "all")
 	if mode == "none" {
 		return ""
@@ -518,7 +608,7 @@ func (p *Panel) subUserinfo() string {
 	var svs []store.Server
 	switch mode {
 	case "sub":
-		if ids := p.subRouteServerIDs(); len(ids) > 0 {
+		if ids := p.subRouteServerIDsFor(t); len(ids) > 0 {
 			p.St.DB.Where("mode = ? AND id IN ?", "node", ids).Find(&svs)
 		}
 	default:

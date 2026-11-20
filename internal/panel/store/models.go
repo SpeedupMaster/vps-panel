@@ -128,6 +128,7 @@ type SubToken struct {
 	TokenEnc      string     `json:"-"`
 	TokenHash     string     `gorm:"uniqueIndex" json:"-"`
 	TargetDefault string     `json:"target_default"`
+	Routes        string     `json:"routes"` // comma separated route IDs; empty = follow global sub_routes
 	LastUsedAt    *time.Time `json:"last_used_at"`
 	LastIP        string     `json:"last_ip"`
 	Enabled       bool       `json:"enabled"`

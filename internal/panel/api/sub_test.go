@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -82,14 +83,14 @@ func doReq(h http.Handler, method, target, host, cookie string, body any) *httpt
 
 func TestServeSubRootAndLegacyPaths(t *testing.T) {
 	a, _ := newTestAPI(t, true)
-	if _, err := a.P.CreateSubToken("手机", "", "my-phone"); err != nil {
+	if _, err := a.P.CreateSubToken("手机", "", "my-phone", ""); err != nil {
 		t.Fatal(err)
 	}
-	disabled, err := a.P.CreateSubToken("旧设备", "", "disabled-sub")
+	disabled, err := a.P.CreateSubToken("旧设备", "", "disabled-sub", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := a.P.UpdateSubToken(disabled.ID, "旧设备", "", false, nil); err != nil {
+	if err := a.P.UpdateSubToken(disabled.ID, "旧设备", "", false, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	r := a.Router()
@@ -149,7 +150,7 @@ func TestServeSubRootAndLegacyPaths(t *testing.T) {
 
 	// Without embedded Web FS (dev/API-only mode), root subscription still works
 	aNoWeb, _ := newTestAPI(t, false)
-	if _, err := aNoWeb.P.CreateSubToken("dev", "", "dev-sub"); err != nil {
+	if _, err := aNoWeb.P.CreateSubToken("dev", "", "dev-sub", ""); err != nil {
 		t.Fatal(err)
 	}
 	w = doReq(aNoWeb.Router(), http.MethodGet, "/dev-sub?target=base64", "localhost:8080", "", nil)
@@ -163,7 +164,7 @@ func TestSubHostIsolation(t *testing.T) {
 	_ = a.P.St.Set("panel_url", "https://panel.example.com")
 	_ = a.P.St.Set("sub_url", "https://sub.example.com")
 	_ = a.P.St.Set("status_enabled", "1")
-	if _, err := a.P.CreateSubToken("手机", "", "my-phone"); err != nil {
+	if _, err := a.P.CreateSubToken("手机", "", "my-phone", ""); err != nil {
 		t.Fatal(err)
 	}
 	r := a.Router()
@@ -276,5 +277,131 @@ func TestSubTokenAPICustomSuffixAndAdminPathConflict(t *testing.T) {
 	})
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("PUT /api/settings conflicting admin_path = %d %s, want 400", w.Code, w.Body.String())
+	}
+}
+
+func TestSubTokenPerLinkRoutesAPI(t *testing.T) {
+	a, sid := newTestAPI(t, true)
+	sv2, _, err := a.P.CreateServer(service.ServerInput{Name: "SG-1", Mode: "node", CapReality: true, CountryCode: "SG"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.P.St.DB.Model(sv2).Updates(map[string]any{"ipv4": "5.6.7.8"})
+	r2, err := a.P.CreateRoute(service.RouteInput{Type: "direct", EntryServerID: sv2.ID, Name: "sg"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r1 store.Route
+	if err := a.P.St.DB.Where("id <> ?", r2.ID).First(&r1).Error; err != nil {
+		t.Fatal(err)
+	}
+	r := a.Router()
+
+	r1ID := strconv.FormatUint(uint64(r1.ID), 10)
+	r2ID := strconv.FormatUint(uint64(r2.ID), 10)
+
+	// Create token scoped to r1 only.
+	w := doReq(r, http.MethodPost, "/api/sub/tokens", "panel.example.com", sid, map[string]any{
+		"name": "仅香港", "target": "", "token": "hk-only", "routes": r1ID,
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("POST /api/sub/tokens = %d %s", w.Code, w.Body.String())
+	}
+	var created struct {
+		ID     uint   `json:"id"`
+		Routes string `json:"routes"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Routes != r1ID {
+		t.Fatalf("created.Routes = %q, want %q", created.Routes, r1ID)
+	}
+
+	// Serving /hk-only returns only r1.
+	w = doReq(r, http.MethodGet, "/hk-only?target=base64", "panel.example.com", "", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /hk-only = %d %s", w.Code, w.Body.String())
+	}
+	dec, err := base64.StdEncoding.DecodeString(strings.TrimSpace(w.Body.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(dec), r1.UUID) || strings.Contains(string(dec), r2.UUID) {
+		t.Fatalf("GET /hk-only decoded = %q, want only r1 (%s)", string(dec), r1.UUID)
+	}
+
+	// Inline PUT without routes preserves existing routes.
+	tokPath := "/api/sub/tokens/" + strconv.FormatUint(uint64(created.ID), 10)
+	w = doReq(r, http.MethodPut, tokPath, "panel.example.com", sid, map[string]any{
+		"name": "仅香港", "target_default": "mihomo", "enabled": true,
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("PUT %s (no routes) = %d %s", tokPath, w.Code, w.Body.String())
+	}
+
+	// Preview with token_id returns 1 node (r1), while global preview returns 2 nodes.
+	w = doReq(r, http.MethodGet, "/api/sub/preview?target=base64&token_id="+strconv.FormatUint(uint64(created.ID), 10), "panel.example.com", sid, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /api/sub/preview?token_id = %d %s", w.Code, w.Body.String())
+	}
+	var prev struct {
+		Content string `json:"content"`
+		Nodes   int    `json:"nodes"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &prev); err != nil {
+		t.Fatal(err)
+	}
+	if prev.Nodes != 1 || !strings.Contains(prev.Content, r1.UUID) || strings.Contains(prev.Content, r2.UUID) {
+		t.Fatalf("token preview = %+v", prev)
+	}
+
+	w = doReq(r, http.MethodGet, "/api/sub/preview?target=base64", "panel.example.com", sid, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /api/sub/preview = %d %s", w.Code, w.Body.String())
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &prev); err != nil {
+		t.Fatal(err)
+	}
+	if prev.Nodes != 2 {
+		t.Fatalf("global preview nodes = %d, want 2", prev.Nodes)
+	}
+
+	// Updating routes to r2 switches the token's subscription.
+	w = doReq(r, http.MethodPut, tokPath, "panel.example.com", sid, map[string]any{
+		"name": "仅新加坡", "target_default": "", "enabled": true, "routes": r2ID,
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("PUT %s (r2) = %d %s", tokPath, w.Code, w.Body.String())
+	}
+	w = doReq(r, http.MethodGet, "/hk-only?target=base64", "panel.example.com", "", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /hk-only after switch = %d", w.Code)
+	}
+	dec, err = base64.StdEncoding.DecodeString(strings.TrimSpace(w.Body.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(dec), r2.UUID) || strings.Contains(string(dec), r1.UUID) {
+		t.Fatalf("after switch decoded = %q, want only r2 (%s)", string(dec), r2.UUID)
+	}
+
+	// Clearing routes to "" restores global default (both r1 and r2).
+	w = doReq(r, http.MethodPut, tokPath, "panel.example.com", sid, map[string]any{
+		"name": "全部", "target_default": "", "enabled": true, "routes": "",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("PUT %s (clear) = %d %s", tokPath, w.Code, w.Body.String())
+	}
+	w = doReq(r, http.MethodGet, "/hk-only?target=base64", "panel.example.com", "", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /hk-only after clear = %d", w.Code)
+	}
+	dec, err = base64.StdEncoding.DecodeString(strings.TrimSpace(w.Body.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(dec), r1.UUID) || !strings.Contains(string(dec), r2.UUID) {
+		t.Fatalf("after clear decoded = %q, want both r1 and r2", string(dec))
 	}
 }

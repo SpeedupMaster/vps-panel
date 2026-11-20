@@ -10,17 +10,18 @@ import QrModal from '../components/QrModal.vue'
 const tokens = ref([])
 const subBase = ref('')
 const routes = ref([])
+const routesLoaded = ref(false)
 const settings = ref({})
 const settingsOrig = ref('{}')
 const subDirty = (k) => settings.value[k] !== JSON.parse(settingsOrig.value)[k]
 const subDirtyAny = computed(() => JSON.stringify(settings.value) !== settingsOrig.value)
-const preview = ref({ target: 'mihomo', content: '', nodes: 0 })
+const preview = ref({ target: 'mihomo', tokenId: 0, content: '', nodes: 0 })
 const logs = ref([])
 const logToken = ref(0)
 const templates = ref([])
 const qr = ref({ show: false, text: '', title: '' })
-const adding = ref({ show: false, name: '', target: 'auto', token: '' })
-const editing = ref({ show: false, id: 0, name: '', target: 'auto', enabled: true, token: '', origToken: '' })
+const adding = ref({ show: false, name: '', target: 'auto', token: '', routeIds: [] })
+const editing = ref({ show: false, id: 0, name: '', target: 'auto', enabled: true, token: '', origToken: '', routeIds: [] })
 
 const targets = [{ label: '自动识别', value: 'auto' }, { label: 'mihomo', value: 'mihomo' }, { label: 'sing-box', value: 'singbox' }, { label: 'Base64（通用）', value: 'base64' }]
 const targetLabel = Object.fromEntries(targets.map((t) => [t.value, t.label]))
@@ -35,9 +36,14 @@ async function loadTokens() {
   const r = await run(() => api.get('/sub/tokens'))
   tokens.value = r?.tokens || []
   subBase.value = r?.base || ''
+  if (preview.value.tokenId && !tokens.value.some((t) => t.id === preview.value.tokenId)) {
+    preview.value.tokenId = 0
+  }
 }
 async function loadPreview() {
-  const r = await run(() => api.get(`/sub/preview?target=${preview.value.target}`))
+  const q = new URLSearchParams({ target: preview.value.target })
+  if (preview.value.tokenId) q.set('token_id', String(preview.value.tokenId))
+  const r = await run(() => api.get(`/sub/preview?${q}`))
   if (r) { preview.value.content = r.content; preview.value.nodes = r.nodes }
 }
 async function loadLogs() { logs.value = (await run(() => api.get(`/sub/logs?token_id=${logToken.value || ''}`))) || [] }
@@ -54,13 +60,13 @@ async function loadSettings() {
 }
 onMounted(() => {
   loadTokens(); loadPreview(); loadLogs(); loadTemplates(); loadSettings()
-  api.get('/routes').then((r) => { routes.value = r }).catch(() => {})
+  api.get('/routes').then((r) => { routes.value = r; routesLoaded.value = true }).catch(() => {})
   if (!state.serversLoaded) loadServers().catch(() => {})
 })
-watch(() => preview.value.target, loadPreview)
+watch(() => [preview.value.target, preview.value.tokenId], loadPreview)
 watch(logToken, loadLogs)
 
-// sub_routes: comma separated route IDs picked for subscriptions; '' = all.
+// sub_routes / token.routes: comma separated route IDs; '' = follow default/all.
 const parseIds = (v) => String(v || '').split(',').map(Number).filter((x) => x > 0)
 const pickedIds = computed(() => parseIds(settings.value.sub_routes))
 const savedPick = computed(() => {
@@ -68,18 +74,50 @@ const savedPick = computed(() => {
   return ids.length ? new Set(ids) : null
 })
 const inSub = computed(() => routes.value.filter((r) => r.enabled && r.in_sub && (!savedPick.value || savedPick.value.has(r.id))))
-const routeOpts = computed(() => {
+function routeOptsFor(selectedIds) {
+  const selected = new Set(selectedIds || [])
   const known = new Set(routes.value.map((r) => r.id))
   return [
     ...routes.value.map((r) => {
       const off = !r.enabled ? '（已停用）' : !r.in_sub ? '（未加入订阅）' : ''
-      return { label: r.name + off, value: r.id, disabled: !!off && !pickedIds.value.includes(r.id) }
+      return { label: r.name + off, value: r.id, disabled: !!off && !selected.has(r.id) }
     }),
-    ...pickedIds.value.filter((id) => !known.has(id)).map((id) => ({ label: `已删除的线路 #${id}`, value: id })),
+    ...(selectedIds || []).filter((id) => !known.has(id)).map((id) => ({ label: `已删除的线路 #${id}`, value: id })),
   ]
-})
+}
+const routeOpts = computed(() => routeOptsFor(pickedIds.value))
+const addRouteOpts = computed(() => routeOptsFor(adding.value.routeIds))
+const editRouteOpts = computed(() => routeOptsFor(editing.value.routeIds))
+const routeById = computed(() => new Map(routes.value.map((r) => [r.id, r])))
+function tokenRouteInfo(t) {
+  const ids = parseIds(t.routes)
+  if (!ids.length) {
+    return {
+      text: '跟随全局',
+      cls: '',
+      title: routesLoaded.value ? `跟随全局设置（当前共 ${inSub.value.length} 条线路）` : '跟随全局设置',
+    }
+  }
+  const names = ids.map((id) => {
+    const r = routeById.value.get(id)
+    if (!r) return `已删除 #${id}`
+    const off = !r.enabled ? '（已停用）' : !r.in_sub ? '（未加入订阅）' : r.entry_blocked ? '（疑似被封）' : ''
+    return r.name + off
+  })
+  if (!routesLoaded.value) {
+    return { text: `${ids.length} 条指定`, cls: 'ok', title: '' }
+  }
+  const active = ids.filter((id) => {
+    const r = routeById.value.get(id)
+    return r && r.enabled && r.in_sub
+  }).length
+  const text = active === ids.length ? `${ids.length} 条指定` : `${active}/${ids.length} 条生效`
+  const cls = active < ids.length ? 'warn' : 'ok'
+  return { text, cls, title: names.join('、') }
+}
 const excluded = computed(() => inSub.value.filter((r) => r.entry_blocked).length)
 const tokenOpts = computed(() => [{ label: '全部设备', value: 0 }, ...tokens.value.map((t) => ({ label: t.name, value: t.id }))])
+const previewTokenOpts = computed(() => [{ label: '全局默认', value: 0 }, ...tokens.value.map((t) => ({ label: t.name, value: t.id }))])
 const tokenName = (id) => tokens.value.find((t) => t.id === id)?.name || '#' + id
 const userinfoOpts = computed(() => [
   { label: '所有节点服务器合计', value: 'all' },
@@ -98,23 +136,27 @@ const nameExample = computed(() => {
 async function addToken() {
   const a = adding.value
   if (!a.name.trim()) { ui.message.warning('请填写设备名'); return }
-  const body = { name: a.name.trim(), target: a.target === 'auto' ? '' : a.target, token: a.token.trim() }
+  const body = { name: a.name.trim(), target: a.target === 'auto' ? '' : a.target, token: a.token.trim(), routes: a.routeIds.join(',') }
   if (await run(() => api.post('/sub/tokens', body), '已创建')) {
-    adding.value = { show: false, name: '', target: 'auto', token: '' }; loadTokens()
+    adding.value = { show: false, name: '', target: 'auto', token: '', routeIds: [] }; loadTokens()
   }
 }
 function openEdit(t) {
-  editing.value = { show: true, id: t.id, name: t.name, target: t.target_default || 'auto', enabled: t.enabled, token: t.token || '', origToken: t.token || '' }
+  editing.value = {
+    show: true, id: t.id, name: t.name, target: t.target_default || 'auto', enabled: t.enabled,
+    token: t.token || '', origToken: t.token || '', routeIds: parseIds(t.routes),
+  }
 }
 async function saveEdit() {
   const e = editing.value
   if (!e.name.trim()) { ui.message.warning('请填写设备名'); return }
   const tok = e.token.trim()
   if (!tok) { ui.message.warning('请填写订阅后缀'); return }
-  const body = { name: e.name.trim(), target_default: e.target === 'auto' ? '' : e.target, enabled: e.enabled }
+  const body = { name: e.name.trim(), target_default: e.target === 'auto' ? '' : e.target, enabled: e.enabled, routes: e.routeIds.join(',') }
   if (tok !== e.origToken) body.token = tok
   if (await run(() => api.put(`/sub/tokens/${e.id}`, body), '已保存')) {
     editing.value.show = false; loadTokens()
+    if (preview.value.tokenId === e.id) loadPreview()
   }
 }
 async function updateToken(t, patch) {
@@ -174,7 +216,7 @@ async function activate(t, v) {
 
     <section class="l-sec">
     <div class="sec-head">
-      <div class="s-head"><h2>设备订阅</h2><p>每台设备一个独立链接，可单独重置或停用。所有设备看到的线路相同。</p></div>
+      <div class="s-head"><h2>设备订阅</h2><p>每台设备一个独立链接，可单独设置可订阅的线路、重置或停用。未单独指定线路时跟随全局设置。</p></div>
       <span class="spacer" />
       <n-button type="primary" @click="adding.show = true">添加设备</n-button>
     </div>
@@ -183,11 +225,14 @@ async function activate(t, v) {
       <template v-else>
         <div class="table-wrap hide-mobile">
           <table class="plain">
-            <thead><tr><th>设备</th><th>订阅链接</th><th>格式</th><th>最后拉取</th><th>7 天次数</th><th>状态</th><th>操作</th></tr></thead>
+            <thead><tr><th>设备</th><th>订阅链接</th><th>线路</th><th>格式</th><th>最后拉取</th><th>7 天次数</th><th>状态</th><th>操作</th></tr></thead>
             <tbody>
               <tr v-for="t in tokens" :key="t.id">
                 <td><b>{{ t.name }}</b></td>
                 <td class="mono small url">{{ t.url }}</td>
+                <td>
+                  <button type="button" :class="['tag', 'route-btn', tokenRouteInfo(t).cls]" :title="tokenRouteInfo(t).title" @click="openEdit(t)">{{ tokenRouteInfo(t).text }}</button>
+                </td>
                 <td><n-select size="tiny" :value="t.target_default || 'auto'" :options="targets" style="width: 120px" @update:value="(v) => updateToken(t, { target_default: v === 'auto' ? '' : v })" /></td>
                 <td class="nowrap small">{{ t.last_used_at ? ago(t.last_used_at) : '从未' }}<div class="muted mono">{{ t.last_ip }}</div></td>
                 <td class="mono">{{ t.accesses_7d }}</td>
@@ -207,6 +252,7 @@ async function activate(t, v) {
           <div v-for="t in tokens" :key="t.id" class="m-item">
             <div class="row"><b>{{ t.name }}</b><span class="spacer" /><n-switch size="small" :value="t.enabled" @update:value="(v) => updateToken(t, { enabled: v })" /></div>
             <div class="mono small url">{{ t.url }}</div>
+            <div class="m-row"><span>可订阅线路</span><button type="button" :class="['tag', 'route-btn', tokenRouteInfo(t).cls]" :title="tokenRouteInfo(t).title" @click="openEdit(t)">{{ tokenRouteInfo(t).text }}</button></div>
             <div class="m-row"><span>最后拉取</span><span>{{ t.last_used_at ? ago(t.last_used_at) : '从未' }} · 7 天 {{ t.accesses_7d }} 次</span></div>
             <div class="row">
               <n-button size="small" type="primary" @click="copyUrl(t)">复制</n-button>
@@ -223,7 +269,7 @@ async function activate(t, v) {
 
     <div class="grid-2">
       <section class="l-sec">
-      <div class="sec-head"><div class="s-head"><h2>订阅设置</h2><p>节点命名、要剔除的线路和客户端拉取方式，对所有设备生效。</p></div></div>
+      <div class="sec-head"><div class="s-head"><h2>订阅设置</h2><p>节点命名、默认线路、要剔除的线路和客户端拉取方式，对所有设备生效。</p></div></div>
       <div class="card s-card">
         <div class="field">
           <div class="f-label"><span class="f-name">节点命名模板<i v-if="subDirty('sub_name_tpl')" class="f-dot" /></span><span class="f-hint">可用 {flag} {name} {entry} {landing}<template v-if="nameExample">。示例：{{ nameExample }}</template></span></div>
@@ -238,7 +284,7 @@ async function activate(t, v) {
           <div class="f-ctl"><n-input v-model:value="settings.sub_url" placeholder="https://sub.example.com" clearable /></div>
         </div>
         <div class="field">
-          <div class="f-label"><span class="f-name">订阅中的线路<i v-if="subDirty('sub_routes')" class="f-dot" /></span><span class="f-hint">不选 = 全部；选了之后，新建的线路要在这里勾选才会下发</span></div>
+          <div class="f-label"><span class="f-name">订阅中的线路<i v-if="subDirty('sub_routes')" class="f-dot" /></span><span class="f-hint">不选 = 全部；作为未单独指定线路的设备的默认线路。选了之后，新建的线路要在这里勾选才会下发</span></div>
           <div class="f-ctl"><n-select multiple clearable filterable placeholder="全部线路" max-tag-count="responsive" aria-label="订阅中的线路"
             :value="pickedIds" :options="routeOpts" @update:value="(v) => (settings.sub_routes = v.join(','))" /></div>
         </div>
@@ -255,7 +301,7 @@ async function activate(t, v) {
           <div class="f-ctl"><n-select v-model:value="settings.sub_update_hours" :options="hours" /></div>
         </div>
         <div class="field">
-          <div class="f-label"><span class="f-name">流量信息<i v-if="subDirty('sub_userinfo')" class="f-dot" /></span><span class="f-hint">客户端显示的已用流量与额度（subscription-userinfo）</span></div>
+          <div class="f-label"><span class="f-name">流量信息<i v-if="subDirty('sub_userinfo')" class="f-dot" /></span><span class="f-hint">客户端显示的已用流量与额度（subscription-userinfo）；选「仅订阅中的节点服务器」时按各设备实际订阅的线路统计</span></div>
           <div class="f-ctl"><n-select v-model:value="settings.sub_userinfo" :options="userinfoOpts" /></div>
         </div>
         <div class="f-actions">
@@ -270,6 +316,7 @@ async function activate(t, v) {
         <div class="sec-head">
           <div class="s-head"><h2>内容预览</h2><p>按所选格式生成的订阅内容，共 {{ preview.nodes }} 个节点。</p></div>
           <span class="spacer" />
+          <n-select v-if="tokens.length" v-model:value="preview.tokenId" :options="previewTokenOpts" aria-label="预览设备" style="width: 140px" />
           <n-select v-model:value="preview.target" :options="targets.slice(1)" aria-label="格式" style="width: 130px" />
           <n-button @click="copyPreview">复制</n-button>
         </div>
@@ -325,7 +372,7 @@ async function activate(t, v) {
     </div>
     </section>
 
-    <n-modal v-model:show="adding.show" preset="card" title="添加设备" style="width: min(460px, 94vw)">
+    <n-modal v-model:show="adding.show" preset="card" title="添加设备" style="width: min(500px, 94vw)">
       <div class="m-form">
         <div class="field">
           <div class="f-label"><span class="f-name">设备名</span></div>
@@ -334,6 +381,13 @@ async function activate(t, v) {
         <div class="field">
           <div class="f-label"><span class="f-name">默认格式</span><span class="f-hint">「自动识别」会按客户端 User-Agent 选择格式</span></div>
           <div class="f-ctl"><n-select v-model:value="adding.target" :options="targets" /></div>
+        </div>
+        <div class="field stacked">
+          <div class="f-label"><span class="f-name">可订阅线路</span><span class="f-hint">留空跟随全局设置（当前 {{ inSub.length }} 条）；指定后仅下发所选线路，新建线路需手动勾选</span></div>
+          <div class="f-ctl">
+            <n-select multiple clearable filterable placeholder="跟随全局设置" max-tag-count="responsive" aria-label="可订阅线路"
+              :value="adding.routeIds" :options="addRouteOpts" @update:value="(v) => (adding.routeIds = v)" />
+          </div>
         </div>
         <div class="field stacked">
           <div class="f-label"><span class="f-name">自定义后缀</span><span class="f-hint">留空自动随机生成；支持字母、数字、-、_ 和 .</span></div>
@@ -347,7 +401,7 @@ async function activate(t, v) {
       <template #footer><div class="m-foot"><n-button @click="adding.show = false">取消</n-button><n-button type="primary" @click="addToken">创建</n-button></div></template>
     </n-modal>
 
-    <n-modal v-model:show="editing.show" preset="card" title="编辑设备" style="width: min(460px, 94vw)">
+    <n-modal v-model:show="editing.show" preset="card" title="编辑设备" style="width: min(500px, 94vw)">
       <div class="m-form">
         <div class="field">
           <div class="f-label"><span class="f-name">设备名</span></div>
@@ -356,6 +410,13 @@ async function activate(t, v) {
         <div class="field">
           <div class="f-label"><span class="f-name">默认格式</span><span class="f-hint">「自动识别」会按客户端 User-Agent 选择格式</span></div>
           <div class="f-ctl"><n-select v-model:value="editing.target" :options="targets" /></div>
+        </div>
+        <div class="field stacked">
+          <div class="f-label"><span class="f-name">可订阅线路</span><span class="f-hint">留空跟随全局设置（当前 {{ inSub.length }} 条）；指定后仅下发所选线路，仍受停用及被封/离线过滤影响</span></div>
+          <div class="f-ctl">
+            <n-select multiple clearable filterable placeholder="跟随全局设置" max-tag-count="responsive" aria-label="可订阅线路"
+              :value="editing.routeIds" :options="editRouteOpts" @update:value="(v) => (editing.routeIds = v)" />
+          </div>
         </div>
         <div class="field stacked">
           <div class="f-label"><span class="f-name">订阅后缀</span><span class="f-hint">支持字母、数字、-、_ 和 .；修改后旧链接立即失效</span></div>
@@ -401,6 +462,8 @@ async function activate(t, v) {
 
 <style scoped>
 .url { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.route-btn { border: 0; font-family: inherit; cursor: pointer; transition: filter .15s; }
+.route-btn:hover { filter: brightness(0.95); }
 .sub-preview { padding: 6px 10px; border-radius: 4px; background: var(--c-surface); color: var(--c-text-2); overflow-wrap: anywhere; }
 .sub-warn { color: var(--c-warning); line-height: 1.5; }
 .sw { margin-top: 6px; font-size: 13px; }

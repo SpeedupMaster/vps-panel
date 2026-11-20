@@ -311,12 +311,13 @@ func (a *API) createSubToken(c *gin.Context) {
 		Name   string `json:"name"`
 		Target string `json:"target"`
 		Token  string `json:"token"`
+		Routes string `json:"routes"`
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		bad(c, err)
 		return
 	}
-	t, err := a.P.CreateSubToken(in.Name, in.Target, in.Token)
+	t, err := a.P.CreateSubToken(in.Name, in.Target, in.Token, in.Routes)
 	if err != nil {
 		bad(c, err)
 		return
@@ -331,12 +332,13 @@ func (a *API) updateSubToken(c *gin.Context) {
 		Target  string  `json:"target_default"`
 		Enabled bool    `json:"enabled"`
 		Token   *string `json:"token"`
+		Routes  *string `json:"routes"`
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		bad(c, err)
 		return
 	}
-	if err := a.P.UpdateSubToken(idParam(c), in.Name, in.Target, in.Enabled, in.Token); err != nil {
+	if err := a.P.UpdateSubToken(idParam(c), in.Name, in.Target, in.Enabled, in.Token, in.Routes); err != nil {
 		bad(c, err)
 		return
 	}
@@ -362,12 +364,13 @@ func (a *API) deleteSubToken(c *gin.Context) {
 }
 
 func (a *API) previewSub(c *gin.Context) {
-	s, err := a.P.PreviewSub(c.DefaultQuery("target", "mihomo"))
+	tid, _ := strconv.ParseUint(c.Query("token_id"), 10, 64)
+	s, nodes, err := a.P.PreviewSubFor(c.DefaultQuery("target", "mihomo"), uint(tid))
 	if err != nil {
 		bad(c, err)
 		return
 	}
-	ok(c, gin.H{"content": s, "nodes": len(a.P.SubNodes())})
+	ok(c, gin.H{"content": s, "nodes": nodes})
 }
 
 func (a *API) subLogs(c *gin.Context) {

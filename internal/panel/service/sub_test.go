@@ -1,8 +1,10 @@
 package service
 
 import (
+	"encoding/base64"
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -119,7 +121,7 @@ func TestCustomSubTokenCreateAndUpdate(t *testing.T) {
 	_ = p.St.Set("admin_path", "/secret")
 
 	// Custom suffix on create: URL has no /s/ prefix.
-	t1, err := p.CreateSubToken("手机", "mihomo", "my-phone.yaml")
+	t1, err := p.CreateSubToken("手机", "mihomo", "my-phone.yaml", "")
 	if err != nil {
 		t.Fatalf("CreateSubToken custom: %v", err)
 	}
@@ -132,7 +134,7 @@ func TestCustomSubTokenCreateAndUpdate(t *testing.T) {
 	}
 
 	// Empty custom suffix falls back to random token without /s/.
-	t2, err := p.CreateSubToken("电脑", "", "")
+	t2, err := p.CreateSubToken("电脑", "", "", "")
 	if err != nil {
 		t.Fatalf("CreateSubToken random: %v", err)
 	}
@@ -142,7 +144,7 @@ func TestCustomSubTokenCreateAndUpdate(t *testing.T) {
 	}
 
 	// Duplicate custom suffix rejected.
-	if _, err := p.CreateSubToken("重复", "", "my-phone.yaml"); err == nil {
+	if _, err := p.CreateSubToken("重复", "", "my-phone.yaml", ""); err == nil {
 		t.Fatal("duplicate custom token should fail")
 	}
 
@@ -155,13 +157,13 @@ func TestCustomSubTokenCreateAndUpdate(t *testing.T) {
 		"secret", "SECRET", // matches admin_path
 		".hidden", "..", "a/b", "has space", "中文", "bad?q=1",
 	} {
-		if _, err := p.CreateSubToken("bad", "", bad); err == nil {
+		if _, err := p.CreateSubToken("bad", "", bad, ""); err == nil {
 			t.Errorf("CreateSubToken(%q) succeeded, want error", bad)
 		}
 	}
 
 	// Update without token preserves token while changing name/target/enabled.
-	if err := p.UpdateSubToken(t1.ID, "我的手机", "singbox", false, nil); err != nil {
+	if err := p.UpdateSubToken(t1.ID, "我的手机", "singbox", false, nil, nil); err != nil {
 		t.Fatalf("UpdateSubToken keep token: %v", err)
 	}
 	views = p.SubTokens()
@@ -171,7 +173,7 @@ func TestCustomSubTokenCreateAndUpdate(t *testing.T) {
 
 	// Update with custom token rotates the suffix; old suffix stops working.
 	next := "iphone_17"
-	if err := p.UpdateSubToken(t1.ID, "我的手机", "singbox", true, &next); err != nil {
+	if err := p.UpdateSubToken(t1.ID, "我的手机", "singbox", true, &next, nil); err != nil {
 		t.Fatalf("UpdateSubToken change token: %v", err)
 	}
 	if _, err := p.ServeSub("my-phone.yaml", "base64", "curl/8", "1.2.3.4"); err != ErrSubNotFound {
@@ -183,16 +185,16 @@ func TestCustomSubTokenCreateAndUpdate(t *testing.T) {
 
 	// Updating to another device's token or empty string fails.
 	dup := views[1].Token
-	if err := p.UpdateSubToken(t1.ID, "我的手机", "singbox", true, &dup); err == nil {
+	if err := p.UpdateSubToken(t1.ID, "我的手机", "singbox", true, &dup, nil); err == nil {
 		t.Fatal("updating to duplicate token should fail")
 	}
 	empty := "   "
-	if err := p.UpdateSubToken(t1.ID, "我的手机", "singbox", true, &empty); err == nil {
+	if err := p.UpdateSubToken(t1.ID, "我的手机", "singbox", true, &empty, nil); err == nil {
 		t.Fatal("updating to empty token should fail")
 	}
 	// Updating to own current token succeeds.
 	same := "iphone_17"
-	if err := p.UpdateSubToken(t1.ID, "我的手机", "singbox", true, &same); err != nil {
+	if err := p.UpdateSubToken(t1.ID, "我的手机", "singbox", true, &same, nil); err != nil {
 		t.Fatalf("updating with same token failed: %v", err)
 	}
 	_ = t2
@@ -256,4 +258,147 @@ func TestSubUserinfoExcludesProbeAndSupportsSubMode(t *testing.T) {
 	if got := p.subUserinfo(); got != "" {
 		t.Fatalf("subUserinfo(none) = %q, want empty", got)
 	}
+}
+
+func TestSubTokenPerLinkRoutes(t *testing.T) {
+	p := newTestPanel(t)
+	now := time.Now()
+	hour := now.Unix() / 3600 * 3600
+
+	hk := addNode(t, p, "HK-01", "HK", "1.1.1.1", true, false)
+	sg := addNode(t, p, "SG-01", "SG", "4.4.4.4", true, false)
+	jp := addNode(t, p, "JP-01", "JP", "2.2.2.2", false, true)
+
+	p.St.DB.Model(hk).Update("quota_bytes", int64(100<<30))
+	p.St.DB.Model(sg).Update("quota_bytes", int64(200<<30))
+	p.St.DB.Model(jp).Update("quota_bytes", int64(300<<30))
+
+	addTraffic := func(sv *store.Server, up, down uint64) {
+		if err := p.St.DB.Create(&store.TrafficHourly{
+			Scope: "server", ScopeID: strconv.FormatUint(uint64(sv.ID), 10), Hour: hour, Up: up, Down: down,
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	addTraffic(hk, 10, 20)
+	addTraffic(sg, 30, 40)
+	addTraffic(jp, 50, 60)
+
+	r1, err := p.CreateRoute(RouteInput{Type: "direct", EntryServerID: hk.ID, Name: "hk"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r2, err := p.CreateRoute(RouteInput{Type: "chain", EntryServerID: hk.ID, LandingServerID: jp.ID, Name: "hk-jp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r3, err := p.CreateRoute(RouteInput{Type: "direct", EntryServerID: sg.ID, Name: "sg"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Token with empty routes follows global setting; token with custom routes overrides it.
+	tGlobal, err := p.CreateSubToken("通用", "", "tok-global", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tCustom, err := p.CreateSubToken("专享", "", "tok-custom", fmt.Sprintf(" %d , %d , %d ", r3.ID, r1.ID, r3.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tCustom.Routes != fmt.Sprintf("%d,%d", r3.ID, r1.ID) {
+		t.Fatalf("normalized routes = %q, want %q", tCustom.Routes, fmt.Sprintf("%d,%d", r3.ID, r1.ID))
+	}
+	if _, err := p.CreateSubToken("bad", "", "tok-bad", "abc"); err == nil {
+		t.Fatal("invalid routes should fail on create")
+	}
+
+	// Restrict global sub_routes to r2 only: tGlobal follows global (r2), tCustom overrides (r1, r3).
+	_ = p.St.Set("sub_routes", strconv.FormatUint(uint64(r2.ID), 10))
+	_ = p.St.Set("sub_userinfo", "sub")
+
+	decodeBase64 := func(b []byte) string {
+		dec, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(b)))
+		if err != nil {
+			t.Fatalf("base64 decode %q: %v", string(b), err)
+		}
+		return string(dec)
+	}
+
+	resGlobal, err := p.ServeSub("tok-global", "base64", "curl/8", "1.1.1.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bodyGlobal := decodeBase64(resGlobal.Body)
+	if !strings.Contains(bodyGlobal, r2.UUID) || strings.Contains(bodyGlobal, r1.UUID) || strings.Contains(bodyGlobal, r3.UUID) {
+		t.Fatalf("tGlobal body unexpected: %s", bodyGlobal)
+	}
+	// r2 uses hk + jp
+	wantGlobalUI := fmt.Sprintf("upload=%d; download=%d; total=%d", 60, 80, uint64(400)<<30)
+	if got := resGlobal.Headers["Subscription-Userinfo"]; got != wantGlobalUI {
+		t.Fatalf("tGlobal userinfo = %q, want %q", got, wantGlobalUI)
+	}
+
+	resCustom, err := p.ServeSub("tok-custom", "base64", "curl/8", "1.1.1.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bodyCustom := decodeBase64(resCustom.Body)
+	if !strings.Contains(bodyCustom, r1.UUID) || !strings.Contains(bodyCustom, r3.UUID) || strings.Contains(bodyCustom, r2.UUID) {
+		t.Fatalf("tCustom body unexpected: %s", bodyCustom)
+	}
+	// r1 + r3 use hk + sg
+	wantCustomUI := fmt.Sprintf("upload=%d; download=%d; total=%d", 40, 60, uint64(300)<<30)
+	if got := resCustom.Headers["Subscription-Userinfo"]; got != wantCustomUI {
+		t.Fatalf("tCustom userinfo = %q, want %q", got, wantCustomUI)
+	}
+
+	// PreviewSubFor matches global (0) vs token-specific routes.
+	if content, n, err := p.PreviewSubFor("base64", 0); err != nil || n != 1 || !strings.Contains(content, r2.UUID) {
+		t.Fatalf("PreviewSubFor(0) = n=%d err=%v content=%s", n, err, content)
+	}
+	if content, n, err := p.PreviewSubFor("base64", tCustom.ID); err != nil || n != 2 || !strings.Contains(content, r1.UUID) || !strings.Contains(content, r3.UUID) {
+		t.Fatalf("PreviewSubFor(tCustom) = n=%d err=%v content=%s", n, err, content)
+	}
+
+	// Updating without routes (nil) preserves existing custom routes.
+	if err := p.UpdateSubToken(tCustom.ID, "专享改名", "mihomo", true, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	var reloaded store.SubToken
+	p.St.DB.First(&reloaded, tCustom.ID)
+	if reloaded.Routes != fmt.Sprintf("%d,%d", r3.ID, r1.ID) {
+		t.Fatalf("routes lost on nil update: %q", reloaded.Routes)
+	}
+
+	// Blocked filter and in_sub=false still apply on top of token routes.
+	p.St.DB.Model(sg).Update("blocked", true)
+	if nodes := p.SubNodesFor(&reloaded); len(nodes) != 1 || nodes[0].UUID != r1.UUID {
+		t.Fatalf("blocked filter on token routes: %+v", nodes)
+	}
+	p.St.DB.Model(r1).Update("in_sub", false)
+	if nodes := p.SubNodesFor(&reloaded); len(nodes) != 0 {
+		t.Fatalf("in_sub=false filter on token routes: %+v", nodes)
+	}
+
+	// Stale/deleted route IDs return 0 nodes, not global fallback.
+	stale := "999"
+	if err := p.UpdateSubToken(tCustom.ID, "专享改名", "mihomo", true, nil, &stale); err != nil {
+		t.Fatal(err)
+	}
+	p.St.DB.First(&reloaded, tCustom.ID)
+	if nodes := p.SubNodesFor(&reloaded); len(nodes) != 0 {
+		t.Fatalf("stale token routes leaked nodes: %+v", nodes)
+	}
+
+	// Clearing routes to "" restores global fallback (r2).
+	empty := ""
+	if err := p.UpdateSubToken(tCustom.ID, "专享改名", "mihomo", true, nil, &empty); err != nil {
+		t.Fatal(err)
+	}
+	p.St.DB.First(&reloaded, tCustom.ID)
+	if nodes := p.SubNodesFor(&reloaded); len(nodes) != 1 || nodes[0].UUID != r2.UUID {
+		t.Fatalf("cleared token routes = %+v, want r2", nodes)
+	}
+	_ = tGlobal
 }
