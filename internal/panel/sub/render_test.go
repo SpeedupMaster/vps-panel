@@ -417,6 +417,295 @@ func TestDefaultSingBoxClaudeSplitFromAI(t *testing.T) {
 	}
 }
 
+func TestDefaultMihomoApplePush(t *testing.T) {
+	nodes := []Node{
+		{Name: "🇭🇰 香港直连", Server: "1.1.1.2", Port: 443, UUID: "u1", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "HK"},
+		{Name: "🇺🇸 美国直连", Server: "1.1.1.3", Port: 443, UUID: "u2", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "US"},
+		{Name: "🇯🇵 日本直连", Server: "1.1.1.4", Port: 443, UUID: "u3", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "JP"},
+	}
+	out, err := Mihomo(nodes, "")
+	if err != nil {
+		t.Fatalf("Mihomo(default): %v", err)
+	}
+	assertValidMihomo(t, out, nodes)
+
+	var cfg map[string]any
+	if err := yaml.Unmarshal(out, &cfg); err != nil {
+		t.Fatalf("unmarshal mihomo: %v", err)
+	}
+
+	groups := mihomoGroupMap(cfg)
+	pushGroup, ok := groups["🔔 苹果推送"]
+	if !ok {
+		t.Fatalf("missing dedicated proxy-group 🔔 苹果推送")
+	}
+	pushProxies := toStrings(pushGroup["proxies"])
+	if len(pushProxies) < 2 || pushProxies[0] != GroupSelect {
+		t.Fatalf("🔔 苹果推送 proxies = %v, want %q as default first choice", pushProxies, GroupSelect)
+	}
+	if indexOf(pushProxies, "DIRECT") < 0 {
+		t.Errorf("🔔 苹果推送 should include DIRECT option for manual fallback: %v", pushProxies)
+	}
+	if indexOf(pushProxies, "🇭🇰 香港") < 0 || indexOf(pushProxies, "🇺🇸 美国") < 0 || indexOf(pushProxies, "🇯🇵 日本") < 0 {
+		t.Errorf("🔔 苹果推送 should expand region groups: %v", pushProxies)
+	}
+
+	appleGroup, ok := groups["🍎 Apple 服务"]
+	if !ok {
+		t.Fatalf("missing proxy-group 🍎 Apple 服务")
+	}
+	appleProxies := toStrings(appleGroup["proxies"])
+	if len(appleProxies) == 0 || appleProxies[0] != "DIRECT" {
+		t.Errorf("🍎 Apple 服务 should remain DIRECT by default, got %v", appleProxies)
+	}
+
+	rules := toStrings(cfg["rules"])
+	idxAppleCN := indexOf(rules, "GEOSITE,apple-cn,DIRECT")
+	idxApple := indexOf(rules, "GEOSITE,apple,🍎 Apple 服务")
+	if idxAppleCN < 0 {
+		t.Fatalf("missing GEOSITE,apple-cn,DIRECT rule")
+	}
+	if idxApple < 0 {
+		t.Fatalf("missing GEOSITE,apple,🍎 Apple 服务 rule")
+	}
+
+	wantPushRules := []string{
+		"DOMAIN-SUFFIX,push.apple.com,🔔 苹果推送",
+		"DOMAIN-SUFFIX,push-apple.com.akadns.net,🔔 苹果推送",
+		"DOMAIN-SUFFIX,courier-push-apple.com.akadns.net,🔔 苹果推送",
+		"DOMAIN-SUFFIX,push.apple.com.akadns.net,🔔 苹果推送",
+		"AND,((DST-PORT,5223),(IP-CIDR,17.0.0.0/8,no-resolve)),🔔 苹果推送",
+		"AND,((DST-PORT,2197),(IP-CIDR,17.0.0.0/8,no-resolve)),🔔 苹果推送",
+	}
+	for _, want := range wantPushRules {
+		idx := indexOf(rules, want)
+		if idx < 0 {
+			t.Errorf("missing Mihomo Apple Push rule %q", want)
+		} else {
+			if idx > idxAppleCN {
+				t.Errorf("Mihomo Apple Push rule %q (index %d) must precede GEOSITE,apple-cn,DIRECT (index %d)", want, idx, idxAppleCN)
+			}
+			if idx > idxApple {
+				t.Errorf("Mihomo Apple Push rule %q (index %d) must precede GEOSITE,apple (index %d)", want, idx, idxApple)
+			}
+		}
+	}
+
+	// Verify DNS nameserver-policy routes APNs domains to overseas DoH ahead of
+	// geosite:private,cn so China DNS does not hijack APNs resolution.
+	var doc yaml.Node
+	if err := yaml.Unmarshal(out, &doc); err != nil {
+		t.Fatalf("unmarshal mihomo yaml.Node: %v", err)
+	}
+	dnsNode := mapGet(doc.Content[0], "dns")
+	policyNode := mapGet(dnsNode, "nameserver-policy")
+	if policyNode == nil || policyNode.Kind != yaml.MappingNode {
+		t.Fatalf("missing dns.nameserver-policy mapping")
+	}
+	policyKeys := make([]string, 0, len(policyNode.Content)/2)
+	policyVals := map[string][]string{}
+	for i := 0; i+1 < len(policyNode.Content); i += 2 {
+		k := policyNode.Content[i].Value
+		policyKeys = append(policyKeys, k)
+		var servers []string
+		_ = policyNode.Content[i+1].Decode(&servers)
+		policyVals[k] = servers
+	}
+	idxCNPolicy := indexOf(policyKeys, "geosite:private,cn")
+	if idxCNPolicy < 0 {
+		t.Fatalf("missing geosite:private,cn in dns.nameserver-policy: %v", policyKeys)
+	}
+	wantPushDNSPolicies := []string{
+		"+.push.apple.com",
+		"+.push-apple.com.akadns.net",
+		"+.courier-push-apple.com.akadns.net",
+		"+.push.apple.com.akadns.net",
+	}
+	for _, key := range wantPushDNSPolicies {
+		idx := indexOf(policyKeys, key)
+		if idx < 0 {
+			t.Errorf("missing %q in dns.nameserver-policy", key)
+			continue
+		}
+		if idx > idxCNPolicy {
+			t.Errorf("dns.nameserver-policy %q (index %d) must precede geosite:private,cn (index %d)", key, idx, idxCNPolicy)
+		}
+		servers := policyVals[key]
+		if len(servers) == 0 {
+			t.Errorf("dns.nameserver-policy %q has empty server list", key)
+		}
+		for _, s := range servers {
+			if strings.Contains(s, "223.5.5.5") || strings.Contains(s, "1.12.12.12") || strings.Contains(s, "alidns") || strings.Contains(s, "doh.pub") {
+				t.Errorf("dns.nameserver-policy %q must use overseas DNS, got %q", key, s)
+			}
+		}
+	}
+
+	sniffer, _ := cfg["sniffer"].(map[string]any)
+	if indexOf(toStrings(sniffer["skip-domain"]), "+.push.apple.com") < 0 {
+		t.Errorf("sniffer.skip-domain should keep +.push.apple.com")
+	}
+}
+
+func TestDefaultSingBoxApplePush(t *testing.T) {
+	nodes := []Node{
+		{Name: "🇭🇰 香港直连", Server: "1.1.1.2", Port: 443, UUID: "u1", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "HK"},
+		{Name: "🇺🇸 美国直连", Server: "1.1.1.3", Port: 443, UUID: "u2", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "US"},
+		{Name: "🇯🇵 日本直连", Server: "1.1.1.4", Port: 443, UUID: "u3", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "JP"},
+	}
+	out, err := SingBox(nodes, "")
+	if err != nil {
+		t.Fatalf("SingBox(default): %v", err)
+	}
+	assertValidSingBox(t, out, nodes)
+
+	var cfg map[string]any
+	if err := json.Unmarshal(out, &cfg); err != nil {
+		t.Fatalf("unmarshal singbox: %v", err)
+	}
+
+	outs := singboxOutboundMap(cfg)
+	pushOut, ok := outs["🔔 苹果推送"]
+	if !ok {
+		t.Fatalf("missing dedicated singbox outbound 🔔 苹果推送")
+	}
+	pushMembers := toStrings(pushOut["outbounds"])
+	if len(pushMembers) < 2 || pushMembers[0] != GroupSelect {
+		t.Fatalf("singbox 🔔 苹果推送 outbounds = %v, want %q as default first choice", pushMembers, GroupSelect)
+	}
+	if indexOf(pushMembers, "direct") < 0 {
+		t.Errorf("singbox 🔔 苹果推送 should include direct option: %v", pushMembers)
+	}
+	if indexOf(pushMembers, "🇭🇰 香港") < 0 || indexOf(pushMembers, "🇺🇸 美国") < 0 || indexOf(pushMembers, "🇯🇵 日本") < 0 {
+		t.Errorf("singbox 🔔 苹果推送 should expand region groups: %v", pushMembers)
+	}
+
+	appleOut, ok := outs["🍎 Apple 服务"]
+	if !ok {
+		t.Fatalf("missing singbox outbound 🍎 Apple 服务")
+	}
+	appleMembers := toStrings(appleOut["outbounds"])
+	if len(appleMembers) == 0 || appleMembers[0] != "direct" {
+		t.Errorf("singbox 🍎 Apple 服务 should remain direct by default, got %v", appleMembers)
+	}
+
+	wantDomains := []string{
+		"push.apple.com",
+		"push-apple.com.akadns.net",
+		"courier-push-apple.com.akadns.net",
+		"push.apple.com.akadns.net",
+	}
+
+	// Verify DNS routes APNs domains to remote (overseas DoH) ahead of geosite-cn -> local.
+	dns, _ := cfg["dns"].(map[string]any)
+	dnsRules, _ := dns["rules"].([]any)
+	idxDNSLocalCN := -1
+	idxDNSPush := -1
+	dnsPushDomains := map[string]bool{}
+	for i, dr := range dnsRules {
+		dm := dr.(map[string]any)
+		srv, _ := dm["server"].(string)
+		rs := stringOrSlice(dm["rule_set"])
+		if srv == "local" && indexOf(rs, "geosite-cn") >= 0 {
+			idxDNSLocalCN = i
+		}
+		if srv == "remote" {
+			if ds := toStrings(dm["domain_suffix"]); len(ds) > 0 {
+				idxDNSPush = i
+				for _, d := range ds {
+					dnsPushDomains[d] = true
+				}
+			}
+		}
+	}
+	if idxDNSLocalCN < 0 {
+		t.Fatalf("missing geosite-cn -> local DNS rule")
+	}
+	if idxDNSPush < 0 {
+		t.Errorf("missing remote DNS rule for Apple Push domains")
+	} else if idxDNSPush > idxDNSLocalCN {
+		t.Errorf("Apple Push DNS rule (index %d) must precede geosite-cn -> local rule (index %d)", idxDNSPush, idxDNSLocalCN)
+	}
+	for _, d := range wantDomains {
+		if !dnsPushDomains[d] {
+			t.Errorf("missing domain_suffix %q in Apple Push remote DNS rule", d)
+		}
+	}
+
+	// Verify route rules match APNs domains and 17.0.0.0/8 ports 5223/2197 ahead of geosite-apple@cn.
+	route, _ := cfg["route"].(map[string]any)
+	rulesRaw, _ := route["rules"].([]any)
+	idxAppleCN := -1
+	idxApple := -1
+	idxPushDomains := -1
+	idxPushPort := -1
+	routePushDomains := map[string]bool{}
+	routePushCIDRs := map[string]bool{}
+	routePushPorts := map[int]bool{}
+
+	for i, rr := range rulesRaw {
+		rm := rr.(map[string]any)
+		ob, _ := rm["outbound"].(string)
+		rs := stringOrSlice(rm["rule_set"])
+		if ob == "direct" && indexOf(rs, "geosite-apple@cn") >= 0 {
+			idxAppleCN = i
+		}
+		if ob == "🍎 Apple 服务" && indexOf(rs, "geosite-apple") >= 0 {
+			idxApple = i
+		}
+		if ob == "🔔 苹果推送" {
+			if ds := toStrings(rm["domain_suffix"]); len(ds) > 0 {
+				idxPushDomains = i
+				for _, d := range ds {
+					routePushDomains[d] = true
+				}
+			}
+			if cidrs := toStrings(rm["ip_cidr"]); len(cidrs) > 0 {
+				idxPushPort = i
+				for _, c := range cidrs {
+					routePushCIDRs[c] = true
+				}
+				if rawPorts, ok := rm["port"].([]any); ok {
+					for _, p := range rawPorts {
+						if pf, ok := p.(float64); ok {
+							routePushPorts[int(pf)] = true
+						}
+					}
+				}
+			}
+		}
+	}
+	if idxAppleCN < 0 {
+		t.Fatalf("missing geosite-apple@cn -> direct route rule")
+	}
+	if idxApple < 0 {
+		t.Fatalf("missing geosite-apple -> 🍎 Apple 服务 route rule")
+	}
+	if idxPushDomains < 0 {
+		t.Errorf("missing domain_suffix route rule targeting 🔔 苹果推送")
+	} else if idxPushDomains > idxAppleCN || idxPushDomains > idxApple {
+		t.Errorf("Apple Push domain_suffix rule (index %d) must precede geosite-apple@cn (%d) and geosite-apple (%d)", idxPushDomains, idxAppleCN, idxApple)
+	}
+	for _, d := range wantDomains {
+		if !routePushDomains[d] {
+			t.Errorf("missing domain_suffix %q in 🔔 苹果推送 route rule", d)
+		}
+	}
+	if idxPushPort < 0 {
+		t.Errorf("missing ip_cidr + port route rule targeting 🔔 苹果推送")
+	} else if idxPushPort > idxAppleCN || idxPushPort > idxApple {
+		t.Errorf("Apple Push ip_cidr+port rule (index %d) must precede geosite-apple@cn (%d) and geosite-apple (%d)", idxPushPort, idxAppleCN, idxApple)
+	}
+	if !routePushCIDRs["17.0.0.0/8"] {
+		t.Errorf("missing ip_cidr 17.0.0.0/8 in 🔔 苹果推送 route rule")
+	}
+	for _, p := range []int{5223, 2197} {
+		if !routePushPorts[p] {
+			t.Errorf("missing port %d in 🔔 苹果推送 ip_cidr+port route rule", p)
+		}
+	}
+}
+
 func assertValidMihomo(t *testing.T, rendered []byte, nodes []Node) {
 	t.Helper()
 	for _, line := range strings.Split(string(rendered), "\n") {
@@ -465,9 +754,12 @@ func assertValidMihomo(t *testing.T, rendered []byte, nodes []Node) {
 	for _, r := range toStrings(cfg["rules"]) {
 		parts := strings.Split(r, ",")
 		var target string
-		if parts[0] == "MATCH" {
+		switch parts[0] {
+		case "MATCH":
 			target = parts[1]
-		} else {
+		case "AND", "OR", "NOT":
+			target = parts[len(parts)-1]
+		default:
 			target = parts[2]
 		}
 		if !valid[target] {

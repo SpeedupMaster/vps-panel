@@ -104,6 +104,18 @@ dns:
     - https://1.1.1.1/dns-query
     - https://8.8.8.8/dns-query
   nameserver-policy:
+    "+.push.apple.com":
+      - https://1.1.1.1/dns-query
+      - https://8.8.8.8/dns-query
+    "+.push-apple.com.akadns.net":
+      - https://1.1.1.1/dns-query
+      - https://8.8.8.8/dns-query
+    "+.courier-push-apple.com.akadns.net":
+      - https://1.1.1.1/dns-query
+      - https://8.8.8.8/dns-query
+    "+.push.apple.com.akadns.net":
+      - https://1.1.1.1/dns-query
+      - https://8.8.8.8/dns-query
     "geosite:private,cn":
       - https://223.5.5.5/dns-query
       - https://1.12.12.12/dns-query
@@ -116,6 +128,7 @@ proxy-groups:
   - {name: 🔍 Google, type: select, proxies: [节点选择, "{{regions}}", 自动选择, 故障转移, "{{all}}"]}
   - {name: 💻 开发与学术, type: select, proxies: [节点选择, "{{regions}}", 自动选择, 故障转移, "{{all}}", DIRECT]}
   - {name: 🪟 微软服务, type: select, proxies: [节点选择, DIRECT, "{{regions}}", 自动选择]}
+  - {name: 🔔 苹果推送, type: select, proxies: [节点选择, DIRECT, "{{regions}}", 自动选择, 故障转移, "{{all}}"]}
   - {name: 🍎 Apple 服务, type: select, proxies: [DIRECT, 节点选择, "{{regions}}"]}
   - {name: 🎮 游戏平台, type: select, proxies: [节点选择, DIRECT, "{{regions}}", "{{all}}"]}
   - {name: 💰 金融与加密, type: select, proxies: [节点选择, "{{regions}}", 故障转移, "{{all}}"]}
@@ -203,29 +216,36 @@ rules:
   # 11. Google 服务
   - GEOSITE,google,🔍 Google
   - GEOIP,google,🔍 Google,no-resolve
-  # 12. Apple 服务
+  # 12. 苹果推送（置于 apple-cn / Apple 服务之前，避免被 apple-cn 强制直连）
+  - DOMAIN-SUFFIX,push.apple.com,🔔 苹果推送
+  - DOMAIN-SUFFIX,push-apple.com.akadns.net,🔔 苹果推送
+  - DOMAIN-SUFFIX,courier-push-apple.com.akadns.net,🔔 苹果推送
+  - DOMAIN-SUFFIX,push.apple.com.akadns.net,🔔 苹果推送
+  - AND,((DST-PORT,5223),(IP-CIDR,17.0.0.0/8,no-resolve)),🔔 苹果推送
+  - AND,((DST-PORT,2197),(IP-CIDR,17.0.0.0/8,no-resolve)),🔔 苹果推送
+  # 13. Apple 服务
   - GEOSITE,apple-cn,DIRECT
   - GEOSITE,icloud,🍎 Apple 服务
   - GEOSITE,apple,🍎 Apple 服务
-  # 13. 微软服务
+  # 14. 微软服务
   - GEOSITE,microsoft@cn,DIRECT
   - GEOSITE,onedrive,🪟 微软服务
   - GEOSITE,microsoft,🪟 微软服务
-  # 14. 游戏平台
+  # 15. 游戏平台
   - GEOSITE,steam@cn,DIRECT
   - GEOSITE,category-games@cn,DIRECT
   - GEOSITE,steam,🎮 游戏平台
   - GEOSITE,category-games,🎮 游戏平台
-  # 15. 金融与加密资产
+  # 16. 金融与加密资产
   - GEOSITE,paypal,💰 金融与加密
   - GEOSITE,category-cryptocurrency,💰 金融与加密
-  # 16. 其他境外常见域名
+  # 17. 其他境外常见域名
   - GEOSITE,geolocation-!cn,节点选择
-  # 17. 中国大陆直连
+  # 18. 中国大陆直连
   - GEOSITE,cn,DIRECT
   - DOMAIN-SUFFIX,cn,DIRECT
   - GEOIP,CN,DIRECT,no-resolve
-  # 18. 兜底规则
+  # 19. 兜底规则
   - MATCH,🌐 漏网之鱼
 `
 
@@ -240,6 +260,7 @@ const DefaultSingBox = `{
       {"type": "fakeip", "tag": "fakeip", "inet4_range": "198.18.0.0/15", "inet6_range": "fc00::/18"}
     ],
     "rules": [
+      {"domain_suffix": ["push.apple.com", "push-apple.com.akadns.net", "courier-push-apple.com.akadns.net", "push.apple.com.akadns.net"], "server": "remote"},
       {"rule_set": ["geosite-private", "geosite-cn"], "server": "local"},
       {"query_type": ["A", "AAAA"], "server": "fakeip"}
     ],
@@ -260,6 +281,7 @@ const DefaultSingBox = `{
     {"type": "selector", "tag": "🔍 Google", "outbounds": ["节点选择", "{{regions}}", "自动选择", "{{all}}"]},
     {"type": "selector", "tag": "💻 开发与学术", "outbounds": ["节点选择", "{{regions}}", "自动选择", "{{all}}", "direct"]},
     {"type": "selector", "tag": "🪟 微软服务", "outbounds": ["节点选择", "direct", "{{regions}}", "自动选择"]},
+    {"type": "selector", "tag": "🔔 苹果推送", "outbounds": ["节点选择", "direct", "{{regions}}", "自动选择", "{{all}}"]},
     {"type": "selector", "tag": "🍎 Apple 服务", "outbounds": ["direct", "节点选择", "{{regions}}"]},
     {"type": "selector", "tag": "🎮 游戏平台", "outbounds": ["节点选择", "direct", "{{regions}}", "{{all}}"]},
     {"type": "selector", "tag": "📺 国内媒体", "outbounds": ["direct", "{{regions}}", "节点选择"]},
@@ -284,6 +306,8 @@ const DefaultSingBox = `{
       {"rule_set": ["geosite-telegram", "geoip-telegram", "geosite-discord", "geosite-twitter", "geosite-facebook"], "outbound": "💬 社交通讯"},
       {"rule_set": ["geosite-github", "geosite-category-dev", "geosite-category-scholar-!cn"], "outbound": "💻 开发与学术"},
       {"rule_set": ["geosite-google", "geoip-google"], "outbound": "🔍 Google"},
+      {"domain_suffix": ["push.apple.com", "push-apple.com.akadns.net", "courier-push-apple.com.akadns.net", "push.apple.com.akadns.net"], "outbound": "🔔 苹果推送"},
+      {"ip_cidr": ["17.0.0.0/8"], "port": [5223, 2197], "outbound": "🔔 苹果推送"},
       {"rule_set": "geosite-apple@cn", "outbound": "direct"},
       {"rule_set": "geosite-apple", "outbound": "🍎 Apple 服务"},
       {"rule_set": "geosite-microsoft@cn", "outbound": "direct"},
