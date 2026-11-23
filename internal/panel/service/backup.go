@@ -111,41 +111,80 @@ func (p *Panel) DeleteBackup(name string) error {
 	return os.Remove(path)
 }
 
-// snapshot returns a tar.gz with a consistent copy of the database and the
-// master key (needed to decrypt secrets after a migration).
-func (p *Panel) snapshot() ([]byte, error) {
+// snapshotToFile writes a tar.gz containing a consistent copy of panel.db and
+// master.key directly to dst using streaming I/O (no full-DB RAM buffering).
+func (p *Panel) snapshotToFile(dst string) error {
 	tmp := filepath.Join(p.DataDir, fmt.Sprintf(".snapshot-%d.db", time.Now().UnixNano()))
 	defer os.Remove(tmp)
 	if err := p.St.DB.Exec("VACUUM INTO ?", tmp).Error; err != nil {
-		return nil, fmt.Errorf("数据库快照失败：%w", err)
+		return fmt.Errorf("数据库快照失败：%w", err)
 	}
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	fail := func(err error) error {
+		_ = out.Close()
+		_ = os.Remove(dst)
+		return err
+	}
+	gz := gzip.NewWriter(out)
 	tw := tar.NewWriter(gz)
 	add := func(name, path string) error {
-		b, err := os.ReadFile(path)
+		f, err := os.Open(path)
 		if err != nil {
 			return err
 		}
-		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: int64(len(b)), ModTime: time.Now()}); err != nil {
+		defer f.Close()
+		fi, err := f.Stat()
+		if err != nil {
 			return err
 		}
-		_, err = tw.Write(b)
+		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: fi.Size(), ModTime: time.Now()}); err != nil {
+			return err
+		}
+		_, err = io.Copy(tw, f)
 		return err
 	}
 	if err := add("panel.db", tmp); err != nil {
-		return nil, err
+		return fail(err)
 	}
 	if err := add("master.key", filepath.Join(p.DataDir, "master.key")); err != nil {
-		return nil, err
+		return fail(err)
 	}
 	if err := tw.Close(); err != nil {
-		return nil, err
+		return fail(err)
 	}
 	if err := gz.Close(); err != nil {
-		return nil, err
+		return fail(err)
 	}
-	return buf.Bytes(), nil
+	if err := out.Close(); err != nil {
+		_ = os.Remove(dst)
+		return err
+	}
+	return nil
+}
+
+func encryptBackupFile(src, dst, pass string) error {
+	plain, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	enc, err := encryptBackup(plain, pass)
+	plain = nil
+	if err != nil {
+		return err
+	}
+	tmp := dst + ".tmp"
+	if err := os.WriteFile(tmp, enc, 0o600); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 func encryptBackup(plain []byte, pass string) ([]byte, error) {
@@ -197,28 +236,34 @@ func decryptBackup(data []byte, pass string) ([]byte, error) {
 
 // BackupNow writes a backup, prunes old ones and uploads to remote targets.
 func (p *Panel) BackupNow(reason string) (string, error) {
-	data, err := p.snapshot()
-	if err != nil {
+	if err := os.MkdirAll(p.backupDir(), 0o700); err != nil {
+		return "", err
+	}
+	tmpTar := filepath.Join(p.backupDir(), fmt.Sprintf(".tmp-%d.tar.gz", time.Now().UnixNano()))
+	defer os.Remove(tmpTar)
+	if err := p.snapshotToFile(tmpTar); err != nil {
 		return "", err
 	}
 	pass := p.SecretSetting("backup_password")
 	ext := "tar.gz"
 	if pass != "" {
-		if data, err = encryptBackup(data, pass); err != nil {
-			return "", err
-		}
 		ext = "vpb"
-	}
-	if err := os.MkdirAll(p.backupDir(), 0o700); err != nil {
-		return "", err
 	}
 	name := "panel-" + time.Now().Format("20060102-150405")
 	if reason != "" && reason != "daily" {
 		name += "-" + reason
 	}
 	name += "." + ext
-	if err := os.WriteFile(filepath.Join(p.backupDir(), name), data, 0o600); err != nil {
-		return "", err
+	finalPath := filepath.Join(p.backupDir(), name)
+	if pass != "" {
+		if err := encryptBackupFile(tmpTar, finalPath, pass); err != nil {
+			return "", err
+		}
+		_ = os.Remove(tmpTar)
+	} else {
+		if err := os.Rename(tmpTar, finalPath); err != nil {
+			return "", err
+		}
 	}
 	p.pruneBackups()
 
@@ -229,11 +274,11 @@ func (p *Panel) BackupNow(reason string) (string, error) {
 			var err error
 			switch strings.TrimSpace(t) {
 			case "s3":
-				err = p.uploadS3(ctx, name, data)
+				err = p.uploadS3File(ctx, name, finalPath)
 			case "webdav":
-				err = p.uploadWebDAV(ctx, name, data)
+				err = p.uploadWebDAVFile(ctx, name, finalPath)
 			case "telegram":
-				err = p.uploadTelegram(ctx, name, data)
+				err = p.uploadTelegramFile(ctx, name, finalPath)
 			}
 			cancel()
 			if err != nil {
@@ -287,8 +332,8 @@ func hmacSHA(key []byte, s string) []byte {
 	return h.Sum(nil)
 }
 
-// uploadS3 PUTs with AWS SigV4 (path-style; works with S3, R2, MinIO).
-func (p *Panel) uploadS3(ctx context.Context, name string, body []byte) error {
+// uploadS3File PUTs a file with AWS SigV4 using streaming I/O.
+func (p *Panel) uploadS3File(ctx context.Context, name, filePath string) error {
 	endpoint := strings.TrimRight(p.St.Get("backup_s3_endpoint", ""), "/")
 	bucket := p.St.Get("backup_s3_bucket", "")
 	ak := p.St.Get("backup_s3_access_key", "")
@@ -302,7 +347,23 @@ func (p *Panel) uploadS3(ctx context.Context, name string, body []byte) error {
 		key += "/"
 	}
 	key += name
-	req, err := s3Request(ctx, endpoint, region, bucket, key, ak, sk, body, time.Now().UTC())
+	f, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	req, err := s3SignedRequest(ctx, endpoint, region, bucket, key, ak, sk, hex.EncodeToString(h.Sum(nil)), fi.Size(), f, time.Now().UTC())
 	if err != nil {
 		return err
 	}
@@ -319,6 +380,11 @@ func (p *Panel) uploadS3(ctx context.Context, name string, body []byte) error {
 }
 
 func s3Request(ctx context.Context, endpoint, region, bucket, key, ak, sk string, body []byte, now time.Time) (*http.Request, error) {
+	sum := sha256.Sum256(body)
+	return s3SignedRequest(ctx, endpoint, region, bucket, key, ak, sk, hex.EncodeToString(sum[:]), int64(len(body)), bytes.NewReader(body), now)
+}
+
+func s3SignedRequest(ctx context.Context, endpoint, region, bucket, key, ak, sk, payload string, size int64, body io.Reader, now time.Time) (*http.Request, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Host == "" {
 		return nil, errors.New("S3 endpoint 无效")
@@ -327,8 +393,6 @@ func s3Request(ctx context.Context, endpoint, region, bucket, key, ak, sk string
 	path := strings.TrimRight(u.Path, "/") + "/" + bucket + "/" + escKey
 	amzDate := now.Format("20060102T150405Z")
 	day := now.Format("20060102")
-	sum := sha256.Sum256(body)
-	payload := hex.EncodeToString(sum[:])
 	signed := "host;x-amz-content-sha256;x-amz-date"
 	canon := "PUT\n" + path + "\n\n" + "host:" + u.Host + "\nx-amz-content-sha256:" + payload + "\nx-amz-date:" + amzDate + "\n\n" + signed + "\n" + payload
 	scope := day + "/" + region + "/s3/aws4_request"
@@ -339,26 +403,36 @@ func s3Request(ctx context.Context, endpoint, region, bucket, key, ak, sk string
 	k = hmacSHA(k, "s3")
 	k = hmacSHA(k, "aws4_request")
 	sig := hex.EncodeToString(hmacSHA(k, sts))
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, u.Scheme+"://"+u.Host+path, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, u.Scheme+"://"+u.Host+path, body)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("x-amz-date", amzDate)
 	req.Header.Set("x-amz-content-sha256", payload)
 	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+ak+"/"+scope+", SignedHeaders="+signed+", Signature="+sig)
-	req.ContentLength = int64(len(body))
+	req.ContentLength = size
 	return req, nil
 }
 
-func (p *Panel) uploadWebDAV(ctx context.Context, name string, body []byte) error {
+func (p *Panel) uploadWebDAVFile(ctx context.Context, name, filePath string) error {
 	base := strings.TrimRight(p.St.Get("backup_webdav_url", ""), "/")
 	if base == "" {
 		return errors.New("未设置 WebDAV 地址")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, base+"/"+name, bytes.NewReader(body))
+	f, err := os.Open(filePath)
 	if err != nil {
 		return err
 	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, base+"/"+name, f)
+	if err != nil {
+		return err
+	}
+	req.ContentLength = fi.Size()
 	if u := p.St.Get("backup_webdav_user", ""); u != "" {
 		req.SetBasicAuth(u, p.SecretSetting("backup_webdav_password"))
 	}
@@ -373,7 +447,7 @@ func (p *Panel) uploadWebDAV(ctx context.Context, name string, body []byte) erro
 	return nil
 }
 
-func (p *Panel) uploadTelegram(ctx context.Context, name string, body []byte) error {
+func (p *Panel) uploadTelegramFile(ctx context.Context, name, filePath string) error {
 	var chs []store.NotifyChannel
 	q := p.St.DB.Where("type = ?", "telegram")
 	if id, _ := strconv.Atoi(p.St.Get("backup_tg_channel", "")); id > 0 {
@@ -387,29 +461,85 @@ func (p *Panel) uploadTelegram(ctx context.Context, name string, body []byte) er
 	if err != nil {
 		return err
 	}
-	if len(body) > 49<<20 {
+	fi, err := os.Stat(filePath)
+	if err != nil {
+		return err
+	}
+	if fi.Size() > 49<<20 {
 		return errors.New("备份超过 Telegram 50MB 限制")
 	}
-	return notify.SendTelegramDocument(ctx, cfg, name, body, "vps-panel 备份 "+time.Now().Format("2006-01-02 15:04"))
+	return notify.SendTelegramDocumentFile(ctx, cfg, name, filePath, "vps-panel 备份 "+time.Now().Format("2006-01-02 15:04"))
 }
 
 // ---------- restore ----------
 
 const restoreDir = "restore-pending"
 
-// StageRestore validates a backup and stages it; the panel applies it on the
-// next start (the caller restarts the process).
+// StageRestore validates an in-memory backup and stages it on disk.
 func (p *Panel) StageRestore(data []byte, pass string) error {
 	plain, err := decryptBackup(data, pass)
 	if err != nil {
 		return err
 	}
-	gz, err := gzip.NewReader(bytes.NewReader(plain))
+	return p.stageRestoreFromReader(bytes.NewReader(plain))
+}
+
+// StageRestoreFile validates a backup file on disk and streams its contents
+// directly into restore-pending without buffering the uncompressed database in RAM.
+func (p *Panel) StageRestoreFile(srcPath, pass string) error {
+	f, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	var magic [5]byte
+	n, err := io.ReadFull(f, magic[:])
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		_ = f.Close()
+		return err
+	}
+	if n >= len(backupMagic) && bytes.Equal(magic[:], backupMagic) {
+		_ = f.Close()
+		data, err := os.ReadFile(srcPath)
+		if err != nil {
+			return err
+		}
+		plain, err := decryptBackup(data, pass)
+		data = nil
+		if err != nil {
+			return err
+		}
+		return p.stageRestoreFromReader(bytes.NewReader(plain))
+	}
+	if n < 2 || magic[0] != 0x1f || magic[1] != 0x8b {
+		_ = f.Close()
+		return errors.New("不是有效的备份文件")
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		_ = f.Close()
+		return err
+	}
+	defer f.Close()
+	return p.stageRestoreFromReader(f)
+}
+
+func (p *Panel) stageRestoreFromReader(r io.Reader) error {
+	gz, err := gzip.NewReader(r)
 	if err != nil {
 		return errors.New("备份文件已损坏")
 	}
+	defer gz.Close()
 	tr := tar.NewReader(gz)
-	files := map[string][]byte{}
+	tmpDir := filepath.Join(p.DataDir, fmt.Sprintf(".%s-tmp-%d", restoreDir, time.Now().UnixNano()))
+	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
+		return err
+	}
+	ok := false
+	defer func() {
+		if !ok {
+			_ = os.RemoveAll(tmpDir)
+		}
+	}()
+	var gotDB, gotKey bool
 	for {
 		h, err := tr.Next()
 		if err == io.EOF {
@@ -421,25 +551,47 @@ func (p *Panel) StageRestore(data []byte, pass string) error {
 		if h.Name != "panel.db" && h.Name != "master.key" {
 			continue
 		}
-		b, err := io.ReadAll(io.LimitReader(tr, 2<<30))
+		dst := filepath.Join(tmpDir, h.Name)
+		out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 		if err != nil {
 			return err
 		}
-		files[h.Name] = b
+		var head [16]byte
+		lr := io.LimitReader(tr, 2<<30)
+		nHead, headErr := io.ReadFull(lr, head[:])
+		if headErr != nil && !errors.Is(headErr, io.EOF) && !errors.Is(headErr, io.ErrUnexpectedEOF) {
+			_ = out.Close()
+			return headErr
+		}
+		if _, err := out.Write(head[:nHead]); err != nil {
+			_ = out.Close()
+			return err
+		}
+		nRest, copyErr := io.Copy(out, lr)
+		closeErr := out.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		total := int64(nHead) + nRest
+		if h.Name == "panel.db" && nHead == 16 && string(head[:]) == "SQLite format 3\x00" {
+			gotDB = true
+		}
+		if h.Name == "master.key" && total >= 64 {
+			gotKey = true
+		}
 	}
-	if !bytes.HasPrefix(files["panel.db"], []byte("SQLite format 3\x00")) || len(files["master.key"]) < 64 {
+	if !gotDB || !gotKey {
 		return errors.New("备份中缺少数据库或主密钥")
 	}
 	dir := filepath.Join(p.DataDir, restoreDir)
-	os.RemoveAll(dir)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	_ = os.RemoveAll(dir)
+	if err := os.Rename(tmpDir, dir); err != nil {
 		return err
 	}
-	for n, b := range files {
-		if err := os.WriteFile(filepath.Join(dir, n), b, 0o600); err != nil {
-			return err
-		}
-	}
+	ok = true
 	return nil
 }
 

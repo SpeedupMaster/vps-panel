@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"vpspanel/internal/common/proto"
@@ -87,30 +88,42 @@ func (p *Panel) SyncZstatic() (int, error) {
 		isDefault[d] = true
 	}
 	count := 0
-	upsert := func(t store.ProbeTarget) {
-		if en, ok := known[t.ID]; ok {
-			t.Enabled = en
-		} else {
-			t.Enabled = first && t.City == "" && isDefault[t.Province]
+	if err := p.St.DB.Transaction(func(tx *gorm.DB) error {
+		upsert := func(t store.ProbeTarget) error {
+			if en, ok := known[t.ID]; ok {
+				t.Enabled = en
+			} else {
+				t.Enabled = first && t.City == "" && isDefault[t.Province]
+			}
+			if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&t).Error; err != nil {
+				return err
+			}
+			count++
+			return nil
 		}
-		p.St.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(&t)
-		count++
-	}
-	for _, pn := range z.ProvinceNodes {
-		for carrier, ep := range pn.Carriers {
-			id, host, port := zstaticID(ep)
+		for _, pn := range z.ProvinceNodes {
+			for carrier, ep := range pn.Carriers {
+				id, host, port := zstaticID(ep)
+				if id == "" {
+					continue
+				}
+				if err := upsert(store.ProbeTarget{ID: id, Name: pn.Province + " " + carrierCN[carrier], Carrier: carrier, Province: pn.Province, Host: host, Port: port, Type: "tcp", Source: "zstatic"}); err != nil {
+					return err
+				}
+			}
+		}
+		for _, cn := range z.CityNodes {
+			id, host, port := zstaticID(cn.Endpoint)
 			if id == "" {
 				continue
 			}
-			upsert(store.ProbeTarget{ID: id, Name: pn.Province + " " + carrierCN[carrier], Carrier: carrier, Province: pn.Province, Host: host, Port: port, Type: "tcp", Source: "zstatic"})
+			if err := upsert(store.ProbeTarget{ID: id, Name: cn.City + " " + carrierCN[cn.Carrier], Carrier: cn.Carrier, Province: cn.Province, City: cn.City, Host: host, Port: port, Type: "tcp", Source: "zstatic"}); err != nil {
+				return err
+			}
 		}
-	}
-	for _, cn := range z.CityNodes {
-		id, host, port := zstaticID(cn.Endpoint)
-		if id == "" {
-			continue
-		}
-		upsert(store.ProbeTarget{ID: id, Name: cn.City + " " + carrierCN[cn.Carrier], Carrier: cn.Carrier, Province: cn.Province, City: cn.City, Host: host, Port: port, Type: "tcp", Source: "zstatic"})
+		return nil
+	}); err != nil {
+		return 0, err
 	}
 	p.St.Set("zstatic_synced_at", time.Now().Format(time.RFC3339)+" ("+src+", 更新于 "+z.UpdatedAt+")")
 	p.PushProbeTasksAll()
@@ -221,6 +234,25 @@ type probeState struct {
 var probes = probeState{
 	latest: map[uint]map[string]proto.ProbeSample{}, latestTS: map[uint]map[string]int64{},
 	failRound: map[uint]int{}, lastOK: map[uint]int64{},
+}
+
+func (p *Panel) clearProbeState(serverID uint) {
+	probes.mu.Lock()
+	delete(probes.latest, serverID)
+	delete(probes.latestTS, serverID)
+	delete(probes.failRound, serverID)
+	delete(probes.lastOK, serverID)
+	probes.mu.Unlock()
+}
+
+// ForgetProbeTarget drops in-memory samples for a deleted custom probe target.
+func (p *Panel) ForgetProbeTarget(target string) {
+	probes.mu.Lock()
+	for sid := range probes.latest {
+		delete(probes.latest[sid], target)
+		delete(probes.latestTS[sid], target)
+	}
+	probes.mu.Unlock()
 }
 
 func (p *Panel) ingestProbe(serverID uint, r *proto.ProbeResult) {

@@ -76,6 +76,10 @@ func (a *Auth) locked(ip string) bool {
 			keep = append(keep, t)
 		}
 	}
+	if len(keep) == 0 {
+		delete(a.failures, ip)
+		return false
+	}
 	a.failures[ip] = keep
 	return len(keep) >= maxFailures
 }
@@ -83,8 +87,24 @@ func (a *Auth) locked(ip string) bool {
 func (a *Auth) fail(ip string) int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.failures[ip] = append(a.failures[ip], time.Now())
-	return len(a.failures[ip])
+	now := time.Now()
+	cut := now.Add(-lockFor)
+	if len(a.failures) > 256 {
+		for k, ts := range a.failures {
+			if len(ts) == 0 || !ts[len(ts)-1].After(cut) {
+				delete(a.failures, k)
+			}
+		}
+	}
+	var keep []time.Time
+	for _, t := range a.failures[ip] {
+		if t.After(cut) {
+			keep = append(keep, t)
+		}
+	}
+	keep = append(keep, now)
+	a.failures[ip] = keep
+	return len(keep)
 }
 
 // Login checks credentials. When TOTP is enabled and code is empty it returns

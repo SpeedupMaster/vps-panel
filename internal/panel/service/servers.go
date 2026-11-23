@@ -162,7 +162,17 @@ func (p *Panel) DeleteServer(id uint) error {
 	db.Delete(&store.LandingInbound{}, "server_id = ?", id)
 	db.Delete(&store.LandingUser{}, "landing_server_id = ? OR entry_server_id = ?", id, id)
 	db.Delete(&store.ConfigVersion{}, "server_id = ?", id)
-	return db.Delete(&store.Server{}, id).Error
+	if err := db.Delete(&store.Server{}, id).Error; err != nil {
+		return err
+	}
+	p.mu.Lock()
+	delete(p.latest, id)
+	p.mu.Unlock()
+	p.clearProbeState(id)
+	if eng, ok := p.Alert.(*AlertEngine); ok {
+		eng.ForgetServer(id)
+	}
+	return nil
 }
 
 // SystemInfo decodes the last Hello's system info.

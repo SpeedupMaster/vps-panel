@@ -1,8 +1,11 @@
 .git
 .gitignore
+bin
 data
 deploy/data
 deploy/.env
+docs
+README.md
 .env
 .env.*
 dist
@@ -13,4 +16,6 @@ internal/panel/webui/dist/*
 *.db
 *.db-shm
 *.db-wal
+*.exe
+*.log
 .DS_Store

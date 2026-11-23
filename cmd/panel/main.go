@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	_ "time/tzdata"
 
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -35,6 +36,7 @@ func env(k, def string) string {
 }
 
 func main() {
+	tuneMemory()
 	if handled, err := signCommand(os.Args[1:]); handled {
 		if err != nil {
 			log.Fatal(err)
@@ -79,7 +81,6 @@ func main() {
 	}
 
 	agentSrc := bundledAgentDir(env("VPSPANEL_AGENT_DIR", ""))
-	seedAgents(*dataDir, agentSrc, st.Get("agent_published", "") == "")
 
 	h := hub.New(st, box)
 	p := service.New(st, box, au, h, *dataDir)

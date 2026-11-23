@@ -44,4 +44,5 @@ func (p *Panel) Cleanup() {
 	db.Exec("DELETE FROM alert_events WHERE status <> 'firing' AND started_at < ?", now.AddDate(0, 0, -365))
 	db.Exec("DELETE FROM tasks WHERE finished_at IS NOT NULL AND finished_at < ?", now.AddDate(0, 0, -60))
 	db.Exec("DELETE FROM sessions WHERE expires_at < ?", now)
+	db.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
 }

@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"net/smtp"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -208,6 +209,49 @@ func SetTelegramCommands(ctx context.Context, cfg map[string]string) error {
 		{"command": "sub", "description": "订阅链接"},
 	}
 	return postJSON(ctx, tgBase(cfg)+"/setMyCommands", map[string]any{"commands": cmds}, nil)
+}
+
+// SendTelegramDocumentFile streams a file to Telegram without buffering the
+// entire document in memory.
+func SendTelegramDocumentFile(ctx context.Context, cfg map[string]string, name, filePath, caption string) error {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	pr, pw := io.Pipe()
+	w := newMultipart(pw)
+	go func() {
+		defer f.Close()
+		_ = w.WriteField("chat_id", cfg["chat_id"])
+		_ = w.WriteField("caption", caption)
+		fw, err := w.CreateFormFile("document", name)
+		if err != nil {
+			_ = pw.CloseWithError(err)
+			return
+		}
+		if _, err := io.Copy(fw, f); err != nil {
+			_ = pw.CloseWithError(err)
+			return
+		}
+		_ = pw.CloseWithError(w.Close())
+	}()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tgBase(cfg)+"/sendDocument", pr)
+	if err != nil {
+		_ = pr.Close()
+		return err
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	resp, err := (&http.Client{Timeout: 5 * time.Minute}).Do(req)
+	if err != nil {
+		_ = pr.Close()
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, b)
+	}
+	return nil
 }
 
 // SendTelegramDocument uploads a file (used for backups).

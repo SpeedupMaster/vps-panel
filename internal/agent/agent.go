@@ -108,7 +108,10 @@ func dial(panelURL string) (*grpc.ClientConn, error) {
 	}
 	return grpc.NewClient(host,
 		grpc.WithTransportCredentials(creds),
-		grpc.WithDefaultCallOptions(proto.CallOption(), grpc.MaxCallRecvMsgSize(64<<20)),
+		grpc.WithDefaultCallOptions(proto.CallOption(), grpc.MaxCallRecvMsgSize(8<<20)),
+		grpc.WithReadBufferSize(4<<10),
+		grpc.WithWriteBufferSize(4<<10),
+		grpc.WithSharedWriteBuffer(true),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{Time: 30 * time.Second, Timeout: 10 * time.Second}),
 	)
 }

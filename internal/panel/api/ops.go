@@ -86,7 +86,7 @@ func (a *API) agentRelease(c *gin.Context) {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	c.File(path)
+	serveAgentFile(c, path)
 }
 
 // ---------- releases & updates ----------
@@ -139,13 +139,9 @@ func (a *API) uploadAgent(c *gin.Context) {
 			bad(c, err)
 			return
 		}
-		bin, err := io.ReadAll(io.LimitReader(f, 100<<20))
+		_, err = a.P.AddAgentReleaseFromReader(ver, arch, io.LimitReader(f, 100<<20), c.PostForm("sig_"+arch), notes)
 		f.Close()
 		if err != nil {
-			bad(c, err)
-			return
-		}
-		if _, err := a.P.AddAgentRelease(ver, arch, bin, c.PostForm("sig_"+arch), notes); err != nil {
 			bad(c, errors.New(arch+"："+err.Error()))
 			return
 		}
@@ -425,19 +421,14 @@ func (a *API) restoreBackup(c *gin.Context) {
 		fail(c, http.StatusForbidden, "二次验证失败")
 		return
 	}
-	var data []byte
+	var srcPath string
 	if name := c.PostForm("name"); name != "" {
 		path, okk := a.P.BackupPath(name)
 		if !okk {
 			bad(c, errors.New("备份不存在"))
 			return
 		}
-		b, err := os.ReadFile(path)
-		if err != nil {
-			bad(c, err)
-			return
-		}
-		data = b
+		srcPath = path
 	} else {
 		fh, err := c.FormFile("file")
 		if err != nil {
@@ -449,14 +440,28 @@ func (a *API) restoreBackup(c *gin.Context) {
 			bad(c, err)
 			return
 		}
-		data, err = io.ReadAll(io.LimitReader(f, 2<<30))
-		f.Close()
+		tmp, err := os.CreateTemp(a.P.DataDir, ".restore-upload-*")
 		if err != nil {
+			f.Close()
 			bad(c, err)
 			return
 		}
+		tmpPath := tmp.Name()
+		defer os.Remove(tmpPath)
+		_, copyErr := io.Copy(tmp, io.LimitReader(f, 2<<30))
+		closeErr := tmp.Close()
+		f.Close()
+		if copyErr != nil {
+			bad(c, copyErr)
+			return
+		}
+		if closeErr != nil {
+			bad(c, closeErr)
+			return
+		}
+		srcPath = tmpPath
 	}
-	if err := a.P.StageRestore(data, c.PostForm("password")); err != nil {
+	if err := a.P.StageRestoreFile(srcPath, c.PostForm("password")); err != nil {
 		bad(c, err)
 		return
 	}

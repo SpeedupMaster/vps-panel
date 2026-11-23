@@ -70,7 +70,12 @@ func (h *Hub) SetHandler(handler Handler) { h.h = handler }
 
 // GRPCServer builds the server with the AgentHub service registered.
 func (h *Hub) GRPCServer() *grpc.Server {
-	s := grpc.NewServer(grpc.MaxRecvMsgSize(32 << 20))
+	s := grpc.NewServer(
+		grpc.MaxRecvMsgSize(8<<20),
+		grpc.ReadBufferSize(4<<10),
+		grpc.WriteBufferSize(4<<10),
+		grpc.SharedWriteBuffer(true),
+	)
 	s.RegisterService(&proto.ServiceDesc, h)
 	return s
 }
@@ -151,7 +156,7 @@ func (h *Hub) Connect(stream grpc.ServerStream) error {
 		return err
 	}
 	ctx, cancel := context.WithCancel(stream.Context())
-	c := &Conn{ServerID: sv.ID, AgentID: sv.AgentID, Since: time.Now(), send: make(chan *proto.PanelMessage, 256), cancel: cancel}
+	c := &Conn{ServerID: sv.ID, AgentID: sv.AgentID, Since: time.Now(), send: make(chan *proto.PanelMessage, 64), cancel: cancel}
 	if p, ok := peer.FromContext(stream.Context()); ok {
 		c.RemoteIP = hostOnly(p.Addr.String())
 	}

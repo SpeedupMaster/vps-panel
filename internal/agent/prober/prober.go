@@ -50,12 +50,23 @@ func ICMPPing(host string, timeout time.Duration) (time.Duration, error) {
 	return time.Duration(ms * float64(time.Millisecond)), nil
 }
 
+var httpPingClient = &http.Client{
+	Transport: &http.Transport{DisableKeepAlives: true, TLSClientConfig: &tls.Config{}},
+	CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
+
 // HTTPPing times a GET (connection reuse disabled).
 func HTTPPing(url string, timeout time.Duration) (time.Duration, error) {
-	tr := &http.Transport{DisableKeepAlives: true, TLSClientConfig: &tls.Config{}}
-	cl := &http.Client{Timeout: timeout, Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return 0, err
+	}
 	start := time.Now()
-	resp, err := cl.Get(url)
+	resp, err := httpPingClient.Do(req)
 	if err != nil {
 		return 0, err
 	}

@@ -282,7 +282,9 @@ func (a *API) updateTarget(c *gin.Context) {
 }
 
 func (a *API) deleteTarget(c *gin.Context) {
-	a.P.St.DB.Where("id = ? AND source = ?", c.Param("tid"), "custom").Delete(&store.ProbeTarget{})
+	tid := c.Param("tid")
+	a.P.St.DB.Where("id = ? AND source = ?", tid, "custom").Delete(&store.ProbeTarget{})
+	a.P.ForgetProbeTarget(tid)
 	a.P.PushProbeTasksAll()
 	ok(c, gin.H{})
 }

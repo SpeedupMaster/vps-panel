@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"gorm.io/gorm"
+
 	"vpspanel/internal/common/proto"
 	"vpspanel/internal/panel/notify"
 	"vpspanel/internal/panel/scheduler"
@@ -61,9 +63,10 @@ type pendingMsg struct {
 type AlertEngine struct {
 	p *Panel
 
-	mu    sync.Mutex
-	since map[string]time.Time // Observe: condition start
-	queue []pendingMsg
+	mu        sync.Mutex
+	since     map[string]time.Time // Observe: condition start
+	queue     []pendingMsg
+	ruleCache map[string][]store.AlertRule
 }
 
 func NewAlertEngine(p *Panel) *AlertEngine {
@@ -76,7 +79,30 @@ func NewAlertEngine(p *Panel) *AlertEngine {
 			p.St.DB.Create(&r)
 		}
 	}
+	invalidate := func(db *gorm.DB) {
+		if db.Statement == nil {
+			return
+		}
+		table := db.Statement.Table
+		if table == "" && db.Statement.Schema != nil {
+			table = db.Statement.Schema.Table
+		}
+		if table == "alert_rules" {
+			e.InvalidateRules()
+		}
+	}
+	cb := p.St.DB.Callback()
+	_ = cb.Create().After("gorm:create").Register("vpspanel:alert_rules_cache_create", invalidate)
+	_ = cb.Update().After("gorm:update").Register("vpspanel:alert_rules_cache_update", invalidate)
+	_ = cb.Delete().After("gorm:delete").Register("vpspanel:alert_rules_cache_delete", invalidate)
 	return e
+}
+
+// InvalidateRules clears the cached alert rules so the next lookup reloads from SQLite.
+func (e *AlertEngine) InvalidateRules() {
+	e.mu.Lock()
+	e.ruleCache = nil
+	e.mu.Unlock()
 }
 
 // Start runs the merge-and-send loop.
@@ -84,9 +110,37 @@ func (e *AlertEngine) Start(s *scheduler.Scheduler) {
 	s.Every("alert-flush", 10*time.Second, false, e.flush)
 }
 
+// ForgetServer drops in-memory duration trackers for a deleted server.
+func (e *AlertEngine) ForgetServer(serverID uint) {
+	suffix := "|" + strconv.FormatUint(uint64(serverID), 10)
+	e.mu.Lock()
+	for k := range e.since {
+		if strings.HasSuffix(k, suffix) {
+			delete(e.since, k)
+		}
+	}
+	e.mu.Unlock()
+}
+
 func (e *AlertEngine) rules(kind string) []store.AlertRule {
-	var rs []store.AlertRule
-	e.p.St.DB.Where("kind = ?", kind).Find(&rs)
+	e.mu.Lock()
+	cache := e.ruleCache
+	e.mu.Unlock()
+	if cache != nil {
+		return cache[kind]
+	}
+	var all []store.AlertRule
+	e.p.St.DB.Find(&all)
+	m := make(map[string][]store.AlertRule, len(all))
+	for _, r := range all {
+		m[r.Kind] = append(m[r.Kind], r)
+	}
+	e.mu.Lock()
+	if e.ruleCache == nil {
+		e.ruleCache = m
+	}
+	rs := e.ruleCache[kind]
+	e.mu.Unlock()
 	return rs
 }
 

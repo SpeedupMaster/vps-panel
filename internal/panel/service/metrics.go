@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"gorm.io/gorm"
+
 	"vpspanel/internal/common/proto"
 	"vpspanel/internal/panel/store"
 )
@@ -12,11 +14,6 @@ func (p *Panel) ingestMetrics(serverID uint, m *proto.Metrics) {
 	p.mu.Lock()
 	p.latest[serverID] = m
 	p.mu.Unlock()
-	p.St.DB.Create(&store.MetricRaw{Metric: store.Metric{
-		ServerID: serverID, TS: m.TS, CPU: m.CPU, Steal: m.Steal, Load1: m.Load1,
-		MemUsed: m.MemUsed, SwapUsed: m.SwapUsed, DiskUsed: m.DiskUsed, DiskRead: m.DiskRead, DiskWrite: m.DiskWrite,
-		NetIn: m.NetIn, NetOut: m.NetOut, TCP: m.TCPConns, UDP: m.UDPConns,
-	}})
 	upd := map[string]any{"last_seen_at": time.Now(), "status": "online"}
 	if m.Xray != nil {
 		upd["xray_running"] = m.Xray.Running
@@ -24,7 +21,15 @@ func (p *Panel) ingestMetrics(serverID uint, m *proto.Metrics) {
 			upd["xray_version"] = m.Xray.Version
 		}
 	}
-	p.St.DB.Model(&store.Server{}).Where("id = ?", serverID).Updates(upd)
+	_ = p.St.DB.Transaction(func(tx *gorm.DB) error {
+		tx.Create(&store.MetricRaw{Metric: store.Metric{
+			ServerID: serverID, TS: m.TS, CPU: m.CPU, Steal: m.Steal, Load1: m.Load1,
+			MemUsed: m.MemUsed, SwapUsed: m.SwapUsed, DiskUsed: m.DiskUsed, DiskRead: m.DiskRead, DiskWrite: m.DiskWrite,
+			NetIn: m.NetIn, NetOut: m.NetOut, TCP: m.TCPConns, UDP: m.UDPConns,
+		}})
+		tx.Model(&store.Server{}).Where("id = ?", serverID).Updates(upd)
+		return nil
+	})
 	p.Bus.Publish("metrics", map[string]any{"id": serverID, "m": m})
 	p.checkResourceAlerts(serverID, m)
 }

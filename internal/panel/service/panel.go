@@ -39,9 +39,10 @@ type Panel struct {
 	Alert   Alerter
 	DataDir string
 
-	mu      sync.RWMutex
-	latest  map[uint]*proto.Metrics
-	waiters map[uint64][]chan *proto.TaskResult
+	mu              sync.RWMutex
+	latest          map[uint]*proto.Metrics
+	waiters         map[uint64][]chan *proto.TaskResult
+	bundledAgentDir string
 }
 
 func New(st *store.Store, box *secret.Box, a *auth.Auth, h *hub.Hub, dataDir string) *Panel {

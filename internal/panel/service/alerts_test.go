@@ -128,3 +128,28 @@ func TestZstaticSnapshot(t *testing.T) {
 		t.Fatal(id, host, port)
 	}
 }
+
+func TestAlertEngineRuleCacheAndInvalidation(t *testing.T) {
+	p := newTestPanel(t)
+	e := NewAlertEngine(p)
+	p.Alert = e
+
+	// First lookup populates cache; second lookup serves from cache.
+	rs1 := e.rules("cpu")
+	if len(rs1) == 0 {
+		t.Fatal("expected default cpu rule")
+	}
+	e.mu.Lock()
+	cached := e.ruleCache != nil
+	e.mu.Unlock()
+	if !cached {
+		t.Fatal("ruleCache was not populated")
+	}
+
+	// Updating a rule in DB must invalidate cache immediately.
+	p.St.DB.Model(&store.AlertRule{}).Where("kind = ?", "cpu").Update("threshold", 77)
+	rs2 := e.rules("cpu")
+	if len(rs2) == 0 || rs2[0].Threshold != 77 {
+		t.Fatalf("stale cache after DB update: got %+v", rs2)
+	}
+}

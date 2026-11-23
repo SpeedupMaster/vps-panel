@@ -3,23 +3,32 @@ FROM node:22-alpine AS web
 WORKDIR /src/web
 RUN corepack enable
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
 COPY web/ ./
 RUN pnpm build
 
 FROM golang:1.27-alpine AS go
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+COPY scripts ./scripts
 COPY --from=web /src/internal/panel/webui/dist ./internal/panel/webui/dist
 ARG VERSION=docker
 ARG COMMIT=unknown
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X vpspanel/internal/common/version.Version=${VERSION} -X vpspanel/internal/common/version.Commit=${COMMIT}" -o /out/vps-panel ./cmd/panel \
- && for arch in amd64 arm64; do CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w -X vpspanel/internal/common/version.Version=${VERSION} -X vpspanel/internal/common/version.Commit=${COMMIT}" -o /out/agent/vpsagent-linux-$arch ./cmd/agent; done
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -trimpath -tags nomsgpack -ldflags "-s -w -X vpspanel/internal/common/version.Version=${VERSION} -X vpspanel/internal/common/version.Commit=${COMMIT}" -o /out/vps-panel ./cmd/panel \
+ && for arch in amd64 arm64; do \
+      CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w -X vpspanel/internal/common/version.Version=${VERSION} -X vpspanel/internal/common/version.Commit=${COMMIT}" -o /out/agent/vpsagent-linux-$arch ./cmd/agent \
+      && gzip -9 /out/agent/vpsagent-linux-$arch; \
+    done
 
 FROM alpine:3.22
-RUN apk add --no-cache ca-certificates tzdata su-exec \
+RUN apk add --no-cache ca-certificates su-exec \
  && adduser -D -H -u 10001 vpspanel \
  && mkdir -p /data \
  && chown vpspanel:vpspanel /data

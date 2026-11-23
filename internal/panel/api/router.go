@@ -3,12 +3,17 @@ package api
 
 import (
 	"bytes"
+	"compress/gzip"
 	"html"
+	"io"
 	"io/fs"
+	"mime"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -206,8 +211,13 @@ func (a *API) mountSPA(r *gin.Engine) {
 		if name == "" {
 			name = "index.html"
 		}
+		gzipped := false
 		if st, err := fs.Stat(a.Web, name); err != nil || st.IsDir() {
-			name = "index.html" // SPA fallback (and no directory listings)
+			if st, err := fs.Stat(a.Web, name+".gz"); err == nil && !st.IsDir() {
+				gzipped = true
+			} else {
+				name = "index.html" // SPA fallback (and no directory listings)
+			}
 		}
 		if name == "index.html" {
 			// Written directly: http.FileServer redirects /index.html to ./,
@@ -229,9 +239,64 @@ func (a *API) mountSPA(r *gin.Engine) {
 		} else if strings.HasPrefix(name, "assets/") {
 			c.Header("Cache-Control", "public, max-age=31536000, immutable")
 		}
+		if gzipped {
+			serveGzipFS(c, a.Web, name)
+			return
+		}
 		c.Request.URL.Path = "/" + name
 		fileServer.ServeHTTP(c.Writer, c.Request)
 	})
+}
+
+func acceptsGzip(hdr string) bool {
+	for _, part := range strings.Split(hdr, ",") {
+		enc, params, _ := strings.Cut(strings.TrimSpace(part), ";")
+		if strings.EqualFold(strings.TrimSpace(enc), "gzip") {
+			if strings.Contains(strings.ReplaceAll(strings.ToLower(params), " ", ""), "q=0") &&
+				!strings.Contains(strings.ReplaceAll(strings.ToLower(params), " ", ""), "q=0.") {
+				return false
+			}
+			return true
+		}
+	}
+	return false
+}
+
+func serveGzipFS(c *gin.Context, fsys fs.FS, name string) {
+	f, err := fsys.Open(name + ".gz")
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+	if ct := c.Writer.Header().Get("Content-Type"); ct == "" {
+		if m := mime.TypeByExtension(filepath.Ext(name)); m != "" {
+			c.Header("Content-Type", m)
+		}
+	}
+	c.Header("Vary", "Accept-Encoding")
+	if acceptsGzip(c.GetHeader("Accept-Encoding")) {
+		c.Header("Content-Encoding", "gzip")
+		if rs, ok := f.(io.ReadSeeker); ok {
+			http.ServeContent(c.Writer, c.Request, name, time.Time{}, rs)
+			return
+		}
+		c.Status(http.StatusOK)
+		if c.Request.Method != http.MethodHead {
+			_, _ = io.Copy(c.Writer, f)
+		}
+		return
+	}
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+	defer gr.Close()
+	c.Status(http.StatusOK)
+	if c.Request.Method != http.MethodHead {
+		_, _ = io.Copy(c.Writer, gr)
+	}
 }
 
 // withBase adds <base href> to index.html so the history-mode router and the

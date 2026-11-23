@@ -176,3 +176,57 @@ func TestSeedScriptsAddsNewOnesOnce(t *testing.T) {
 		t.Fatalf("deleted script came back: %d, want %d", got, want)
 	}
 }
+
+func TestStageRestoreFilePlainAndEncrypted(t *testing.T) {
+	p := newTestPanel(t)
+	addNode(t, p, "SG-01", "SG", "2.2.2.2", true, false)
+
+	// 1. Plain tar.gz backup -> StageRestoreFile streams directly from disk.
+	plainName, err := p.BackupNow("plain")
+	if err != nil || !strings.HasSuffix(plainName, ".tar.gz") {
+		t.Fatalf("plain backup = %q, err=%v", plainName, err)
+	}
+	plainPath, ok := p.BackupPath(plainName)
+	if !ok {
+		t.Fatal("plain backup missing")
+	}
+	if err := p.StageRestoreFile(plainPath, ""); err != nil {
+		t.Fatalf("StageRestoreFile plain: %v", err)
+	}
+	dst1 := t.TempDir()
+	if err := os.Rename(filepath.Join(p.DataDir, restoreDir), filepath.Join(dst1, restoreDir)); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyPendingRestore(dst1); err != nil {
+		t.Fatal(err)
+	}
+	st1, err := store.Open(dst1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st1.Close()
+	var n int64
+	st1.DB.Model(&store.Server{}).Where("name = ?", "SG-01").Count(&n)
+	if n != 1 {
+		t.Fatalf("restored servers = %d, want 1", n)
+	}
+
+	// 2. Encrypted .vpb backup -> StageRestoreFile rejects wrong pass, accepts right pass.
+	if err := p.SetSecretSetting("backup_password", "pass-xyz-123"); err != nil {
+		t.Fatal(err)
+	}
+	encName, err := p.BackupNow("enc")
+	if err != nil || !strings.HasSuffix(encName, ".vpb") {
+		t.Fatalf("enc backup = %q, err=%v", encName, err)
+	}
+	encPath, ok := p.BackupPath(encName)
+	if !ok {
+		t.Fatal("enc backup missing")
+	}
+	if err := p.StageRestoreFile(encPath, "wrong"); err == nil {
+		t.Fatal("expected wrong password error")
+	}
+	if err := p.StageRestoreFile(encPath, "pass-xyz-123"); err != nil {
+		t.Fatalf("StageRestoreFile enc: %v", err)
+	}
+}

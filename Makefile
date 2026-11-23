@@ -9,8 +9,8 @@ web:
 	cd web && pnpm install && pnpm build
 
 panel:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$(LDFLAGS)" -o dist/vps-panel-linux-amd64 ./cmd/panel
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$(LDFLAGS)" -o dist/vps-panel-linux-arm64 ./cmd/panel
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -tags nomsgpack -ldflags "$(LDFLAGS)" -o dist/vps-panel-linux-amd64 ./cmd/panel
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -tags nomsgpack -ldflags "$(LDFLAGS)" -o dist/vps-panel-linux-arm64 ./cmd/panel
 
 agent:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$(LDFLAGS)" -o dist/vpsagent-linux-amd64 ./cmd/agent

@@ -56,6 +56,13 @@ func (p *Panel) flushPendingTasks(serverID uint) {
 func (p *Panel) finishTask(t *store.Task, status, out string) {
 	now := time.Now()
 	p.St.DB.Model(t).Updates(map[string]any{"status": status, "output": t.Output + out, "finished_at": &now})
+	p.mu.Lock()
+	ws := p.waiters[t.ID]
+	delete(p.waiters, t.ID)
+	p.mu.Unlock()
+	for _, w := range ws {
+		close(w)
+	}
 }
 
 func (p *Panel) onTaskResult(serverID uint, r *proto.TaskResult) {
@@ -120,7 +127,12 @@ func (p *Panel) UnwatchTask(id uint64, ch chan *proto.TaskResult) {
 	ws := p.waiters[id]
 	for i, w := range ws {
 		if w == ch {
-			p.waiters[id] = append(ws[:i], ws[i+1:]...)
+			ws = append(ws[:i], ws[i+1:]...)
+			if len(ws) == 0 {
+				delete(p.waiters, id)
+			} else {
+				p.waiters[id] = ws
+			}
 			break
 		}
 	}
