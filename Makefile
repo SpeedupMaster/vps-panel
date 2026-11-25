@@ -19,6 +19,7 @@ agent:
 
 test:
 	go vet ./... && go test ./...
+	@if [ -d web/node_modules ]; then cd web && pnpm --if-present test; fi
 
 clean:
 	rm -rf dist

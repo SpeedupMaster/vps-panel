@@ -87,7 +87,7 @@
 
 ## 🚀 快速开始（部署面板）
 
-GitHub Actions 会在每次推送到 `main` 分支时自动构建 `linux/amd64` 镜像并发布至 GitHub Container Registry（`ghcr.io/speedupmaster/vps-panel:latest`）。镜像内已预置 `amd64` 与 `arm64` 双架构 Agent 二进制包，启动后即可直接供受控机器下载安装。
+GitHub Actions 会在每次推送到 `main` 分支或打版本标签时先执行前后端测试与构建门禁（`pnpm test` / `pnpm build`、`go vet` 与 `go test -race`），通过后自动构建 `linux/amd64` 与 `linux/arm64` 多架构镜像并发布至 GitHub Container Registry（`ghcr.io/speedupmaster/vps-panel:latest`）。镜像内已预置 `amd64` 与 `arm64` 双架构 Agent 二进制包，启动后即可直接供受控机器下载安装。
 
 ### 方式一：Docker Compose + Caddy 自动 HTTPS（推荐）
 
@@ -110,7 +110,7 @@ VPSPANEL_ADMIN=admin
 TZ=Asia/Shanghai
 ```
 
-> 💡 **独立订阅域名（可选）**：若希望将管理后台与订阅域名分离，可取消注释 [`Caddyfile.docker`](deploy/Caddyfile.docker) 中的 `sub.example.com` 配置段并替换为你的订阅域名，同时在面板「订阅 → 订阅域名」中填入 `https://sub.example.com`。面板会自动限制该独立域名仅响应订阅链接，后台页面与 API 一律返回 `404`。
+> 💡 **独立订阅域名（可选）**：若希望将管理后台与订阅域名分离，可取消注释 [`Caddyfile.docker`](deploy/Caddyfile.docker) 中的 `sub.example.com` 配置段并替换为你的订阅域名，同时在面板「订阅 → 订阅域名」中填入 `https://sub.example.com`。面板与示例 Caddyfile 均会限制该独立域名仅响应订阅链接，后台页面、管理 API（`/api/*`）与 Agent gRPC（`/vpspanel.AgentHub/*`）一律返回 `404`。
 
 启动服务并查看初始管理员密码：
 
@@ -133,7 +133,7 @@ docker compose logs panel
 ```
 
 > ⚠️ **反向代理配置要点**：面板在单端口上同时承载 HTTP REST API、SSE 实时事件流（`/api/events`）、WebSocket（WebSSH）以及 **gRPC over HTTP/2（`h2c`）**。
-> - **Caddy**：请使用 `reverse_proxy h2c://127.0.0.1:8080`（完整示例见 [`deploy/Caddyfile`](deploy/Caddyfile)）。
+> - **Caddy**：请使用 `reverse_proxy h2c://127.0.0.1:8080`，仅对 gRPC / SSE / WebSSH 路径启用无超时流式转发，常规 HTTP 请求保留有界超时（完整示例见 [`deploy/Caddyfile`](deploy/Caddyfile)）。
 > - **Nginx**：请确保开启 `http2` 并为 gRPC 路径或反代配置长连接与 HTTP/2 转发支持。
 
 ### 方式三：直接使用 `docker run`
@@ -142,7 +142,7 @@ docker compose logs panel
 docker pull ghcr.io/speedupmaster/vps-panel:latest
 docker run -d --name vps-panel \
   --restart unless-stopped \
-  -p 8080:8080 \
+  -p 127.0.0.1:8080:8080 \
   -v ./data:/data \
   -e VPSPANEL_URL=https://panel.example.com \
   -e TZ=Asia/Shanghai \
@@ -175,7 +175,7 @@ docker run -d --name vps-panel \
 | `-password` | `VPSPANEL_PASSWORD` | 空（随机生成） | 首次初始化时的管理员密码，留空时输出到启动日志 |
 | `-trusted-proxies` | `VPSPANEL_TRUSTED_PROXIES` | `127.0.0.1,::1` | 受信任的反向代理 IP 或 CIDR 列表（逗号分隔） |
 | `-tls-cert` / `-tls-key` | `VPSPANEL_TLS_CERT` / `KEY` | 空 | 直接启用 TLS 时的证书与私钥路径（前置反代时无需设置） |
-| — | `VPSPANEL_AGENT_DIR` | `<二进制目录>/agent` | 首次启动时自动导入到 `<data>/agent/` 的预置 Agent 目录 |
+| — | `VPSPANEL_AGENT_DIR` | `<二进制目录>/agent` | 预置 Agent 二进制目录（支持原始或 `.gz` 文件），启动时由 `RegisterBundledAgent` 直接注册并从此目录提供下载，不重复复制到 `<data>/agent/` |
 
 ---
 
@@ -264,7 +264,7 @@ vps-panel keygen sign.key
 vps-panel sign sign.key dist/vpsagent-linux-amd64 dist/vpsagent-linux-arm64
 ```
 
-Agent 首次安装时会将公钥钉死在本地 `/etc/vpsagent/sign.pub`，后续任何无有效签名的更新包均会被拒绝执行。
+Agent 安装时会将公钥写入本地 `/etc/vpsagent/sign.pub`（重装时若提供了新的签名公钥会同步更新；兼容 PKIX SPKI 与 32 字节原始 Base64 Ed25519 公钥），后续任何无有效签名的更新包均会被拒绝执行。
 
 ---
 
@@ -297,26 +297,26 @@ https://panel.example.com/<自定义后缀>?target=base64    # 强制输出 Base
 ### 3. 移动端与 PWA 独立应用
 
 - **移动端自适应**：屏幕宽度 `≤ 767px` 时自动切换为移动端专属布局（顶部状态栏 + 底部「总览 / 线路 / 延迟 / 告警 / 更多」导航栏），复杂表格自动转为卡片列表，WebSSH 终端内置常用快捷键栏（`Esc`、`Tab`、`Ctrl+C`、方向键等）。
-- **PWA 安装**：支持通过浏览器「添加到主屏幕」作为独立 App 运行；Service Worker 仅缓存静态 UI 资源，`/api`、实时事件流、WebSSH 与 `/s/` 订阅始终直连面板，面板升级后温和提示刷新，绝不读取过期数据。
+- **PWA 安装**：支持通过浏览器「添加到主屏幕」作为独立 App 运行；Service Worker 仅预缓存静态资源并对页面导航采用网络优先（`NetworkFirst`，仅离线回退且不覆盖服务端 `404`，完全兼容动态自定义后台路径），`/api`、实时事件流、WebSSH 与订阅请求始终直连面板，面板升级后温和提示刷新。
 
 ---
 
 ## 💻 从源码构建与本地开发
 
 ### 环境要求
-- Go `1.23+`
-- Node.js `20+` & `pnpm`
+- Go `1.27+`
+- Node.js `22+` & `pnpm`（支持通过 `corepack enable` 自动启用）
 
 ### 编译构建
 
 仓库提供了开箱即用的 [`Makefile`](Makefile)：
 
 ```bash
-make all      # 依次构建前端并交叉编译面板与 Agent
+make all      # 构建前端并交叉编译面板与 Agent（支持 make -j 并行构建，panel 自动等待 web 完成）
 make web      # 构建前端 SPA 并输出至 internal/panel/webui/dist 供 Go embed 打包
-make panel    # 编译面板二进制：dist/vps-panel-linux-{amd64,arm64}
+make panel    # 编译面板二进制：dist/vps-panel-linux-{amd64,arm64}（自动先构建 web）
 make agent    # 编译 Agent 二进制：dist/vpsagent-linux-{amd64,arm64}
-make test     # 运行 go vet 与全部单元测试
+make test     # 运行 go vet、Go 单元测试，并在存在 web/node_modules 时运行前端测试
 ```
 
 如果使用 Docker Compose 从源码本地构建启动：
