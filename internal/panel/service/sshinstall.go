@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -21,12 +22,13 @@ import (
 
 // SSHInstallInput carries one-time credentials; they are never stored.
 type SSHInstallInput struct {
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	User     string `json:"user"`
-	Password string `json:"password"`
-	Key      string `json:"key"` // PEM private key
-	Mode     string `json:"mode"`
+	Host               string `json:"host"`
+	Port               int    `json:"port"`
+	User               string `json:"user"`
+	Password           string `json:"password"`
+	Key                string `json:"key"` // PEM private key
+	Mode               string `json:"mode"`
+	HostKeyFingerprint string `json:"host_key_fingerprint"`
 }
 
 // SSHInstall logs into the VPS once and runs the install command. Progress
@@ -75,7 +77,8 @@ func (p *Panel) SSHInstall(serverID uint, in SSHInstallInput) (uint64, error) {
 	} else {
 		cmd = "bash -c " + shellQuote(cmd)
 	}
-	t := &store.Task{ServerID: serverID, Type: "ssh_install", Args: `{"host":"` + in.Host + `"}`, Status: "running", Timeout: 900, CreatedAt: time.Now()}
+	argsJSON, _ := json.Marshal(map[string]string{"host": in.Host})
+	t := &store.Task{ID: nextTaskID(), ServerID: serverID, Type: "ssh_install", Args: string(argsJSON), Status: "running", Timeout: 900, CreatedAt: time.Now()}
 	if err := p.St.DB.Create(t).Error; err != nil {
 		return 0, err
 	}
@@ -84,6 +87,23 @@ func (p *Panel) SSHInstall(serverID uint, in SSHInstallInput) (uint64, error) {
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'" }
+
+func verifyHostKeyFingerprint(want, keyType, b64SHA256 string) error {
+	want = strings.TrimSpace(want)
+	if want == "" {
+		return nil
+	}
+	actual := keyType + " SHA256:" + b64SHA256
+	normWant := want
+	if i := strings.Index(strings.ToUpper(normWant), "SHA256:"); i >= 0 {
+		normWant = normWant[i+len("SHA256:"):]
+	}
+	normWant = strings.TrimRight(strings.TrimSpace(normWant), "=")
+	if want == actual || strings.EqualFold(want, "SHA256:"+b64SHA256) || normWant == b64SHA256 {
+		return nil
+	}
+	return fmt.Errorf("主机密钥指纹不匹配：期望 %s，实际 %s", want, actual)
+}
 
 // sshOut forwards ssh output as task results (line-buffered).
 type sshOut struct {
@@ -124,7 +144,11 @@ func (p *Panel) runSSHInstall(t *store.Task, in SSHInstallInput, auth []ssh.Auth
 		// so it can be compared with the provider's console.
 		HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
 			sum := sha256.Sum256(key.Marshal())
-			fp = key.Type() + " SHA256:" + strings.TrimRight(base64.StdEncoding.EncodeToString(sum[:]), "=")
+			b64 := strings.TrimRight(base64.StdEncoding.EncodeToString(sum[:]), "=")
+			fp = key.Type() + " SHA256:" + b64
+			if err := verifyHostKeyFingerprint(in.HostKeyFingerprint, key.Type(), b64); err != nil {
+				return err
+			}
 			return nil
 		},
 	}

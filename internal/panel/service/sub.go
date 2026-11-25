@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"vpspanel/internal/panel/secret"
 	"vpspanel/internal/panel/store"
@@ -125,13 +126,39 @@ func (p *Panel) subTokenTaken(tok string, excludeID uint) bool {
 		q = q.Where("id <> ?", excludeID)
 	}
 	q.Count(&n)
-	return n > 0
+	if n > 0 {
+		return true
+	}
+	// Case-insensitive uniqueness check against stored tokens.
+	var all []store.SubToken
+	q2 := p.St.DB.Select("id, token_enc")
+	if excludeID > 0 {
+		q2 = q2.Where("id <> ?", excludeID)
+	}
+	q2.Find(&all)
+	for _, t := range all {
+		if plain, err := p.Box.Open(t.TokenEnc); err == nil && strings.EqualFold(plain, tok) {
+			return true
+		}
+	}
+	return false
 }
 
 // HasSubToken reports whether any subscription token (enabled or disabled)
-// matches tok. Used by the router to avoid falling through disabled tokens to
-// the SPA and to check admin_path collisions.
+// matches tok (exact match). Used by the router to avoid falling through
+// disabled tokens to the SPA.
 func (p *Panel) HasSubToken(tok string) bool {
+	if tok == "" {
+		return false
+	}
+	var n int64
+	p.St.DB.Model(&store.SubToken{}).Where("token_hash = ?", secret.Hash(tok)).Count(&n)
+	return n > 0
+}
+
+// HasSubTokenFold reports whether any subscription token matches tok
+// case-insensitively (used to prevent admin_path collisions).
+func (p *Panel) HasSubTokenFold(tok string) bool {
 	if tok == "" {
 		return false
 	}
@@ -365,6 +392,9 @@ func (p *Panel) SubNodesFor(t *store.SubToken) []sub.Node {
 	exOffline := p.St.GetBool("sub_exclude_offline", false)
 	tpl := p.St.Get("sub_name_tpl", "{flag} {name}")
 	seen := map[string]int{}
+	for name := range sub.ReservedNames() {
+		seen[name] = 1
+	}
 	var nodes []sub.Node
 	for i := range rs {
 		r := &rs[i]
@@ -376,10 +406,18 @@ func (p *Panel) SubNodesFor(t *store.SubToken) []sub.Node {
 			continue
 		}
 		n := nodeFor(r, e, byID[r.LandingServerID], ri, tpl)
-		if c := seen[n.Name]; c > 0 { // names must be unique for clients
-			n.Name = fmt.Sprintf("%s %d", n.Name, c+1)
+		seen[sub.RegionGroupName(n.RegionCode)] = 1
+		base := n.Name
+		if base == "" {
+			base = "node"
 		}
-		seen[n.Name]++
+		cand := base
+		for k := 1; seen[cand] > 0; {
+			k++
+			cand = fmt.Sprintf("%s %d", base, k)
+		}
+		n.Name = cand
+		seen[cand]++
 		nodes = append(nodes, n)
 	}
 	return nodes
@@ -395,8 +433,74 @@ type SubResponse struct {
 
 var subLimiter = struct {
 	sync.Mutex
-	hits map[uint][]time.Time
-}{hits: map[uint][]time.Time{}}
+	hits   map[uint][]time.Time
+	ipHits map[string][]time.Time
+}{
+	hits:   map[uint][]time.Time{},
+	ipHits: map[string][]time.Time{},
+}
+
+const (
+	subPerTokenPerMin = 20
+	subPerIPPerMin    = 60
+	subMaxTrackedIPs  = 4096
+)
+
+func subIPRateKey(ip string) string {
+	parsed := net.ParseIP(strings.TrimSpace(ip))
+	if parsed == nil {
+		return strings.TrimSpace(ip)
+	}
+	if v4 := parsed.To4(); v4 != nil {
+		return v4.String()
+	}
+	return parsed.Mask(net.CIDRMask(64, 128)).String() + "/64"
+}
+
+func allowSubIP(ip string) bool {
+	key := subIPRateKey(ip)
+	if key == "" {
+		return true
+	}
+	subLimiter.Lock()
+	defer subLimiter.Unlock()
+	now := time.Now()
+	if len(subLimiter.ipHits) >= 256 {
+		for k, ts := range subLimiter.ipHits {
+			if len(ts) == 0 || now.Sub(ts[len(ts)-1]) >= time.Minute {
+				delete(subLimiter.ipHits, k)
+			}
+		}
+	}
+	if _, exists := subLimiter.ipHits[key]; !exists && len(subLimiter.ipHits) >= subMaxTrackedIPs {
+		var oldestKey string
+		var oldest time.Time
+		for k, ts := range subLimiter.ipHits {
+			t := time.Time{}
+			if len(ts) > 0 {
+				t = ts[len(ts)-1]
+			}
+			if oldestKey == "" || t.Before(oldest) {
+				oldestKey, oldest = k, t
+			}
+		}
+		if oldestKey != "" {
+			delete(subLimiter.ipHits, oldestKey)
+		}
+	}
+	var keep []time.Time
+	for _, t := range subLimiter.ipHits[key] {
+		if now.Sub(t) < time.Minute {
+			keep = append(keep, t)
+		}
+	}
+	if len(keep) >= subPerIPPerMin {
+		subLimiter.ipHits[key] = keep
+		return false
+	}
+	subLimiter.ipHits[key] = append(keep, now)
+	return true
+}
 
 func allowSub(id uint) bool {
 	subLimiter.Lock()
@@ -408,7 +512,7 @@ func allowSub(id uint) bool {
 			keep = append(keep, t)
 		}
 	}
-	if len(keep) >= 20 {
+	if len(keep) >= subPerTokenPerMin {
 		subLimiter.hits[id] = keep
 		return false
 	}
@@ -421,6 +525,9 @@ var ErrSubRateLimited = errors.New("too many requests")
 
 // ServeSub resolves a token and renders the subscription.
 func (p *Panel) ServeSub(token, target, ua, ip string) (*SubResponse, error) {
+	if !allowSubIP(ip) {
+		return nil, ErrSubRateLimited
+	}
 	var t store.SubToken
 	if err := p.St.DB.First(&t, "token_hash = ?", secret.Hash(token)).Error; err != nil || !t.Enabled {
 		return nil, ErrSubNotFound
@@ -699,10 +806,20 @@ func (p *Panel) logSubAccess(t *store.SubToken, ip, ua, target string) {
 }
 
 func truncate(s string, n int) string {
-	if len(s) <= n {
+	if n <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(s) <= n {
 		return s
 	}
-	return s[:n]
+	count := 0
+	for i := range s {
+		if count == n {
+			return s[:i]
+		}
+		count++
+	}
+	return s
 }
 
 func (p *Panel) SubAccessLogs(tokenID uint, limit int) []store.SubAccessLog {

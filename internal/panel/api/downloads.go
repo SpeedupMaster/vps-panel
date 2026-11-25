@@ -3,6 +3,7 @@ package api
 import (
 	"compress/gzip"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"io"
 	"net/http"
@@ -108,11 +109,20 @@ func (a *API) downloadAgent(c *gin.Context) {
 	}
 }
 
-// installScriptBody fills in the signing public key.
+// installScriptBody fills in the signing public key safely escaped for double-quoted shell context.
 func (a *API) installScriptBody() []byte {
-	pub := a.P.St.Get("sign_pubkey", "")
+	pub := strings.TrimSpace(a.P.St.Get("sign_pubkey", ""))
 	if pub == "" {
 		return a.Script
 	}
-	return []byte(strings.Replace(string(a.Script), "__SIGN_PUBKEY__\"", pub+"\"", 1))
+	safe := sanitizeShellDoubleQuoted(pub)
+	if raw, err := base64.StdEncoding.DecodeString(pub); err == nil && len(raw) > 0 {
+		safe = base64.StdEncoding.EncodeToString(raw)
+	}
+	return []byte(strings.Replace(string(a.Script), "__SIGN_PUBKEY__\"", safe+"\"", 1))
+}
+
+func sanitizeShellDoubleQuoted(s string) string {
+	s = strings.NewReplacer("\r", "", "\n", "").Replace(s)
+	return strings.NewReplacer(`\`, `\\`, `"`, `\"`, `$`, `\$`, "`", "\\`").Replace(s)
 }

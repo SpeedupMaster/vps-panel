@@ -80,6 +80,9 @@ func (a *API) updateServer(c *gin.Context) {
 }
 
 func (a *API) deleteServer(c *gin.Context) {
+	if !a.confirm(c) {
+		return
+	}
 	id := idParam(c)
 	name := a.P.ServerName(id)
 	if err := a.P.DeleteServer(id); err != nil {

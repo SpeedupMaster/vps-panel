@@ -6,11 +6,30 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"vpspanel/internal/common/proto"
 	"vpspanel/internal/panel/store"
 )
+
+var lastTaskID atomic.Uint64
+
+// nextTaskID returns a strictly increasing task ID based on UnixNano.
+func nextTaskID() uint64 {
+	now := uint64(time.Now().UnixNano())
+	for {
+		prev := lastTaskID.Load()
+		next := now
+		if next <= prev {
+			next = prev + 1
+		}
+		if lastTaskID.CompareAndSwap(prev, next) {
+			return next
+		}
+	}
+}
 
 // CreateTask persists a task and sends it right away when the agent is
 // online; otherwise it waits in the queue until the agent reconnects.
@@ -21,7 +40,7 @@ func (p *Panel) CreateTask(serverID uint, typ string, args map[string]string, pa
 	a, _ := json.Marshal(args)
 	exp := time.Now().Add(24 * time.Hour)
 	t := &store.Task{
-		ID: uint64(time.Now().UnixNano()), ServerID: serverID, BatchID: batch, Type: typ, Args: string(a), Payload: payload,
+		ID: nextTaskID(), ServerID: serverID, BatchID: batch, Type: typ, Args: string(a), Payload: payload,
 		Status: "pending", Timeout: timeout, ExpireAt: &exp, CreatedAt: time.Now(),
 	}
 	if err := p.St.DB.Create(t).Error; err != nil {
@@ -73,8 +92,12 @@ func (p *Panel) onTaskResult(serverID uint, r *proto.TaskResult) {
 	upd := map[string]any{"status": r.Status}
 	if r.Output != "" && t.Type != proto.TaskShell { // never persist terminal sessions
 		out := t.Output + r.Output
-		if len(out) > 256<<10 { // keep the tail
-			out = out[len(out)-256<<10:]
+		if len(out) > 256<<10 { // keep the tail on a valid UTF-8 rune boundary
+			start := len(out) - (256 << 10)
+			for start < len(out) && !utf8.RuneStart(out[start]) {
+				start++
+			}
+			out = out[start:]
 		}
 		upd["output"] = out
 	}

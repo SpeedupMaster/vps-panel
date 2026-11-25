@@ -367,7 +367,7 @@ func (p *Panel) uploadS3File(ctx context.Context, name, filePath string) error {
 	if err != nil {
 		return err
 	}
-	resp, err := (&http.Client{Timeout: 5 * time.Minute}).Do(req)
+	resp, err := notify.SafeHTTPClient(5 * time.Minute).Do(req)
 	if err != nil {
 		return err
 	}
@@ -386,7 +386,7 @@ func s3Request(ctx context.Context, endpoint, region, bucket, key, ak, sk string
 
 func s3SignedRequest(ctx context.Context, endpoint, region, bucket, key, ak, sk, payload string, size int64, body io.Reader, now time.Time) (*http.Request, error) {
 	u, err := url.Parse(endpoint)
-	if err != nil || u.Host == "" {
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return nil, errors.New("S3 endpoint 无效")
 	}
 	escKey := (&url.URL{Path: key}).EscapedPath()
@@ -419,6 +419,9 @@ func (p *Panel) uploadWebDAVFile(ctx context.Context, name, filePath string) err
 	if base == "" {
 		return errors.New("未设置 WebDAV 地址")
 	}
+	if u, err := url.Parse(base); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return errors.New("WebDAV 地址无效")
+	}
 	f, err := os.Open(filePath)
 	if err != nil {
 		return err
@@ -436,7 +439,7 @@ func (p *Panel) uploadWebDAVFile(ctx context.Context, name, filePath string) err
 	if u := p.St.Get("backup_webdav_user", ""); u != "" {
 		req.SetBasicAuth(u, p.SecretSetting("backup_webdav_password"))
 	}
-	resp, err := (&http.Client{Timeout: 5 * time.Minute}).Do(req)
+	resp, err := notify.SafeHTTPClient(5 * time.Minute).Do(req)
 	if err != nil {
 		return err
 	}

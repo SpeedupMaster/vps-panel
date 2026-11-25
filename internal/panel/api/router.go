@@ -4,6 +4,7 @@ package api
 import (
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"html"
 	"io"
 	"io/fs"
@@ -60,7 +61,7 @@ func (a *API) Router() *gin.Engine {
 	r.GET("/healthz", func(c *gin.Context) { c.String(200, "ok") })
 	r.GET("/status", a.statusPage) // public status page, off unless status_enabled
 
-	api := r.Group("/api", a.ipAllow)
+	api := r.Group("/api", a.ipAllow, a.limitBody)
 	api.POST("/auth/login", a.login)
 	api.POST("/auth/logout", a.logout)
 
@@ -108,6 +109,32 @@ func (a *API) ipAllow(c *gin.Context) {
 	if !auth.IPAllowed(a.P.St.Get("allow_ips", ""), c.ClientIP()) {
 		fail(c, http.StatusForbidden, "当前 IP 不允许访问面板")
 	}
+}
+
+func (a *API) limitBody(c *gin.Context) {
+	if c.Request.Body == nil {
+		return
+	}
+	limit := int64(4 << 20)
+	switch c.Request.URL.Path {
+	case "/api/backups/restore":
+		limit = 2 << 30
+	case "/api/releases/agent":
+		limit = 420 << 20
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
+}
+
+func (a *API) confirm(c *gin.Context) bool {
+	if err := a.P.Auth.VerifySensitiveIP(c.GetHeader("X-Confirm"), c.ClientIP()); err != nil {
+		if errors.Is(err, auth.ErrLocked) {
+			fail(c, http.StatusTooManyRequests, err.Error())
+		} else {
+			fail(c, http.StatusForbidden, "需要二次验证（2FA 验证码，未开启 2FA 时为登录密码）")
+		}
+		return false
+	}
+	return true
 }
 
 func (a *API) requireSession(c *gin.Context) {

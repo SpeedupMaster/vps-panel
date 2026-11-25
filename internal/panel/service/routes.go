@@ -187,21 +187,27 @@ func (p *Panel) syncRoute(r, old *store.Route, reason string) error {
 		}
 	}()
 	// Landings first: the entry must not dial a landing that doesn't know it yet.
+	activeLandings := map[uint]bool{}
+	for _, l := range landingsOf(r) {
+		activeLandings[l] = true
+	}
 	touched := map[uint]bool{}
 	for _, l := range append(landingsOf(r), landingsOf(old)...) {
 		touched[l] = true
 	}
 	for l := range touched {
-		_, created, err := p.landingUser(l, r.EntryServerID)
-		if err != nil {
-			return err
-		}
 		var op *proto.XrayOp
-		if created {
-			u, _, _ := p.landingUser(l, r.EntryServerID)
-			key, _ := p.Box.Open(u.UserKeyEnc)
-			op = &proto.XrayOp{Op: "add_user", Tag: "ss-in", User: &proto.XrayUser{Email: u.Email, Password: key}}
+		if activeLandings[l] {
+			u, created, err := p.landingUser(l, r.EntryServerID)
+			if err != nil {
+				return err
+			}
+			if created {
+				key, _ := p.Box.Open(u.UserKeyEnc)
+				op = &proto.XrayOp{Op: "add_user", Tag: "ss-in", User: &proto.XrayUser{Email: u.Email, Password: key}}
+			}
 		}
+		p.pruneOrphanLandingUsers(l)
 		if _, err := p.Deploy(l, reason, op); err != nil {
 			return err
 		}
@@ -362,9 +368,25 @@ func (p *Panel) RouteViews() []RouteView {
 		case r.Type == "chain" && byID[r.LandingServerID] != nil && byID[r.LandingServerID].Status == "offline":
 			v.Status = "down"
 		}
-		v.ConfigSynced = synced(e) && (r.Type != "chain" || synced(byID[r.LandingServerID]))
+		v.ConfigSynced = synced(e)
+		if r.Type == "chain" {
+			if !synced(byID[r.LandingServerID]) {
+				v.ConfigSynced = false
+			}
+			for _, bid := range parseIDs(r.BackupIDs) {
+				if !synced(byID[bid]) {
+					v.ConfigSynced = false
+					break
+				}
+			}
+		}
 		if !v.ConfigSynced {
-			for _, sid := range []uint{r.EntryServerID, r.LandingServerID} {
+			sids := []uint{r.EntryServerID}
+			if r.Type == "chain" {
+				sids = append(sids, r.LandingServerID)
+				sids = append(sids, parseIDs(r.BackupIDs)...)
+			}
+			for _, sid := range sids {
 				if msg := p.lastDeployError(sid); sid != 0 && msg != "" {
 					v.DeployError = msg
 					break

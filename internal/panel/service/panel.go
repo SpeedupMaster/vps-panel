@@ -43,16 +43,40 @@ type Panel struct {
 	latest          map[uint]*proto.Metrics
 	waiters         map[uint64][]chan *proto.TaskResult
 	bundledAgentDir string
+
+	deployMu    sync.Mutex
+	deployLocks map[uint]*sync.Mutex
 }
 
 func New(st *store.Store, box *secret.Box, a *auth.Auth, h *hub.Hub, dataDir string) *Panel {
 	p := &Panel{
 		St: st, Box: box, Auth: a, Hub: h, Bus: NewBus(), Alert: nopAlerter{}, DataDir: dataDir,
-		latest:  map[uint]*proto.Metrics{},
-		waiters: map[uint64][]chan *proto.TaskResult{},
+		latest:      map[uint]*proto.Metrics{},
+		waiters:     map[uint64][]chan *proto.TaskResult{},
+		deployLocks: map[uint]*sync.Mutex{},
 	}
 	h.SetHandler(p)
 	return p
+}
+
+func (p *Panel) serverDeployLock(serverID uint) *sync.Mutex {
+	p.deployMu.Lock()
+	defer p.deployMu.Unlock()
+	if p.deployLocks == nil {
+		p.deployLocks = map[uint]*sync.Mutex{}
+	}
+	m := p.deployLocks[serverID]
+	if m == nil {
+		m = &sync.Mutex{}
+		p.deployLocks[serverID] = m
+	}
+	return m
+}
+
+func (p *Panel) deleteDeployLock(serverID uint) {
+	p.deployMu.Lock()
+	delete(p.deployLocks, serverID)
+	p.deployMu.Unlock()
 }
 
 // Latest returns the most recent metrics frame for a server.

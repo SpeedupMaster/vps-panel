@@ -47,18 +47,25 @@ func totpAt(secret string, counter uint64) (string, error) {
 	return fmt.Sprintf("%06d", code), nil
 }
 
-// VerifyTOTP accepts the current code and one step either side.
-func VerifyTOTP(secret, code string) bool {
+// VerifyTOTPStep accepts the current code and one step either side,
+// returning the matched 30-second step number.
+func VerifyTOTPStep(secret, code string) (int64, bool) {
 	code = strings.TrimSpace(code)
 	if len(code) != 6 {
-		return false
+		return 0, false
 	}
-	now := uint64(time.Now().Unix() / 30)
-	for _, c := range []uint64{now - 1, now, now + 1} {
-		want, err := totpAt(secret, c)
+	now := time.Now().Unix() / 30
+	for _, c := range []int64{now - 1, now, now + 1} {
+		want, err := totpAt(secret, uint64(c))
 		if err == nil && hmac.Equal([]byte(want), []byte(code)) {
-			return true
+			return c, true
 		}
 	}
-	return false
+	return 0, false
+}
+
+// VerifyTOTP accepts the current code and one step either side.
+func VerifyTOTP(secret, code string) bool {
+	_, ok := VerifyTOTPStep(secret, code)
+	return ok
 }

@@ -11,6 +11,7 @@ type Admin struct {
 	TOTPSecret   string // encrypted; empty = 2FA off
 	TOTPPending  string // encrypted secret awaiting confirmation
 	RecoveryHash string // JSON array of bcrypt hashes
+	LastTOTPStep int64  // last accepted 30s TOTP step (replay guard)
 }
 
 type Session struct {
