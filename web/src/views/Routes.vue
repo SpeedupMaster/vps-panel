@@ -48,8 +48,17 @@ async function setSub(r, v) {
   const res = await run(() => api.put(`/routes/${r.id}`, input(r, { in_sub: v })))
   if (res) { r.in_sub = v; if (res.warning) ui.message.warning(res.warning) }
 }
+const rotating = ref(false)
+const busyId = ref(0)
+
 async function toggle(r) {
-  if (await run(() => api.post(`/routes/${r.id}/toggle`), r.enabled ? '已停用' : '已启用')) load()
+  if (busyId.value === r.id) return
+  busyId.value = r.id
+  try {
+    if (await run(() => api.post(`/routes/${r.id}/toggle`, { enabled: !r.enabled }), r.enabled ? '已停用' : '已启用')) load()
+  } finally {
+    busyId.value = 0
+  }
 }
 function actions(r) {
   return [
@@ -68,16 +77,34 @@ async function onAction(k, r) {
   else if (k === 'qr') qr.value = { show: true, text: r.share_link, title: r.name }
   else if (k === 'toggle') toggle(r)
   else if (k === 'regen') {
-    if (!(await ask('重置 UUID', `「${r.name}」的旧链接会立即失效，客户端需要刷新订阅。`))) return
-    if (await run(() => api.post(`/routes/${r.id}/regen-uuid`), '已重置')) load()
+    if (busyId.value === r.id) return
+    busyId.value = r.id
+    try {
+      if (!(await ask('重置 UUID', `「${r.name}」的旧链接会立即失效，客户端需要刷新订阅。`))) return
+      if (await run(() => api.post(`/routes/${r.id}/regen-uuid`), '已重置')) load()
+    } finally {
+      busyId.value = 0
+    }
   } else if (k === 'delete') {
-    if (!(await ask('删除线路', `删除「${r.name}」？入口机上对应的用户会被移除。`, { danger: true, okText: '删除' }))) return
-    if (await run(() => api.del(`/routes/${r.id}`), '已删除')) load()
+    if (busyId.value === r.id) return
+    busyId.value = r.id
+    try {
+      if (!(await ask('删除线路', `删除「${r.name}」？入口机上对应的用户会被移除。`, { danger: true, okText: '删除' }))) return
+      if (await run(() => api.del(`/routes/${r.id}`), '已删除')) load()
+    } finally {
+      busyId.value = 0
+    }
   }
 }
 async function rotateAll() {
-  if (!(await ask('一键轮换密钥', '会重新生成所有线路 UUID、Reality 密钥与 SS2022 密钥并下发（订阅链接本身不变）。所有客户端都要刷新订阅后才能继续使用。', { danger: true, okText: '继续' }))) return
-  if (await run(() => api.post('/sub/rotate-all', {}, { confirm: '轮换全部密钥需要确认身份' }), '已轮换，配置正在下发')) load()
+  if (rotating.value) return
+  rotating.value = true
+  try {
+    if (!(await ask('一键轮换密钥', '会重新生成所有线路 UUID、Reality 密钥与 SS2022 密钥并下发（订阅链接本身不变）。所有客户端都要刷新订阅后才能继续使用。', { danger: true, okText: '继续' }))) return
+    if (await run(() => api.post('/sub/rotate-all', {}, { confirm: '轮换全部密钥需要确认身份' }), '已轮换，配置正在下发')) load()
+  } finally {
+    rotating.value = false
+  }
 }
 function latency(r) {
   if (!r.latency_ms) return '—'
@@ -90,7 +117,7 @@ function latency(r) {
     <div class="page-head">
       <div class="ph"><h1>线路</h1><p class="page-desc">共 {{ routes.length }} 条，{{ inSub }} 条在订阅中。直连线路由入口机直接出网，链式线路经入口转发到落地机。</p></div>
       <span class="spacer" />
-      <n-button @click="rotateAll">一键轮换密钥</n-button>
+      <n-button :loading="rotating" :disabled="rotating" @click="rotateAll">一键轮换密钥</n-button>
       <n-button type="primary" @click="router.push({ name: 'route-new' })">新建线路</n-button>
     </div>
 
@@ -127,7 +154,7 @@ function latency(r) {
                 <td class="mono">{{ bytes(r.month_bytes) }}</td>
                 <td class="nowrap"><span :class="['tag', stClass[r.status]]">{{ stText[r.status] || r.status }}</span><span v-if="r.enabled && r.deploy_error" class="tag bad" style="margin-left: 4px" :title="r.deploy_error">下发失败</span></td>
                 <td><n-switch size="small" :value="r.in_sub" :disabled="!r.enabled" @update:value="(v) => setSub(r, v)" /></td>
-                <td style="text-align: right"><n-dropdown :options="actions(r)" trigger="click" @select="(k) => onAction(k, r)"><n-button size="small" quaternary>操作</n-button></n-dropdown></td>
+                <td style="text-align: right"><n-dropdown :options="actions(r)" trigger="click" @select="(k) => onAction(k, r)"><n-button size="small" quaternary :loading="busyId === r.id" :disabled="busyId === r.id">操作</n-button></n-dropdown></td>
               </tr>
             </tbody>
           </table>
@@ -145,7 +172,7 @@ function latency(r) {
               <span class="small muted">订阅</span><n-switch size="small" :value="r.in_sub" :disabled="!r.enabled" @update:value="(v) => setSub(r, v)" />
               <span class="spacer" />
               <n-button size="small" :disabled="!r.share_link" @click="onAction('qr', r)">二维码</n-button>
-              <n-dropdown :options="actions(r)" trigger="click" @select="(k) => onAction(k, r)"><n-button size="small">操作</n-button></n-dropdown>
+              <n-dropdown :options="actions(r)" trigger="click" @select="(k) => onAction(k, r)"><n-button size="small" :loading="busyId === r.id" :disabled="busyId === r.id">操作</n-button></n-dropdown>
             </div>
           </div>
         </div>

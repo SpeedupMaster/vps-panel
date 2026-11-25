@@ -11,7 +11,7 @@ const route = useRoute()
 const router = useRouter()
 const busy = ref(false)
 const err = ref('')
-const next = () => (typeof route.query.next === 'string' && route.query.next.startsWith('/') ? route.query.next : '/')
+const next = () => (typeof route.query.next === 'string' && route.query.next.startsWith('/') && !route.query.next.startsWith('//') && !route.query.next.startsWith('/\\') ? route.query.next : '/')
 
 async function retry() {
   if (busy.value) return

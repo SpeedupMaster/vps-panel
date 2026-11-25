@@ -133,13 +133,21 @@ const nameExample = computed(() => {
   return inSub.value.slice(0, 2).map((x) => tpl.replace('{flag}', '🇭🇰').replace('{name}', x.name).replace('{entry}', x.entry_name).replace('{landing}', x.landing_name || x.entry_name)).join(' · ')
 })
 
+const rotating = ref(false)
+const busyKey = ref('')
+const saving = ref(false)
+
 async function addToken() {
+  if (saving.value) return
   const a = adding.value
   if (!a.name.trim()) { ui.message.warning('请填写设备名'); return }
   const body = { name: a.name.trim(), target: a.target === 'auto' ? '' : a.target, token: a.token.trim(), routes: a.routeIds.join(',') }
-  if (await run(() => api.post('/sub/tokens', body), '已创建')) {
-    adding.value = { show: false, name: '', target: 'auto', token: '', routeIds: [] }; loadTokens()
-  }
+  saving.value = true
+  try {
+    if (await run(() => api.post('/sub/tokens', body), '已创建')) {
+      adding.value = { show: false, name: '', target: 'auto', token: '', routeIds: [] }; loadTokens()
+    }
+  } finally { saving.value = false }
 }
 function openEdit(t) {
   editing.value = {
@@ -148,37 +156,57 @@ function openEdit(t) {
   }
 }
 async function saveEdit() {
+  if (saving.value) return
   const e = editing.value
   if (!e.name.trim()) { ui.message.warning('请填写设备名'); return }
   const tok = e.token.trim()
   if (!tok) { ui.message.warning('请填写订阅后缀'); return }
   const body = { name: e.name.trim(), target_default: e.target === 'auto' ? '' : e.target, enabled: e.enabled, routes: e.routeIds.join(',') }
   if (tok !== e.origToken) body.token = tok
-  if (await run(() => api.put(`/sub/tokens/${e.id}`, body), '已保存')) {
-    editing.value.show = false; loadTokens()
-    if (preview.value.tokenId === e.id) loadPreview()
-  }
+  saving.value = true
+  try {
+    if (await run(() => api.put(`/sub/tokens/${e.id}`, body), '已保存')) {
+      editing.value.show = false; loadTokens()
+      if (preview.value.tokenId === e.id) loadPreview()
+    }
+  } finally { saving.value = false }
 }
 async function updateToken(t, patch) {
   const body = { name: t.name, target_default: t.target_default, enabled: t.enabled, ...patch }
   if (await run(() => api.put(`/sub/tokens/${t.id}`, body))) Object.assign(t, patch)
 }
 async function resetToken(t) {
-  if (!(await ask('重置订阅链接', `「${t.name}」的旧链接立即失效，需要在设备上重新导入。`))) return
-  if (await run(() => api.post(`/sub/tokens/${t.id}/reset`), '已重置')) loadTokens()
+  if (busyKey.value) return
+  busyKey.value = 'reset-' + t.id
+  try {
+    if (!(await ask('重置订阅链接', `「${t.name}」的旧链接立即失效，需要在设备上重新导入。`))) return
+    if (await run(() => api.post(`/sub/tokens/${t.id}/reset`), '已重置')) loadTokens()
+  } finally { busyKey.value = '' }
 }
 async function delToken(t) {
-  if (!(await ask('删除设备订阅', `删除「${t.name}」？链接立即失效。`, { danger: true, okText: '删除' }))) return
-  if (await run(() => api.del(`/sub/tokens/${t.id}`), '已删除')) loadTokens()
+  if (busyKey.value) return
+  busyKey.value = 'del-' + t.id
+  try {
+    if (!(await ask('删除设备订阅', `删除「${t.name}」？链接立即失效。`, { danger: true, okText: '删除' }))) return
+    if (await run(() => api.del(`/sub/tokens/${t.id}`), '已删除')) loadTokens()
+  } finally { busyKey.value = '' }
 }
 async function copyUrl(t) { if (await copy(t.url)) ui.message.success('已复制订阅链接') }
 async function rotateAll() {
-  if (!(await ask('一键轮换', '重新生成所有线路 UUID、Reality 与 SS2022 密钥并下发。订阅链接不变，设备刷新订阅即可。', { danger: true, okText: '继续' }))) return
-  await run(() => api.post('/sub/rotate-all', {}, { confirm: '一键轮换需要确认身份' }), '已轮换，配置正在下发')
+  if (rotating.value) return
+  rotating.value = true
+  try {
+    if (!(await ask('一键轮换', '重新生成所有线路 UUID、Reality 与 SS2022 密钥并下发。订阅链接不变，设备刷新订阅即可。', { danger: true, okText: '继续' }))) return
+    await run(() => api.post('/sub/rotate-all', {}, { confirm: '一键轮换需要确认身份' }), '已轮换，配置正在下发')
+  } finally { rotating.value = false }
 }
 async function saveSettings() {
+  if (saving.value) return
   const s = settings.value
-  if (await run(() => api.put('/settings', { ...s, sub_update_hours: String(s.sub_update_hours) }), '已保存')) { settingsOrig.value = JSON.stringify(s); loadPreview(); loadTokens() }
+  saving.value = true
+  try {
+    if (await run(() => api.put('/settings', { ...s, sub_update_hours: String(s.sub_update_hours) }), '已保存')) { settingsOrig.value = JSON.stringify(s); loadPreview(); loadTokens() }
+  } finally { saving.value = false }
 }
 async function copyPreview() { if (await copy(preview.value.content)) ui.message.success('已复制') }
 
@@ -192,14 +220,22 @@ async function editTemplate(t) {
 }
 function loadBuiltin() { tpl.value.content = builtin.value?.[tpl.value.target] || '' }
 async function saveTemplate() {
+  if (saving.value) return
   const t = tpl.value
   const body = { target: t.target, name: t.name, content: t.content, active: t.active }
-  const r = await run(() => (t.id ? api.put(`/sub/templates/${t.id}`, body) : api.post('/sub/templates', body)), '模板已保存')
-  if (r) { tpl.value.show = false; loadTemplates(); loadPreview() }
+  saving.value = true
+  try {
+    const r = await run(() => (t.id ? api.put(`/sub/templates/${t.id}`, body) : api.post('/sub/templates', body)), '模板已保存')
+    if (r) { tpl.value.show = false; loadTemplates(); loadPreview() }
+  } finally { saving.value = false }
 }
 async function delTemplate(t) {
-  if (!(await ask('删除模板', `删除「${t.name}」？会回到内置模板。`))) return
-  if (await run(() => api.del(`/sub/templates/${t.id}`), '已删除')) { loadTemplates(); loadPreview() }
+  if (busyKey.value) return
+  busyKey.value = 'del-tpl-' + t.id
+  try {
+    if (!(await ask('删除模板', `删除「${t.name}」？会回到内置模板。`))) return
+    if (await run(() => api.del(`/sub/templates/${t.id}`), '已删除')) { loadTemplates(); loadPreview() }
+  } finally { busyKey.value = '' }
 }
 async function activate(t, v) {
   if (await run(() => api.put(`/sub/templates/${t.id}`, { ...t, active: v }))) { loadTemplates(); loadPreview() }
@@ -211,7 +247,7 @@ async function activate(t, v) {
     <div class="page-head">
       <div class="ph"><h1>订阅</h1><p class="page-desc">{{ inSub.length }} 条线路在订阅中<template v-if="excluded">，{{ excluded }} 条因疑似被封已自动移出</template>。每台设备使用独立的订阅链接。</p></div>
       <span class="spacer" />
-      <n-button @click="rotateAll">一键轮换</n-button>
+      <n-button :loading="rotating" :disabled="rotating" @click="rotateAll">一键轮换</n-button>
     </div>
 
     <section class="l-sec">
@@ -241,8 +277,8 @@ async function activate(t, v) {
                   <n-button size="tiny" quaternary @click="copyUrl(t)">复制</n-button>
                   <n-button size="tiny" quaternary @click="qr = { show: true, text: t.url, title: t.name }">二维码</n-button>
                   <n-button size="tiny" quaternary @click="openEdit(t)">编辑</n-button>
-                  <n-button size="tiny" quaternary @click="resetToken(t)">重置</n-button>
-                  <n-button size="tiny" quaternary type="error" @click="delToken(t)">删除</n-button>
+                  <n-button size="tiny" quaternary :loading="busyKey === 'reset-' + t.id" :disabled="!!busyKey" @click="resetToken(t)">重置</n-button>
+                  <n-button size="tiny" quaternary type="error" :loading="busyKey === 'del-' + t.id" :disabled="!!busyKey" @click="delToken(t)">删除</n-button>
                 </td>
               </tr>
             </tbody>
@@ -258,8 +294,8 @@ async function activate(t, v) {
               <n-button size="small" type="primary" @click="copyUrl(t)">复制</n-button>
               <n-button size="small" @click="qr = { show: true, text: t.url, title: t.name }">二维码</n-button>
               <n-button size="small" @click="openEdit(t)">编辑</n-button>
-              <n-button size="small" @click="resetToken(t)">重置</n-button>
-              <n-button size="small" type="error" quaternary @click="delToken(t)">删除</n-button>
+              <n-button size="small" :loading="busyKey === 'reset-' + t.id" :disabled="!!busyKey" @click="resetToken(t)">重置</n-button>
+              <n-button size="small" type="error" quaternary :loading="busyKey === 'del-' + t.id" :disabled="!!busyKey" @click="delToken(t)">删除</n-button>
             </div>
           </div>
         </div>
@@ -308,7 +344,7 @@ async function activate(t, v) {
           <span class="f-hint">新 IP 拉取订阅时，按告警规则「订阅陌生 IP」通知（与该设备最近 30 天的来源都不同）。</span>
           <span class="spacer" />
           <n-button :disabled="!subDirtyAny" @click="settings = JSON.parse(settingsOrig)">撤销</n-button>
-          <n-button type="primary" :disabled="!subDirtyAny" @click="saveSettings">保存</n-button>
+          <n-button type="primary" :loading="saving" :disabled="!subDirtyAny || saving" @click="saveSettings">保存</n-button>
         </div>
       </div>
       </section>
@@ -341,7 +377,7 @@ async function activate(t, v) {
           <tr v-for="t in templates" :key="t.id">
             <td>{{ t.name }}</td><td>{{ targetLabel[t.target] || t.target }}</td>
             <td><n-switch size="small" :value="t.active" @update:value="(v) => activate(t, v)" /></td>
-            <td style="text-align: right"><n-button size="tiny" quaternary @click="editTemplate(t)">编辑</n-button><n-button size="tiny" quaternary type="error" @click="delTemplate(t)">删除</n-button></td>
+            <td style="text-align: right"><n-button size="tiny" quaternary @click="editTemplate(t)">编辑</n-button><n-button size="tiny" quaternary type="error" :loading="busyKey === 'del-tpl-' + t.id" :disabled="!!busyKey" @click="delTemplate(t)">删除</n-button></td>
           </tr>
         </tbody>
       </table>
@@ -398,7 +434,7 @@ async function activate(t, v) {
           </div>
         </div>
       </div>
-      <template #footer><div class="m-foot"><n-button @click="adding.show = false">取消</n-button><n-button type="primary" @click="addToken">创建</n-button></div></template>
+      <template #footer><div class="m-foot"><n-button @click="adding.show = false">取消</n-button><n-button type="primary" :loading="saving" :disabled="saving" @click="addToken">创建</n-button></div></template>
     </n-modal>
 
     <n-modal v-model:show="editing.show" preset="card" title="编辑设备" style="width: min(500px, 94vw)">
@@ -430,7 +466,7 @@ async function activate(t, v) {
           </div>
         </div>
       </div>
-      <template #footer><div class="m-foot"><n-button @click="editing.show = false">取消</n-button><n-button type="primary" @click="saveEdit">保存</n-button></div></template>
+      <template #footer><div class="m-foot"><n-button @click="editing.show = false">取消</n-button><n-button type="primary" :loading="saving" :disabled="saving" @click="saveEdit">保存</n-button></div></template>
     </n-modal>
 
     <n-modal v-model:show="tpl.show" preset="card" :title="tpl.id ? '编辑模板' : '自定义模板'" style="width: min(860px, 96vw)">
@@ -453,7 +489,7 @@ async function activate(t, v) {
           <div class="f-ctl"><n-switch v-model:value="tpl.active" aria-label="保存后启用" /></div>
         </div>
       </div>
-      <template #footer><div class="m-foot"><n-button @click="tpl.show = false">取消</n-button><n-button type="primary" @click="saveTemplate">保存</n-button></div></template>
+      <template #footer><div class="m-foot"><n-button @click="tpl.show = false">取消</n-button><n-button type="primary" :loading="saving" :disabled="saving" @click="saveTemplate">保存</n-button></div></template>
     </n-modal>
 
     <qr-modal v-model:show="qr.show" :text="qr.text" :title="qr.title" hint="用客户端扫码导入订阅" />

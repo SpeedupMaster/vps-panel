@@ -1,11 +1,13 @@
 // Small fetch wrapper: JSON in/out, CSRF header, 401 -> login.
 import router from './router'
+import { state, disconnectEvents, ui } from './store'
 
 export class ApiError extends Error {
   constructor(msg, status) { super(msg); this.status = status }
 }
 
 let confirmHook = null
+let last401Toast = 0
 // Registered by App.vue: shows the TOTP / password prompt and resolves with the code (null = cancelled).
 export function setConfirmHook(fn) { confirmHook = fn }
 
@@ -29,9 +31,26 @@ export async function request(method, url, body, opts = {}) {
     throw new ApiError('网络错误：' + e.message, 0)
   }
   if (res.status === 401 && !url.startsWith('/auth/login')) {
+    state.me = null
+    state.servers = []
+    state.serversLoaded = false
+    disconnectEvents()
     const cur = router.currentRoute.value
-    if (cur.name !== 'login') router.replace({ name: 'login', query: { next: cur.fullPath } })
-    throw new ApiError('未登录或会话已过期', 401)
+    const onAppRoute = !!cur.name && cur.name !== 'login' && cur.name !== 'offline'
+    if (onAppRoute) {
+      const now = Date.now()
+      if (now - last401Toast > 3000) {
+        last401Toast = now
+        ui.message?.error('未登录或会话已过期')
+      }
+      router.replace({ name: 'login', query: { next: cur.fullPath } })
+    }
+    const err = new ApiError('未登录或会话已过期', 401)
+    err.silent = true
+    throw err
+  }
+  if (opts.responseType === 'blob' && res.ok) {
+    return await res.blob()
   }
   const ct = res.headers.get('Content-Type') || ''
   const data = ct.includes('json') ? await res.json() : await res.text()
@@ -40,7 +59,8 @@ export async function request(method, url, body, opts = {}) {
 }
 
 export const api = {
-  get: (u) => request('GET', u),
+  get: (u, o) => request('GET', u, undefined, o),
+  blob: (u, o) => request('GET', u, undefined, { ...o, responseType: 'blob' }),
   post: (u, b, o) => request('POST', u, b ?? {}, o),
   put: (u, b, o) => request('PUT', u, b ?? {}, o),
   del: (u, o) => request('DELETE', u, undefined, o),

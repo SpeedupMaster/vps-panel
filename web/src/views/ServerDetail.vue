@@ -5,7 +5,7 @@ import { NButton, NTabs, NTabPane, NSelect, NInput, NInputNumber, NDatePicker, N
 import { api } from '../api'
 import { state, loadServers, on, ui } from '../store'
 import { run, ask } from '../helpers'
-import { bytes, rate, pct, ago, dt, date, daysUntil, flag, dur, carrierLabel, overallLoss, lossText, lossClass } from '../format'
+import { bytes, rate, pct, ago, dt, date, daysUntil, flag, dur, carrierLabel, overallLoss, lossText, lossClass, copy, countdown } from '../format'
 import { isMobile } from '../mobile'
 import Chart from '../components/Chart.vue'
 import TaskModal from '../components/TaskModal.vue'
@@ -161,31 +161,63 @@ async function runTool(tool, title, args) {
   if (r) task.value = { show: true, id: r.task_id, title }
 }
 const upgrade = ref({ show: false, cap_reality: true, cap_landing: false })
-const install = ref({ show: false, command: '' })
+const install = ref({ show: false, command: '', expires_at: '' })
+const now = ref(Date.now())
+const installTimer = setInterval(() => { if (install.value.show) now.value = Date.now() }, 1000)
+onBeforeUnmount(() => clearInterval(installTimer))
+const installLeft = computed(() => countdown(install.value.expires_at, now.value))
+const moreBusy = ref(false)
+const upgrading = ref(false)
+const rotatingKeys = ref(false)
+const deploying = ref(false)
+const savingAsset = ref(false)
+const rollingBack = ref(0)
+
+async function copyInstall() {
+  if (await copy(install.value.command)) ui.message.success('已复制安装命令')
+}
+
 async function onMore(k) {
   if (k === 'edit') { tab.value = 'asset'; return }
   if (k === 'upgrade') { upgrade.value.show = true; return }
+  if (k === 'restart_agent') { runTool('restart_agent', '重启 Agent'); return }
+  if (moreBusy.value) return
   if (k === 'downgrade') {
-    if (!(await ask('降级为仅探针', '会停止并卸载这台机器上的 Xray，相关配置会删除。确定继续？', { danger: true }))) return
-    if (await run(() => api.post(`/servers/${id.value}/downgrade`), '已降级')) { load(); loadServers() }
+    moreBusy.value = true
+    try {
+      if (!(await ask('降级为仅探针', '会停止并卸载这台机器上的 Xray，相关配置会删除。确定继续？', { danger: true }))) return
+      if (await run(() => api.post(`/servers/${id.value}/downgrade`), '已降级')) { load(); loadServers() }
+    } finally { moreBusy.value = false }
     return
   }
   if (k === 'token') {
-    const r = await run(() => api.post(`/servers/${id.value}/token`))
-    if (r) install.value = { show: true, command: r.command }
+    moreBusy.value = true
+    try {
+      const r = await run(() => api.post(`/servers/${id.value}/token`))
+      if (r) {
+        now.value = Date.now()
+        install.value = { show: true, command: r.command, expires_at: r.install_token_exp || r.expires_at || new Date(Date.now() + 24 * 3600 * 1000).toISOString() }
+      }
+    } finally { moreBusy.value = false }
     return
   }
-  if (k === 'restart_agent') { runTool('restart_agent', '重启 Agent'); return }
   if (k === 'delete') {
-    if (!(await ask(`删除 ${sv.value.name}`, '会删除这台服务器的所有监控数据和配置历史，Agent 将被断开。此操作不能撤销。', { danger: true, okText: '删除' }))) return
-    if (await run(() => api.del(`/servers/${id.value}`), '已删除')) { loadServers(); router.replace({ name: 'overview' }) }
+    moreBusy.value = true
+    try {
+      if (!(await ask(`删除 ${sv.value.name}`, '会删除这台服务器的所有监控数据和配置历史，Agent 将被断开。此操作不能撤销。', { danger: true, okText: '删除' }))) return
+      if (await run(() => api.del(`/servers/${id.value}`, { confirm: '删除服务器需要确认身份' }), '已删除')) { loadServers(); router.replace({ name: 'overview' }) }
+    } finally { moreBusy.value = false }
   }
 }
 async function doUpgrade() {
+  if (upgrading.value) return
   const u = upgrade.value
-  if (await run(() => api.post(`/servers/${id.value}/upgrade`, { cap_reality: u.cap_reality, cap_landing: u.cap_landing }), '已升级，Xray 将自动安装')) {
-    u.show = false; load(); loadServers()
-  }
+  upgrading.value = true
+  try {
+    if (await run(() => api.post(`/servers/${id.value}/upgrade`, { cap_reality: u.cap_reality, cap_landing: u.cap_landing }), '已升级，Xray 将自动安装')) {
+      u.show = false; load(); loadServers()
+    }
+  } finally { upgrading.value = false }
 }
 
 // ---------- overview charts ----------
@@ -226,16 +258,24 @@ async function saveReality() {
   if (await run(() => api.put(`/servers/${id.value}/reality`, reality.value), '已保存，配置将自动下发')) { editReality.value = false; loadXray() }
 }
 async function rotateKeys() {
-  if (!(await ask('轮换 Reality 密钥', '会生成新的 X25519 密钥对，所有使用这台入口的客户端需要刷新订阅。确定继续？'))) return
-  const r = xray.value.reality
-  if (await run(() => api.put(`/servers/${id.value}/reality`, { port: r.port, target: r.target, server_names: r.server_names, short_ids: r.short_ids, address: r.address, fingerprint: r.fingerprint, regen_keys: true }), '密钥已轮换')) loadXray()
+  if (rotatingKeys.value) return
+  rotatingKeys.value = true
+  try {
+    if (!(await ask('轮换 Reality 密钥', '会生成新的 X25519 密钥对，所有使用这台入口的客户端需要刷新订阅。确定继续？'))) return
+    const r = xray.value.reality
+    if (await run(() => api.put(`/servers/${id.value}/reality`, { port: r.port, target: r.target, server_names: r.server_names, short_ids: r.short_ids, address: r.address, fingerprint: r.fingerprint, regen_keys: true }), '密钥已轮换')) loadXray()
+  } finally { rotatingKeys.value = false }
 }
 async function saveLanding() {
   if (await run(() => api.put(`/servers/${id.value}/landing`, landing.value), '已保存，配置将自动下发')) { editLanding.value = false; loadXray() }
 }
 async function deploy() {
-  const r = await run(() => api.post(`/servers/${id.value}/deploy`))
-  if (r) task.value = { show: true, id: r.task_id, title: '下发配置' }
+  if (deploying.value) return
+  deploying.value = true
+  try {
+    const r = await run(() => api.post(`/servers/${id.value}/deploy`))
+    if (r) task.value = { show: true, id: r.task_id, title: '下发配置' }
+  } finally { deploying.value = false }
 }
 const preview = ref({ show: false, config: '', firewall: null })
 async function showPreview() {
@@ -283,9 +323,16 @@ const currencies = ['USD', 'CNY', 'EUR', 'HKD', 'JPY', 'GBP', 'CAD'].map((v) => 
 const cycles = [{ label: '月付', value: 'month' }, { label: '季付', value: 'quarter' }, { label: '半年付', value: 'half' }, { label: '年付', value: 'year' }, { label: '一次性', value: 'once' }]
 const countModes = Object.entries(countModeText).map(([value, label]) => ({ label, value }))
 const exceeded = [{ label: '仅告警（80% / 90% / 100%）', value: 'alert' }, { label: '告警并停止 Xray', value: 'stop_xray' }]
+const isHttpUrl = (u) => /^https?:\/\//i.test(String(u || '').trim())
 async function saveAsset() {
-  const a = { ...asset.value, expire_at: asset.value.expire_at ? new Date(asset.value.expire_at).toISOString() : null }
-  if (await run(() => api.put(`/servers/${id.value}`, a), '已保存')) { await load(); fillAsset(); loadServers() }
+  if (savingAsset.value) return
+  const providerUrl = String(asset.value.provider_url || '').trim()
+  if (providerUrl && !isHttpUrl(providerUrl)) { ui.message.warning('商家后台链接需以 http:// 或 https:// 开头'); return }
+  savingAsset.value = true
+  try {
+    const a = { ...asset.value, provider_url: providerUrl, expire_at: asset.value.expire_at ? new Date(asset.value.expire_at).toISOString() : null }
+    if (await run(() => api.put(`/servers/${id.value}`, a), '已保存')) { await load(); fillAsset(); loadServers() }
+  } finally { savingAsset.value = false }
 }
 
 // ---------- configs ----------
@@ -299,9 +346,13 @@ async function viewDiff(v) {
   if (r) cfgView.value = { show: true, title: r.from ? `v${r.from} → v${r.to}` : `v${r.to}（首个版本）`, body: r.diff, diff: true }
 }
 async function rollback(v) {
-  if (!(await ask(`回滚到 v${v.version}`, '会把这个版本重新下发到服务器。若新配置启动失败，Agent 会自动恢复上一份。'))) return
-  const r = await run(() => api.post(`/servers/${id.value}/configs/${v.id}/rollback`, {}, { confirm: '回滚配置需要确认身份' }))
-  if (r) { task.value = { show: true, id: r.task_id, title: `回滚到 v${v.version}` }; setTimeout(loadConfigs, 3000) }
+  if (rollingBack.value) return
+  rollingBack.value = v.id
+  try {
+    if (!(await ask(`回滚到 v${v.version}`, '会把这个版本重新下发到服务器。若新配置启动失败，Agent 会自动恢复上一份。'))) return
+    const r = await run(() => api.post(`/servers/${id.value}/configs/${v.id}/rollback`, {}, { confirm: '回滚配置需要确认身份' }))
+    if (r) { task.value = { show: true, id: r.task_id, title: `回滚到 v${v.version}` }; setTimeout(loadConfigs, 3000) }
+  } finally { rollingBack.value = 0 }
 }
 function diffClass(line) {
   if (line.startsWith('@@')) return 'diff-hunk'
@@ -332,7 +383,7 @@ function diffClass(line) {
         <span class="spacer" />
         <n-button v-if="sv.mode === 'node'" :disabled="!sv.online" @click="runTool('restart_xray', '重启 Xray')">重启 Xray</n-button>
         <n-button :disabled="!sv.online" @click="router.push({ name: 'tools', query: { server: sv.id, tool: 'diagnose', run: 1 } })">一键诊断</n-button>
-        <n-dropdown :options="moreOptions" trigger="click" @select="onMore"><n-button>更多</n-button></n-dropdown>
+        <n-dropdown :options="moreOptions" trigger="click" @select="onMore"><n-button :loading="moreBusy" :disabled="moreBusy">更多</n-button></n-dropdown>
       </div>
 
       <div v-if="sv.status === 'pending'" class="banner info">
@@ -531,7 +582,7 @@ function diffClass(line) {
                   <n-button @click="runTool('xray_log', 'Xray 日志')">查看日志</n-button>
                   <n-button @click="showPreview">预览配置</n-button>
                   <span class="spacer" />
-                  <n-button type="primary" :disabled="!sv.online" @click="deploy">重新下发</n-button>
+                  <n-button type="primary" :loading="deploying" :disabled="!sv.online || deploying" @click="deploy">重新下发</n-button>
                 </div>
               </div>
             </section>
@@ -572,7 +623,7 @@ function diffClass(line) {
                     <div class="f-ctl"><span class="f-val mono key">{{ xray.reality.public_key }}</span></div>
                   </div>
                   <div class="f-actions">
-                    <n-button @click="rotateKeys">轮换密钥</n-button>
+                    <n-button :loading="rotatingKeys" :disabled="rotatingKeys" @click="rotateKeys">轮换密钥</n-button>
                     <span class="spacer" />
                     <n-button type="primary" @click="editReality = true">编辑</n-button>
                   </div>
@@ -797,7 +848,10 @@ function diffClass(line) {
                 <div class="field">
                   <div class="f-label">
                     <span class="f-name">商家后台链接<i v-if="assetDirty('provider_url')" class="f-dot" /></span>
-                    <span v-if="sv.provider_url" class="f-hint"><a :href="sv.provider_url" target="_blank" rel="noopener noreferrer">打开商家后台</a></span>
+                    <span v-if="sv.provider_url" class="f-hint">
+                      <a v-if="isHttpUrl(sv.provider_url)" :href="sv.provider_url.trim()" target="_blank" rel="noopener noreferrer">打开商家后台</a>
+                      <template v-else>{{ sv.provider_url }}</template>
+                    </span>
                   </div>
                   <div class="f-ctl"><n-input v-model:value="asset.provider_url" placeholder="https://" clearable /></div>
                 </div>
@@ -868,7 +922,7 @@ function diffClass(line) {
             <span v-else class="small muted">修改后点保存</span>
             <span class="spacer" />
             <n-button :disabled="!assetDirtyCount" @click="fillAsset">撤销</n-button>
-            <n-button type="primary" :disabled="!assetDirtyCount" @click="saveAsset">保存</n-button>
+            <n-button type="primary" :loading="savingAsset" :disabled="!assetDirtyCount || savingAsset" @click="saveAsset">保存</n-button>
           </div>
         </n-tab-pane>
 
@@ -887,7 +941,7 @@ function diffClass(line) {
                     <td class="nowrap" style="text-align: right">
                       <n-button size="tiny" quaternary @click="viewConfig(v)">查看</n-button>
                       <n-button size="tiny" quaternary @click="viewDiff(v)">差异</n-button>
-                      <n-button v-if="v.version !== sv.xray_config_ver" size="tiny" quaternary type="warning" @click="rollback(v)">回滚到此</n-button>
+                      <n-button v-if="v.version !== sv.xray_config_ver" size="tiny" quaternary type="warning" :loading="rollingBack === v.id" :disabled="!!rollingBack" @click="rollback(v)">回滚到此</n-button>
                     </td>
                   </tr>
                 </tbody>
@@ -913,12 +967,18 @@ function diffClass(line) {
           <div class="f-ctl"><n-switch v-model:value="upgrade.cap_landing" aria-label="SS2022 落地" /></div>
         </div>
       </div>
-      <template #footer><div class="m-foot"><n-button @click="upgrade.show = false">取消</n-button><n-button type="primary" :disabled="!upgrade.cap_reality && !upgrade.cap_landing" @click="doUpgrade">升级</n-button></div></template>
+      <template #footer><div class="m-foot"><n-button @click="upgrade.show = false">取消</n-button><n-button type="primary" :loading="upgrading" :disabled="(!upgrade.cap_reality && !upgrade.cap_landing) || upgrading" @click="doUpgrade">升级</n-button></div></template>
     </n-modal>
 
     <n-modal v-model:show="install.show" preset="card" title="安装命令" style="width: min(640px, 96vw)">
-      <p class="small" style="margin-top: 0">用 root 登录 VPS 执行（30 分钟内有效，只能使用一次）：</p>
+      <p class="small" style="margin-top: 0">用 root 登录 VPS 执行（{{ installLeft }} 后失效，只能使用一次）：</p>
       <pre class="pre" style="user-select: all">{{ install.command }}</pre>
+      <template #footer>
+        <div class="m-foot">
+          <n-button @click="install.show = false">关闭</n-button>
+          <n-button type="primary" @click="copyInstall">复制命令</n-button>
+        </div>
+      </template>
     </n-modal>
 
     <n-modal v-model:show="cfgView.show" preset="card" :title="cfgView.title" style="width: min(900px, 96vw)">

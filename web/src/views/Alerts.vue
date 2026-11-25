@@ -54,11 +54,12 @@ watch([fStatus, fSev, fServer], loadEvents)
 const off = on('alert', () => loadEvents())
 onBeforeUnmount(off)
 
-const statusOpts = [{ label: '进行中', value: 'firing' }, { label: '已恢复', value: 'resolved' }, { label: '全部', value: 'all' }]
+const statusOpts = [{ label: '进行中', value: 'firing' }, { label: '通知', value: 'info' }, { label: '已恢复', value: 'resolved' }, { label: '全部', value: 'all' }]
 const sevOpts = [{ label: '全部级别', value: '' }, { label: '严重', value: 'critical' }, { label: '警告', value: 'warning' }, { label: '提醒', value: 'info' }]
 const serverOpts = computed(() => [{ label: '全部服务器', value: 0 }, ...state.servers.map((s) => ({ label: s.name, value: s.id }))])
 const sevOptsRule = sevOpts.slice(1)
 function lasting(e) {
+  if (e.status === 'info') return '—'
   const end = e.resolved_at ? new Date(e.resolved_at).getTime() : Date.now()
   return dur((end - new Date(e.started_at).getTime()) / 1000)
 }
@@ -165,6 +166,7 @@ const botCmds = [['/status', '所有服务器在线状态与告警概况'], ['/v
                     <td class="nowrap">{{ lasting(e) }}</td>
                     <td class="nowrap">
                       <span v-if="e.status === 'resolved'" class="tag ok">已恢复</span>
+                      <span v-else-if="e.status === 'info'" class="tag info">{{ e.acked ? '通知 · 已确认' : '通知' }}</span>
                       <span v-else-if="silenced(e)" class="tag">静默至 {{ dt(e.silenced_to) }}</span>
                       <span v-else-if="e.acked" class="tag info">已确认</span>
                       <span v-else :class="['tag', sevClass[e.severity]]">进行中</span>
@@ -174,6 +176,7 @@ const botCmds = [['/status', '所有服务器在线状态与告警概况'], ['/v
                         <n-button v-if="!e.acked" size="tiny" quaternary @click="ack(e)">确认</n-button>
                         <n-dropdown :options="silenceOpts" trigger="click" @select="(m) => silence(e, m)"><n-button size="tiny" quaternary>静默</n-button></n-dropdown>
                       </template>
+                      <n-button v-else-if="e.status === 'info' && !e.acked" size="tiny" quaternary @click="ack(e)">确认</n-button>
                     </td>
                   </tr>
                 </tbody>
@@ -189,12 +192,14 @@ const botCmds = [['/status', '所有服务器在线状态与告警概况'], ['/v
                 <div class="small">{{ e.text }}</div>
                 <div class="row">
                   <span v-if="e.status === 'resolved'" class="tag ok">已恢复 · 持续 {{ lasting(e) }}</span>
+                  <span v-else-if="e.status === 'info'" class="tag info">{{ e.acked ? '通知 · 已确认' : '通知' }}</span>
                   <span v-else-if="e.acked" class="tag info">已确认</span>
                   <span class="spacer" />
                   <template v-if="e.status === 'firing'">
                     <n-button v-if="!e.acked" size="small" @click="ack(e)">确认</n-button>
                     <n-button size="small" @click="silence(e, 60)">静默 1 小时</n-button>
                   </template>
+                  <n-button v-else-if="e.status === 'info' && !e.acked" size="small" @click="ack(e)">确认</n-button>
                 </div>
               </div>
             </div>

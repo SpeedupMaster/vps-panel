@@ -27,6 +27,7 @@ const hint = ref('')
 const inputRef = ref(null)
 let resolver = null
 setConfirmHook((why) => new Promise((resolve) => {
+  if (resolver) { const prev = resolver; resolver = null; prev(null) }
   resolver = resolve
   code.value = ''
   hint.value = why

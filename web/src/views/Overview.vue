@@ -8,7 +8,7 @@ import { NButton, NInput, NSelect, NProgress } from 'naive-ui'
 import { api } from '../api'
 import { state, loadServers, on } from '../store'
 import { run } from '../helpers'
-import { bytes, rate, pct, ago, date, daysUntil, flag, sevLabel, sevClass, ms } from '../format'
+import { bytes, rate, pct, ago, date, daysUntil, flag, sevClass } from '../format'
 import AddServer from '../components/AddServer.vue'
 import Icon from '../components/Icon.vue'
 
@@ -18,7 +18,13 @@ const q = ref('')
 const group = ref('')
 const sortBy = ref('status')
 const adding = ref(false)
-const dismissed = ref(JSON.parse(sessionStorage.getItem('ov_dismissed') || '{}'))
+function loadDismissed() {
+  try {
+    const v = JSON.parse(sessionStorage.getItem('ov_dismissed') || '{}')
+    return v && typeof v === 'object' ? v : {}
+  } catch { return {} }
+}
+const dismissed = ref(loadDismissed())
 
 async function load() {
   const r = await run(() => api.get('/overview'))
@@ -55,7 +61,7 @@ const sevCount = computed(() => {
 })
 function dismiss(id) {
   dismissed.value['b' + id] = Date.now()
-  sessionStorage.setItem('ov_dismissed', JSON.stringify(dismissed.value))
+  try { sessionStorage.setItem('ov_dismissed', JSON.stringify(dismissed.value)) } catch { /* ignore */ }
 }
 function memPct(s) { const t = s.system?.mem_total; return t ? (s.latest?.mem_used || 0) / t * 100 : null }
 function diskPct(s) { const t = s.system?.disk_total; return t ? (s.latest?.disk_used || 0) / t * 100 : null }
@@ -194,7 +200,7 @@ const shareTotal = computed(() => (ov.value?.traffic_share || []).reduce((a, b) 
         <div class="card s-card">
           <div v-if="!ov?.recent_alerts?.length" class="empty">暂无告警</div>
           <div v-for="a in ov?.recent_alerts || []" :key="a.id" class="alert-row">
-            <span :class="['tag', a.status === 'firing' ? sevClass[a.severity] : 'ok']">{{ a.status === 'firing' ? sevLabel[a.severity] : '已恢复' }}</span>
+            <span :class="['tag', a.status === 'firing' ? (sevClass[a.severity] || 'bad') : a.status === 'info' ? 'info' : 'ok']">{{ a.status === 'firing' ? '告警中' : a.status === 'info' ? '通知' : '已恢复' }}</span>
             <span class="alert-text">{{ a.text }}</span>
             <span class="muted small nowrap">{{ ago(a.started_at) }}</span>
           </div>
