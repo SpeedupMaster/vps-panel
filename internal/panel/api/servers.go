@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"sort"
 	"strconv"
@@ -36,8 +37,7 @@ func (a *API) view(sv *store.Server) serverView {
 }
 
 func (a *API) listServers(c *gin.Context) {
-	var svs []store.Server
-	a.P.St.R().Order("sort, id").Find(&svs)
+	svs := a.P.ListServers()
 	rolesBy := a.P.RolesMap(svs)
 	usageBy := a.P.CycleUsageMap(svs)
 	out := make([]serverView, 0, len(svs))
@@ -49,12 +49,12 @@ func (a *API) listServers(c *gin.Context) {
 }
 
 func (a *API) getServer(c *gin.Context) {
-	var sv store.Server
-	if err := a.P.St.R().First(&sv, idParam(c)).Error; err != nil {
+	sv, err := a.P.GetServer(idParam(c))
+	if err != nil {
 		fail(c, http.StatusNotFound, "服务器不存在")
 		return
 	}
-	ok(c, a.view(&sv))
+	ok(c, a.view(sv))
 }
 
 func (a *API) createServer(c *gin.Context) {
@@ -101,17 +101,15 @@ func (a *API) deleteServer(c *gin.Context) {
 }
 
 func (a *API) newToken(c *gin.Context) {
-	var sv store.Server
-	if err := a.P.St.DB.First(&sv, idParam(c)).Error; err != nil {
-		fail(c, http.StatusNotFound, "服务器不存在")
-		return
-	}
-	token, err := a.P.NewInstallToken(sv.ID)
+	token, sv, err := a.P.RegenerateInstallToken(idParam(c))
 	if err != nil {
+		if errors.Is(err, service.ErrNotFound) {
+			fail(c, http.StatusNotFound, "服务器不存在")
+			return
+		}
 		bad(c, err)
 		return
 	}
-	a.P.St.DB.Select("install_token_exp").First(&sv, sv.ID)
 	a.P.Audit("server", "new_install_token", sv.Name, "", c.ClientIP())
 	ok(c, gin.H{"token": token, "command": a.P.InstallCommand(token, sv.Mode), "expires_at": sv.InstallTokenExp, "install_token_exp": sv.InstallTokenExp})
 }
@@ -125,9 +123,7 @@ func (a *API) serverMetrics(c *gin.Context) {
 }
 
 func (a *API) overview(c *gin.Context) {
-	db := a.P.St.R()
-	var svs []store.Server
-	db.Order("sort, id").Find(&svs)
+	svs := a.P.ListServers()
 	usageBy := a.P.CycleUsageMap(svs)
 	online, nodes, probes := 0, 0, 0
 	var monthly float64
@@ -170,10 +166,7 @@ func (a *API) overview(c *gin.Context) {
 	}
 	sort.Slice(shares, func(i, j int) bool { return shares[i].Used > shares[j].Used })
 	sort.Slice(exp, func(i, j int) bool { return exp[i].At.Before(exp[j].At) })
-	var firing int64
-	db.Model(&store.AlertEvent{}).Where("status = ?", "firing").Count(&firing)
-	var recent []store.AlertEvent
-	db.Order("started_at desc").Limit(6).Find(&recent)
+	firing, recent := a.P.AlertOverview(6)
 	ok(c, gin.H{
 		"total": len(svs), "online": online, "nodes": nodes, "probes": probes,
 		"monthly_cost": monthly, "currency": a.P.St.Get("currency", "USD"),
@@ -184,8 +177,8 @@ func (a *API) overview(c *gin.Context) {
 
 // serverTraffic: NIC daily series plus this cycle's per-route and landing-user totals.
 func (a *API) serverTraffic(c *gin.Context) {
-	var sv store.Server
-	if err := a.P.St.R().First(&sv, idParam(c)).Error; err != nil {
+	sv, err := a.P.GetServer(idParam(c))
+	if err != nil {
 		fail(c, http.StatusNotFound, "服务器不存在")
 		return
 	}
@@ -196,15 +189,14 @@ func (a *API) serverTraffic(c *gin.Context) {
 	sid := strconv.FormatUint(uint64(sv.ID), 10)
 	now := time.Now()
 	since := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(days - 1))
-	usage := a.P.CycleUsage(&sv)
+	usage := a.P.CycleUsage(sv)
 	type item struct {
 		ID   uint   `json:"id"`
 		Name string `json:"name"`
 		Up   uint64 `json:"up"`
 		Down uint64 `json:"down"`
 	}
-	var routes []store.Route
-	a.P.St.R().Where("entry_server_id = ?", sv.ID).Order("sort, id").Find(&routes)
+	routes := a.P.ServerRoutes(sv.ID)
 	rids := make([]string, len(routes))
 	for i, r := range routes {
 		rids[i] = strconv.FormatUint(uint64(r.ID), 10)

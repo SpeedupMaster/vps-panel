@@ -9,7 +9,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -102,11 +101,8 @@ func (a *API) listReleases(c *gin.Context) {
 	for _, r := range a.P.Releases(comp) {
 		out = append(out, view{r, comp == "agent" && r.Version == pub})
 	}
-	// Version spread across servers for the update center.
-	var svs []store.Server
-	a.P.St.DB.Select("id, name, mode, agent_version, xray_version, xray_locked_version").Find(&svs)
 	ok(c, gin.H{
-		"items": out, "servers": svs, "latest_xray": a.P.LatestXray(false),
+		"items": out, "servers": a.P.ServerVersions(), "latest_xray": a.P.LatestXray(false),
 		"synced_at": a.P.St.Get("xray_releases_synced_at", ""), "agent_published": pub,
 		"signing": a.P.St.Get("sign_pubkey", "") != "",
 	})
@@ -194,9 +190,7 @@ func (a *API) startUpdate(c *gin.Context) {
 }
 
 func (a *API) updateHistory(c *gin.Context) {
-	var ts []store.Task
-	a.P.St.R().Omit("output", "payload").Where("type IN ?", []string{proto.TaskUpdateAgent, proto.TaskUpdateXray, proto.TaskUpdateGeo}).
-		Order("id desc").Limit(200).Find(&ts)
+	ts := a.P.UpdateHistory(200)
 	type view struct {
 		store.Task
 		ServerName string `json:"server_name"`
@@ -263,24 +257,13 @@ func (a *API) toolResults(c *gin.Context) {
 }
 
 func (a *API) toolHistory(c *gin.Context) {
-	q := a.P.St.DB.Order("id desc").Limit(200)
-	if t := c.Query("tool"); t != "" {
-		q = q.Where("tool = ?", t)
-	}
-	if s := c.Query("server_id"); s != "" {
-		q = q.Where("server_id = ?", s)
-	}
-	var rs []store.ToolResult
-	q.Find(&rs)
-	ok(c, rs)
+	ok(c, a.P.ToolHistory(c.Query("tool"), c.Query("server_id"), 200))
 }
 
 // ---------- scripts & schedules ----------
 
 func (a *API) listScripts(c *gin.Context) {
-	var ss []store.Script
-	a.P.St.DB.Order("id").Find(&ss)
-	ok(c, ss)
+	ok(c, a.P.ListScripts())
 }
 
 func (a *API) saveScript(c *gin.Context) {
@@ -299,7 +282,10 @@ func (a *API) saveScript(c *gin.Context) {
 }
 
 func (a *API) deleteScript(c *gin.Context) {
-	a.P.St.DB.Delete(&store.Script{}, idParam(c))
+	if err := a.P.DeleteScript(idParam(c), c.ClientIP()); err != nil {
+		bad(c, err)
+		return
+	}
 	ok(c, gin.H{})
 }
 
@@ -331,9 +317,7 @@ func (a *API) runScript(c *gin.Context) {
 }
 
 func (a *API) listSchedules(c *gin.Context) {
-	var ss []store.Schedule
-	a.P.St.DB.Order("id").Find(&ss)
-	ok(c, ss)
+	ok(c, a.P.ListSchedules())
 }
 
 func (a *API) saveSchedule(c *gin.Context) {
@@ -343,17 +327,7 @@ func (a *API) saveSchedule(c *gin.Context) {
 		return
 	}
 	s.ID = idParam(c)
-	if err := service.ValidateSchedule(&s); err != nil {
-		bad(c, err)
-		return
-	}
-	if s.ID != 0 {
-		var old store.Schedule
-		if a.P.St.DB.First(&old, s.ID).Error == nil {
-			s.LastRun = old.LastRun
-		}
-	}
-	if err := a.P.St.DB.Save(&s).Error; err != nil {
+	if err := a.P.SaveSchedule(&s); err != nil {
 		bad(c, err)
 		return
 	}
@@ -361,18 +335,22 @@ func (a *API) saveSchedule(c *gin.Context) {
 }
 
 func (a *API) deleteSchedule(c *gin.Context) {
-	a.P.St.DB.Delete(&store.Schedule{}, idParam(c))
+	if err := a.P.DeleteSchedule(idParam(c)); err != nil {
+		bad(c, err)
+		return
+	}
 	ok(c, gin.H{})
 }
 
 func (a *API) runSchedule(c *gin.Context) {
-	var s store.Schedule
-	if err := a.P.St.DB.First(&s, idParam(c)).Error; err != nil {
-		fail(c, 404, "不存在")
+	if err := a.P.TriggerSchedule(idParam(c)); err != nil {
+		if errors.Is(err, service.ErrNotFound) {
+			fail(c, http.StatusNotFound, "不存在")
+			return
+		}
+		bad(c, err)
 		return
 	}
-	a.P.RunScheduleNow(&s)
-	a.P.St.DB.Model(&s).Update("last_run", time.Now())
 	ok(c, gin.H{})
 }
 
@@ -485,11 +463,6 @@ type shellTicket struct {
 	exp    time.Time
 }
 
-var (
-	ticketsMu sync.Mutex
-	tickets   = map[string]shellTicket{}
-)
-
 // shellTicket checks the second factor once and returns a single-use ticket
 // for the websocket (browsers can't set headers on websocket requests).
 func (a *API) shellTicket(c *gin.Context) {
@@ -501,14 +474,18 @@ func (a *API) shellTicket(c *gin.Context) {
 		return
 	}
 	t := secret.RandomToken(24)
-	ticketsMu.Lock()
-	for k, v := range tickets {
-		if time.Now().After(v.exp) {
-			delete(tickets, k)
+	a.ticketsMu.Lock()
+	if a.tickets == nil {
+		a.tickets = map[string]shellTicket{}
+	}
+	now := time.Now()
+	for k, v := range a.tickets {
+		if now.After(v.exp) {
+			delete(a.tickets, k)
 		}
 	}
-	tickets[t] = shellTicket{idParam(c), time.Now().Add(time.Minute)}
-	ticketsMu.Unlock()
+	a.tickets[t] = shellTicket{idParam(c), now.Add(time.Minute)}
+	a.ticketsMu.Unlock()
 	a.P.Audit("server", "webssh", a.P.ServerName(idParam(c)), "", c.ClientIP())
 	ok(c, gin.H{"ticket": t})
 }
@@ -522,10 +499,11 @@ type shellMsg struct {
 
 func (a *API) shell(c *gin.Context) {
 	sid := idParam(c)
-	ticketsMu.Lock()
-	tk, found := tickets[c.Query("ticket")]
-	delete(tickets, c.Query("ticket"))
-	ticketsMu.Unlock()
+	tok := c.Query("ticket")
+	a.ticketsMu.Lock()
+	tk, found := a.tickets[tok]
+	delete(a.tickets, tok)
+	a.ticketsMu.Unlock()
 	if !found || tk.server != sid || time.Now().After(tk.exp) {
 		fail(c, http.StatusForbidden, "票据无效或已过期")
 		return
@@ -559,9 +537,9 @@ func (a *API) shell(c *gin.Context) {
 					if r.Finished {
 						msg := "\r\n[会话已结束]\r\n"
 						if r.Status == "failed" {
-							var ft store.Task
-							a.P.St.DB.First(&ft, t.ID)
-							msg = "\r\n" + lastLines(ft.Output, 2) + "\r\n"
+							if ft, err := a.P.GetTask(t.ID); err == nil {
+								msg = "\r\n" + lastLines(ft.Output, 2) + "\r\n"
+							}
 						}
 						_ = websocket.Message.Send(ws, msg)
 						return

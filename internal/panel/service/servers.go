@@ -152,11 +152,62 @@ func (p *Panel) UpdateServer(id uint, in ServerInput) error {
 
 // NewInstallToken issues a fresh token (e.g. to reinstall an agent).
 func (p *Panel) NewInstallToken(id uint) (string, error) {
-	token := secret.RandomToken(24)
-	err := p.St.DB.Model(&store.Server{}).Where("id = ?", id).Updates(map[string]any{
-		"install_token_hash": secret.Hash(token), "install_token_exp": time.Now().Add(24 * time.Hour),
-	}).Error
+	token, _, err := p.RegenerateInstallToken(id)
 	return token, err
+}
+
+// RegenerateInstallToken issues a fresh install token and returns the token and updated server.
+func (p *Panel) RegenerateInstallToken(id uint) (string, *store.Server, error) {
+	var sv store.Server
+	if err := p.St.DB.First(&sv, id).Error; err != nil {
+		return "", nil, ErrNotFound
+	}
+	token := secret.RandomToken(24)
+	exp := time.Now().Add(24 * time.Hour)
+	if err := p.St.DB.Model(&store.Server{}).Where("id = ?", id).Updates(map[string]any{
+		"install_token_hash": secret.Hash(token), "install_token_exp": exp,
+	}).Error; err != nil {
+		return "", nil, err
+	}
+	sv.InstallTokenExp = exp
+	return token, &sv, nil
+}
+
+func (p *Panel) ListServers() []store.Server {
+	var svs []store.Server
+	p.St.R().Order("sort, id").Find(&svs)
+	return svs
+}
+
+func (p *Panel) GetServer(id uint) (*store.Server, error) {
+	var sv store.Server
+	if err := p.St.R().First(&sv, id).Error; err != nil {
+		return nil, ErrNotFound
+	}
+	return &sv, nil
+}
+
+func (p *Panel) ServerVersions() []store.Server {
+	var svs []store.Server
+	p.St.R().Select("id, name, mode, agent_version, xray_version, xray_locked_version").Find(&svs)
+	return svs
+}
+
+// ListStatusServers returns non-pending servers filtered by the status_servers spec.
+func (p *Panel) ListStatusServers(spec string) []store.Server {
+	var svs []store.Server
+	q := p.St.R().Where("status <> ?", "pending").Order("sort, id")
+	if spec = strings.TrimSpace(spec); spec != "" && spec != "all" {
+		var ids []uint
+		for _, s := range strings.Split(spec, ",") {
+			if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil && n > 0 {
+				ids = append(ids, uint(n))
+			}
+		}
+		q = q.Where("id IN ?", ids)
+	}
+	q.Find(&svs)
+	return svs
 }
 
 func (p *Panel) InstallCommand(token, mode string) string {

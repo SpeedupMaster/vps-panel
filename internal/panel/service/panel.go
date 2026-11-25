@@ -79,6 +79,9 @@ type Panel struct {
 	iperfMu    sync.Mutex
 	iperfInUse map[int]time.Time
 	iperfNext  int
+
+	probes *probeState
+	subLim *subRateLimiter
 }
 
 func New(st *store.Store, box *secret.Box, a *auth.Auth, h *hub.Hub, dataDir string) *Panel {
@@ -91,6 +94,8 @@ func New(st *store.Store, box *secret.Box, a *auth.Auth, h *hub.Hub, dataDir str
 		taskOut:     map[uint64]*taskOutBuf{},
 		relayLocks:  map[string]*sync.Mutex{},
 		iperfInUse:  map[int]time.Time{},
+		probes:      newProbeState(),
+		subLim:      newSubRateLimiter(),
 	}
 	h.SetHandler(p)
 	return p
@@ -237,4 +242,34 @@ func (p *Panel) ServerName(id uint) string {
 // Audit records an operation in the audit log.
 func (p *Panel) Audit(typ, action, target, detail, ip string) {
 	p.St.DB.Create(&store.AuditLog{Type: typ, Action: action, Target: target, Detail: detail, IP: ip, TS: time.Now()})
+}
+
+// AuditLogs lists audit log entries filtered by optional type.
+func (p *Panel) AuditLogs(typ string, limit, offset int) []store.AuditLog {
+	q := p.St.R().Order("id desc")
+	if typ != "" && typ != "all" {
+		q = q.Where("type = ?", typ)
+	}
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	if offset > 0 {
+		q = q.Offset(offset)
+	}
+	var logs []store.AuditLog
+	q.Find(&logs)
+	return logs
+}
+
+// NotifyNewLoginIP alerts when the admin logs in from an IP not seen before.
+func (p *Panel) NotifyNewLoginIP(ip string) {
+	var n int64
+	p.St.DB.Model(&store.AuditLog{}).Where("type = ? AND action = ? AND ip = ?", "login", "login", ip).Count(&n)
+	if n <= 1 {
+		var total int64
+		p.St.DB.Model(&store.AuditLog{}).Where("type = ? AND action = ?", "login", "login").Count(&total)
+		if total > 1 {
+			p.Alert.Info("login_new_ip", 0, "面板从新 IP 登录："+ip)
+		}
+	}
 }

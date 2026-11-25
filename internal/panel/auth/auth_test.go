@@ -209,3 +209,87 @@ func TestTOTPNulledColumnMigrationDoesNotLockOut(t *testing.T) {
 		t.Fatal("replayed TOTP code after NULL migration was accepted")
 	}
 }
+
+func TestLoginRecoveryCodesPasswordChangeAndReset(t *testing.T) {
+	a := newTestAuth(t)
+
+	// 1. Login happy path + Check + Logout.
+	s1, err := a.Login("admin", "CorrectPass123!", "", "203.0.113.10", "UA-1")
+	if err != nil || s1 == "" {
+		t.Fatalf("Login without TOTP: (%q, %v)", s1, err)
+	}
+	sess1, ok := a.Check(s1, "203.0.113.10")
+	if !ok || sess1 == nil {
+		t.Fatal("Check rejected valid session")
+	}
+	s2, err := a.Login("admin", "CorrectPass123!", "", "203.0.113.11", "UA-2")
+	if err != nil {
+		t.Fatalf("second Login: %v", err)
+	}
+
+	// 2. ChangePassword rejects short password, updates password, and KickOthers invalidates other sessions.
+	if err := a.ChangePassword("CorrectPass123!", "short"); err == nil {
+		t.Fatal("ChangePassword accepted password < 10 chars")
+	}
+	if err := a.ChangePassword("CorrectPass123!", "NewStrongPass456!"); err != nil {
+		t.Fatalf("ChangePassword: %v", err)
+	}
+	if err := a.KickOthers(sess1.ID); err != nil {
+		t.Fatalf("KickOthers: %v", err)
+	}
+	if _, ok := a.Check(s1, "203.0.113.10"); !ok {
+		t.Fatal("kept session invalidated by KickOthers")
+	}
+	if _, ok := a.Check(s2, "203.0.113.11"); ok {
+		t.Fatal("other session survived KickOthers")
+	}
+	if _, err := a.Login("admin", "CorrectPass123!", "", "203.0.113.12", "UA"); !errors.Is(err, ErrBadCredentials) {
+		t.Fatalf("old password still accepted: %v", err)
+	}
+
+	// 3. Enable TOTP & test Login flow + single-use recovery codes.
+	sec, uri, err := a.BeginTOTP()
+	if err != nil || sec == "" || uri == "" {
+		t.Fatalf("BeginTOTP: %q %q %v", sec, uri, err)
+	}
+	step := uint64(time.Now().Unix() / 30)
+	code0, _ := totpAt(sec, step)
+	recovery, err := a.ConfirmTOTP(code0)
+	if err != nil || len(recovery) != 8 {
+		t.Fatalf("ConfirmTOTP: len=%d err=%v", len(recovery), err)
+	}
+	if a.RecoveryLeft() != 8 {
+		t.Fatalf("RecoveryLeft = %d, want 8", a.RecoveryLeft())
+	}
+	// Empty code prompts for TOTP.
+	if _, err := a.Login("admin", "NewStrongPass456!", "", "203.0.113.20", "UA"); !errors.Is(err, ErrNeedTOTP) {
+		t.Fatalf("Login with empty TOTP = %v, want ErrNeedTOTP", err)
+	}
+	// Fresh TOTP step logs in.
+	code1, _ := totpAt(sec, step+1)
+	if _, err := a.Login("admin", "NewStrongPass456!", code1, "203.0.113.20", "UA"); err != nil {
+		t.Fatalf("Login with valid TOTP: %v", err)
+	}
+	// Recovery code works once, then cannot be reused.
+	if _, err := a.Login("admin", "NewStrongPass456!", recovery[0], "203.0.113.21", "UA"); err != nil {
+		t.Fatalf("Login with recovery code: %v", err)
+	}
+	if a.RecoveryLeft() != 7 {
+		t.Fatalf("RecoveryLeft after 1 use = %d, want 7", a.RecoveryLeft())
+	}
+	if _, err := a.Login("admin", "NewStrongPass456!", recovery[0], "203.0.113.21", "UA"); !errors.Is(err, ErrBadTOTP) {
+		t.Fatalf("reused recovery code = %v, want ErrBadTOTP", err)
+	}
+
+	// 4. ResetAdmin disables TOTP, rotates password, and clears all sessions.
+	newPW, err := a.ResetAdmin()
+	if err != nil || newPW == "" {
+		t.Fatalf("ResetAdmin: %q %v", newPW, err)
+	}
+	if len(a.Sessions()) != 0 {
+		t.Fatalf("ResetAdmin left %d active sessions", len(a.Sessions()))
+	}
+	if _, err := a.Login("admin", newPW, "", "203.0.113.22", "UA"); err != nil {
+		t.Fatalf("Login after ResetAdmin: %v", err)
+	}
+}

@@ -146,7 +146,7 @@ func main() {
 func newRootHandler(p *service.Panel, grpcSrv, ginEngine http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
-			if subHost := p.SubOnlyHost(); subHost != "" && hostOnly(r.Host) == subHost {
+			if subHost := p.SubOnlyHost(); subHost != "" && api.HostOnly(r.Host) == subHost {
 				http.Error(w, "not found", http.StatusNotFound)
 				return
 			}
@@ -155,14 +155,6 @@ func newRootHandler(p *service.Panel, grpcSrv, ginEngine http.Handler) http.Hand
 		}
 		ginEngine.ServeHTTP(w, r)
 	})
-}
-
-func hostOnly(hostport string) string {
-	h := strings.TrimSpace(hostport)
-	if host, _, err := net.SplitHostPort(h); err == nil {
-		return strings.ToLower(host)
-	}
-	return strings.ToLower(strings.Trim(h, "[]"))
 }
 
 func splitCSV(s string) []string {

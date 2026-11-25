@@ -2,11 +2,9 @@ package api
 
 import (
 	"errors"
-	"fmt"
-	"net"
+	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -46,9 +44,7 @@ func (a *API) mountAlerts(g *gin.RouterGroup) {
 // ---------- rules ----------
 
 func (a *API) listRules(c *gin.Context) {
-	var rs []store.AlertRule
-	a.P.St.DB.Order("id").Find(&rs)
-	ok(c, rs)
+	ok(c, a.P.ListAlertRules())
 }
 
 func (a *API) saveRule(c *gin.Context) {
@@ -58,51 +54,32 @@ func (a *API) saveRule(c *gin.Context) {
 		return
 	}
 	r.ID = idParam(c)
-	if r.Name == "" || service.KindLabels[r.Kind] == "" {
-		bad(c, errors.New("名称或类型无效"))
-		return
-	}
-	if r.Severity == "" {
-		r.Severity = "warning"
-	}
-	if r.Scope == "" {
-		r.Scope = "all"
-	}
-	if err := a.P.St.DB.Save(&r).Error; err != nil {
+	if err := a.P.SaveAlertRule(&r, c.ClientIP()); err != nil {
 		bad(c, err)
 		return
 	}
-	a.P.Audit("alert", "save_rule", r.Name, "", c.ClientIP())
 	ok(c, r)
 }
 
 func (a *API) deleteRule(c *gin.Context) {
-	a.P.St.DB.Delete(&store.AlertRule{}, idParam(c))
+	if err := a.P.DeleteAlertRule(idParam(c), c.ClientIP()); err != nil {
+		bad(c, err)
+		return
+	}
 	ok(c, gin.H{})
 }
 
 // ---------- events ----------
 
 func (a *API) listEvents(c *gin.Context) {
-	q := a.P.St.R().Order("id desc")
-	if s := c.Query("status"); s != "" && s != "all" {
-		q = q.Where("status = ?", s)
-	}
-	if k := c.Query("kind"); k != "" {
-		q = q.Where("kind = ?", k)
-	}
-	if sid := c.Query("server_id"); sid != "" {
-		q = q.Where("server_id = ?", sid)
-	}
-	if sev := c.Query("severity"); sev != "" {
-		q = q.Where("severity = ?", sev)
-	}
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "200"))
-	if limit <= 0 || limit > 2000 {
-		limit = 200
-	}
-	var evs []store.AlertEvent
-	q.Limit(limit).Find(&evs)
+	evs, firing := a.P.ListAlertEvents(service.AlertEventFilter{
+		Status:   c.Query("status"),
+		Kind:     c.Query("kind"),
+		ServerID: c.Query("server_id"),
+		Severity: c.Query("severity"),
+		Limit:    limit,
+	})
 	type view struct {
 		store.AlertEvent
 		ServerName string `json:"server_name"`
@@ -112,19 +89,22 @@ func (a *API) listEvents(c *gin.Context) {
 	for _, e := range evs {
 		out = append(out, view{e, a.P.ServerName(e.ServerID), service.KindLabels[e.Kind]})
 	}
-	var firing int64
-	a.P.St.R().Model(&store.AlertEvent{}).Where("status = ? AND acked = ?", "firing", false).Count(&firing)
 	ok(c, gin.H{"items": out, "firing": firing})
 }
 
 func (a *API) ackEvent(c *gin.Context) {
-	a.P.St.DB.Model(&store.AlertEvent{}).Where("id = ?", idParam(c)).Update("acked", true)
-	a.P.Bus.Publish("alert", gin.H{"id": idParam(c), "acked": true})
+	if err := a.P.AckAlertEvent(idParam(c)); err != nil {
+		bad(c, err)
+		return
+	}
 	ok(c, gin.H{})
 }
 
 func (a *API) ackAll(c *gin.Context) {
-	a.P.St.DB.Model(&store.AlertEvent{}).Where("status IN ? AND acked = ?", []string{"firing", "info"}, false).Update("acked", true)
+	if err := a.P.AckAllAlertEvents(); err != nil {
+		bad(c, err)
+		return
+	}
 	ok(c, gin.H{})
 }
 
@@ -133,11 +113,11 @@ func (a *API) silenceEvent(c *gin.Context) {
 		Minutes int `json:"minutes"`
 	}
 	_ = c.ShouldBindJSON(&in)
-	if in.Minutes <= 0 {
-		in.Minutes = 60
+	to, err := a.P.SilenceAlertEvent(idParam(c), in.Minutes)
+	if err != nil {
+		bad(c, err)
+		return
 	}
-	to := time.Now().Add(time.Duration(in.Minutes) * time.Minute)
-	a.P.St.DB.Model(&store.AlertEvent{}).Where("id = ?", idParam(c)).Update("silenced_to", &to)
 	ok(c, gin.H{"silenced_to": to})
 }
 
@@ -146,8 +126,7 @@ func (a *API) silenceEvent(c *gin.Context) {
 var secretKeys = map[string]bool{"bot_token": true, "password": true, "secret": true, "device_key": true, "webhook": true}
 
 func (a *API) listChannels(c *gin.Context) {
-	var chs []store.NotifyChannel
-	a.P.St.DB.Order("id").Find(&chs)
+	chs := a.P.ListNotifyChannels()
 	type view struct {
 		store.NotifyChannel
 		Config map[string]string `json:"config"`
@@ -191,7 +170,10 @@ func (a *API) saveChannel(c *gin.Context) {
 }
 
 func (a *API) deleteChannel(c *gin.Context) {
-	a.P.St.DB.Delete(&store.NotifyChannel{}, idParam(c))
+	if err := a.P.DeleteNotifyChannel(idParam(c)); err != nil {
+		bad(c, err)
+		return
+	}
 	ok(c, gin.H{})
 }
 
@@ -206,48 +188,10 @@ func (a *API) testChannel(c *gin.Context) {
 // ---------- probe targets ----------
 
 func (a *API) listTargets(c *gin.Context) {
-	var ts []store.ProbeTarget
-	q := a.P.St.DB.Order("source, province, carrier, id")
-	if s := c.Query("source"); s != "" {
-		q = q.Where("source = ?", s)
-	}
-	q.Find(&ts)
-	ok(c, gin.H{"items": ts, "synced_at": a.P.St.Get("zstatic_synced_at", "")})
+	ok(c, gin.H{"items": a.P.ListProbeTargets(c.Query("source")), "synced_at": a.P.St.Get("zstatic_synced_at", "")})
 }
 
-func validTarget(t *store.ProbeTarget) error {
-	t.Name = strings.TrimSpace(t.Name)
-	t.Host = strings.TrimSpace(t.Host)
-	if t.Name == "" || t.Host == "" {
-		return errors.New("名称和地址必填")
-	}
-	if t.Type == "" {
-		t.Type = "tcp"
-	}
-	if t.Type != "tcp" && t.Type != "icmp" {
-		return errors.New("类型只能是 tcp 或 icmp")
-	}
-	if t.Type == "tcp" && (t.Port <= 0 || t.Port > 65535) {
-		return errors.New("TCP 端口无效")
-	}
-	if strings.ContainsAny(t.Host, " \t\r\n/\\") {
-		return errors.New("地址无效")
-	}
-	lower := strings.ToLower(t.Host)
-	if lower == "localhost" || strings.HasSuffix(lower, ".localhost") {
-		return errors.New("不能探测本地或内网地址")
-	}
-	if ip := net.ParseIP(t.Host); ip != nil {
-		if notify.IsBlockedIP(ip) {
-			return errors.New("不能探测本地或内网地址")
-		}
-		return nil
-	}
-	if !strings.Contains(t.Host, ".") {
-		return errors.New("地址无效")
-	}
-	return nil
-}
+func validTarget(t *store.ProbeTarget) error { return service.ValidateProbeTarget(t) }
 
 func (a *API) createTarget(c *gin.Context) {
 	var t store.ProbeTarget
@@ -255,52 +199,36 @@ func (a *API) createTarget(c *gin.Context) {
 		bad(c, err)
 		return
 	}
-	if err := validTarget(&t); err != nil {
+	if err := a.P.CreateProbeTarget(&t); err != nil {
 		bad(c, err)
 		return
 	}
-	t.ID = fmt.Sprintf("cu-%d", time.Now().UnixNano()%1e9)
-	t.Source = "custom"
-	t.Enabled = true
-	if err := a.P.St.DB.Create(&t).Error; err != nil {
-		bad(c, err)
-		return
-	}
-	a.P.PushProbeTasksAll()
 	ok(c, t)
 }
 
 func (a *API) updateTarget(c *gin.Context) {
-	var cur store.ProbeTarget
-	if err := a.P.St.DB.First(&cur, "id = ?", c.Param("tid")).Error; err != nil {
-		fail(c, 404, "目标不存在")
-		return
-	}
 	var in store.ProbeTarget
 	if err := c.ShouldBindJSON(&in); err != nil {
 		bad(c, err)
 		return
 	}
-	if cur.Source == "custom" {
-		in.ID, in.Source = cur.ID, cur.Source
-		if err := validTarget(&in); err != nil {
-			bad(c, err)
+	cur, err := a.P.UpdateProbeTarget(c.Param("tid"), in)
+	if err != nil {
+		if errors.Is(err, service.ErrNotFound) {
+			fail(c, http.StatusNotFound, "目标不存在")
 			return
 		}
-		cur = in
-	} else {
-		cur.Enabled = in.Enabled // zstatic targets: only toggle
+		bad(c, err)
+		return
 	}
-	a.P.St.DB.Save(&cur)
-	a.P.PushProbeTasksAll()
 	ok(c, cur)
 }
 
 func (a *API) deleteTarget(c *gin.Context) {
-	tid := c.Param("tid")
-	a.P.St.DB.Where("id = ? AND source = ?", tid, "custom").Delete(&store.ProbeTarget{})
-	a.P.ForgetProbeTarget(tid)
-	a.P.PushProbeTasksAll()
+	if err := a.P.DeleteProbeTarget(c.Param("tid")); err != nil {
+		bad(c, err)
+		return
+	}
 	ok(c, gin.H{})
 }
 
@@ -313,16 +241,10 @@ func (a *API) bulkTargets(c *gin.Context) {
 		bad(c, err)
 		return
 	}
-	if len(in.Enabled) > 60 {
-		bad(c, errors.New("最多同时启用 60 个目标"))
+	if err := a.P.SetProbeTargetsBulk(in.Enabled); err != nil {
+		bad(c, err)
 		return
 	}
-	db := a.P.St.DB
-	db.Model(&store.ProbeTarget{}).Where("1 = 1").Update("enabled", false)
-	if len(in.Enabled) > 0 {
-		db.Model(&store.ProbeTarget{}).Where("id IN ?", in.Enabled).Update("enabled", true)
-	}
-	a.P.PushProbeTasksAll()
 	ok(c, gin.H{"enabled": len(in.Enabled)})
 }
 

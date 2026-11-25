@@ -31,23 +31,10 @@ func (a *API) login(c *gin.Context) {
 		return
 	}
 	a.P.Audit("login", "login", in.Username, "登录成功", ip)
-	a.notifyNewIP(ip)
+	a.P.NotifyNewLoginIP(ip)
 	secure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
 	http.SetCookie(c.Writer, &http.Cookie{Name: auth.CookieName, Value: raw, Path: "/", HttpOnly: true, Secure: secure, SameSite: http.SameSiteStrictMode, MaxAge: 7 * 86400})
 	ok(c, gin.H{"ok": true})
-}
-
-// notifyNewIP alerts when the admin logs in from an IP not seen before.
-func (a *API) notifyNewIP(ip string) {
-	var n int64
-	a.P.St.DB.Model(&store.AuditLog{}).Where("type = ? AND action = ? AND ip = ?", "login", "login", ip).Count(&n)
-	if n <= 1 {
-		var total int64
-		a.P.St.DB.Model(&store.AuditLog{}).Where("type = ? AND action = ?", "login", "login").Count(&total)
-		if total > 1 {
-			a.P.Alert.Info("login_new_ip", 0, "面板从新 IP 登录："+ip)
-		}
-	}
 }
 
 func (a *API) logout(c *gin.Context) {

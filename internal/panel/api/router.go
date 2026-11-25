@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -29,6 +30,9 @@ type API struct {
 	TrustedProxies []string
 	Shutdown       func()                                          // optional graceful shutdown trigger
 	Extra          []func(r *gin.Engine, authed *gin.RouterGroup) // feature modules
+
+	ticketsMu sync.Mutex
+	tickets   map[string]shellTicket
 }
 
 func ok(c *gin.Context, v any) { c.JSON(http.StatusOK, v) }
@@ -153,7 +157,8 @@ func (a *API) requireSession(c *gin.Context) {
 	}
 }
 
-func hostOnly(hostport string) string {
+// HostOnly returns the lowercased hostname from a Host header (with or without port).
+func HostOnly(hostport string) string {
 	h := strings.TrimSpace(hostport)
 	if host, _, err := net.SplitHostPort(h); err == nil {
 		return strings.ToLower(host)
@@ -166,7 +171,7 @@ func hostOnly(hostport string) string {
 // the panel UI, API, and all other paths.
 func (a *API) subHostOnly(c *gin.Context) {
 	subHost := a.P.SubOnlyHost()
-	if subHost == "" || hostOnly(c.Request.Host) != subHost {
+	if subHost == "" || HostOnly(c.Request.Host) != subHost {
 		return
 	}
 	if c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead {

@@ -63,12 +63,12 @@ func TestDeleteServerClearsMemoryState(t *testing.T) {
 	if p.Latest(sv.ID) != nil {
 		t.Fatal("Panel.latest still contains deleted server")
 	}
-	probes.mu.Lock()
-	_, hasLatest := probes.latest[sv.ID]
-	_, hasTS := probes.latestTS[sv.ID]
-	_, hasFail := probes.failRound[sv.ID]
-	_, hasOK := probes.lastOK[sv.ID]
-	probes.mu.Unlock()
+	p.probes.mu.Lock()
+	_, hasLatest := p.probes.latest[sv.ID]
+	_, hasTS := p.probes.latestTS[sv.ID]
+	_, hasFail := p.probes.failRound[sv.ID]
+	_, hasOK := p.probes.lastOK[sv.ID]
+	p.probes.mu.Unlock()
 	if hasLatest || hasTS || hasFail || hasOK {
 		t.Fatalf("probes state leaked after DeleteServer: latest=%v ts=%v fail=%v ok=%v", hasLatest, hasTS, hasFail, hasOK)
 	}

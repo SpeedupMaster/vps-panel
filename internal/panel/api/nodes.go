@@ -1,8 +1,6 @@
 package api
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"regexp"
@@ -11,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"vpspanel/internal/common/xrayconf"
 	"vpspanel/internal/panel/service"
 	"vpspanel/internal/panel/store"
 	"vpspanel/internal/panel/sub"
@@ -19,14 +18,6 @@ import (
 func monthStart() time.Time {
 	now := time.Now()
 	return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
-}
-
-func prettyJSON(b []byte) []byte {
-	var buf bytes.Buffer
-	if json.Indent(&buf, b, "", "  ") != nil {
-		return b
-	}
-	return buf.Bytes()
 }
 
 var secretFields = regexp.MustCompile(`("(?:privateKey|password)":\s*")[^"]*(")`)
@@ -81,47 +72,22 @@ func (a *API) mountNodes(r *gin.Engine, g *gin.RouterGroup) {
 // ---------- xray / inbounds ----------
 
 func (a *API) getXray(c *gin.Context) {
-	id := idParam(c)
-	var sv store.Server
-	if err := a.P.St.DB.First(&sv, id).Error; err != nil {
-		fail(c, 404, "服务器不存在")
+	info, err := a.P.GetServerXray(idParam(c), monthStart())
+	if err != nil {
+		fail(c, http.StatusNotFound, "服务器不存在")
 		return
 	}
-	res := gin.H{"server": a.view(&sv)}
-	var ri store.RealityInbound
-	if a.P.St.DB.First(&ri, "server_id = ?", id).Error == nil {
-		res["reality"] = ri
+	res := gin.H{"server": a.view(info.Server)}
+	if info.Reality != nil {
+		res["reality"] = *info.Reality
 	}
-	var li store.LandingInbound
-	if a.P.St.DB.First(&li, "server_id = ?", id).Error == nil {
-		res["landing"] = li
-		var users []store.LandingUser
-		a.P.St.R().Where("landing_server_id = ?", id).Find(&users)
-		type lu struct {
-			ID        uint   `json:"id"`
-			Email     string `json:"email"`
-			EntryID   uint   `json:"entry_server_id"`
-			EntryName string `json:"entry_name"`
-			Up        uint64 `json:"month_up"`
-			Down      uint64 `json:"month_down"`
-		}
-		prefix := strconv.FormatUint(uint64(id), 10) + ":"
-		keys := make([]string, len(users))
-		for i, u := range users {
-			keys[i] = prefix + u.Email
-		}
-		sums := a.P.SumMany("landing_user", keys, monthStart())
-		var list []lu
-		for i, u := range users {
-			t := sums[keys[i]]
-			list = append(list, lu{u.ID, u.Email, u.EntryServerID, a.P.ServerName(u.EntryServerID), t[0], t[1]})
-		}
-		res["landing_users"] = list
-		res["landing_firewall"] = a.P.St.GetBool("landing_firewall", true)
+	if info.Landing != nil {
+		res["landing"] = *info.Landing
+		res["landing_users"] = info.LandingUsers
+		res["landing_firewall"] = info.LandingFirewall
 	}
-	var latest store.ConfigVersion
-	if a.P.St.DB.Where("server_id = ?", id).Order("version DESC").Select("id, version, reason, applied, created_at").First(&latest).Error == nil {
-		res["latest_config"] = latest
+	if info.LatestConfig != nil {
+		res["latest_config"] = *info.LatestConfig
 	}
 	ok(c, res)
 }
@@ -190,22 +156,20 @@ func (a *API) deployNode(c *gin.Context) {
 }
 
 func (a *API) listConfigs(c *gin.Context) {
-	var vs []store.ConfigVersion
-	a.P.St.DB.Select("id, server_id, version, reason, applied, created_at").Where("server_id = ?", idParam(c)).Order("version DESC").Limit(100).Find(&vs)
-	ok(c, vs)
+	ok(c, a.P.ListConfigVersions(idParam(c), 100))
 }
 
 func (a *API) getConfig(c *gin.Context) {
-	var v store.ConfigVersion
-	if err := a.P.St.DB.First(&v, "id = ? AND server_id = ?", c.Param("vid"), idParam(c)).Error; err != nil {
-		fail(c, 404, "版本不存在")
+	v, err := a.P.GetConfigVersion(idParam(c), c.Param("vid"))
+	if err != nil {
+		fail(c, http.StatusNotFound, "版本不存在")
 		return
 	}
 	// The stored config and diff carry the Reality private key and SS
 	// passwords: only the redacted text leaves the panel.
 	cfg := redactConfig(a.P.OpenConfigText(v.Config))
 	v.Config, v.Diff = "", ""
-	ok(c, gin.H{"version": v, "config": cfg})
+	ok(c, gin.H{"version": *v, "config": cfg})
 }
 
 func (a *API) rollbackConfig(c *gin.Context) {
@@ -228,7 +192,7 @@ func (a *API) previewConfig(c *gin.Context) {
 		bad(c, err)
 		return
 	}
-	ok(c, gin.H{"config": redactConfig(string(prettyJSON(raw))), "firewall": fw})
+	ok(c, gin.H{"config": redactConfig(string(xrayconf.Pretty(raw))), "firewall": fw})
 }
 
 // ---------- routes ----------
@@ -363,8 +327,10 @@ func (a *API) resetSubToken(c *gin.Context) {
 }
 
 func (a *API) deleteSubToken(c *gin.Context) {
-	a.P.St.DB.Delete(&store.SubToken{}, idParam(c))
-	a.P.Audit("sub", "delete_token", c.Param("id"), "", c.ClientIP())
+	if err := a.P.DeleteSubToken(idParam(c), c.ClientIP()); err != nil {
+		bad(c, err)
+		return
+	}
 	ok(c, gin.H{"ok": true})
 }
 
@@ -384,9 +350,7 @@ func (a *API) subLogs(c *gin.Context) {
 }
 
 func (a *API) listTemplates(c *gin.Context) {
-	var ts []store.SubTemplate
-	a.P.St.DB.Order("target, id").Find(&ts)
-	ok(c, ts)
+	ok(c, a.P.ListSubTemplates())
 }
 
 func (a *API) defaultTemplate(c *gin.Context) {
@@ -399,16 +363,8 @@ func (a *API) saveTemplate(c *gin.Context) {
 		bad(c, err)
 		return
 	}
-	if err := service.ValidateTemplate(in.Target, in.Content, a.P.SubNodes()); err != nil {
-		bad(c, err)
-		return
-	}
 	in.ID = idParam(c)
-	db := a.P.St.DB
-	if in.Active { // one active template per target
-		db.Model(&store.SubTemplate{}).Where("target = ? AND id <> ?", in.Target, in.ID).Update("active", false)
-	}
-	if err := db.Save(&in).Error; err != nil {
+	if err := a.P.SaveSubTemplate(&in); err != nil {
 		bad(c, err)
 		return
 	}
@@ -417,7 +373,10 @@ func (a *API) saveTemplate(c *gin.Context) {
 }
 
 func (a *API) deleteTemplate(c *gin.Context) {
-	a.P.St.DB.Delete(&store.SubTemplate{}, idParam(c))
+	if err := a.P.DeleteSubTemplate(idParam(c)); err != nil {
+		bad(c, err)
+		return
+	}
 	ok(c, gin.H{"ok": true})
 }
 
@@ -466,15 +425,16 @@ func (a *API) serveSubToken(c *gin.Context, token string) {
 
 // diffConfig compares a version with the one before it.
 func (a *API) diffConfig(c *gin.Context) {
-	var v store.ConfigVersion
-	if err := a.P.St.DB.First(&v, "id = ? AND server_id = ?", c.Param("vid"), idParam(c)).Error; err != nil {
-		fail(c, 404, "版本不存在")
+	v, err := a.P.GetConfigVersion(idParam(c), c.Param("vid"))
+	if err != nil {
+		fail(c, http.StatusNotFound, "版本不存在")
 		return
 	}
-	var prev store.ConfigVersion
+	var from int
 	base := ""
-	if a.P.St.DB.Where("server_id = ? AND version < ?", v.ServerID, v.Version).Order("version DESC").First(&prev).Error == nil {
+	if prev := a.P.PrevConfigVersion(v.ServerID, v.Version); prev != nil {
+		from = prev.Version
 		base = redactConfig(a.P.OpenConfigText(prev.Config))
 	}
-	ok(c, gin.H{"from": prev.Version, "to": v.Version, "diff": service.LineDiff(base, redactConfig(a.P.OpenConfigText(v.Config)))})
+	ok(c, gin.H{"from": from, "to": v.Version, "diff": service.LineDiff(base, redactConfig(a.P.OpenConfigText(v.Config)))})
 }
