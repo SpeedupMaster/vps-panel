@@ -2,15 +2,42 @@
 import router from './router'
 import { state, disconnectEvents, ui } from './store'
 
+/**
+ * @typedef {Object} ApiRequestOptions
+ * @property {string | boolean} [confirm] - Step-up verification prompt shown via X-Confirm header.
+ * @property {'json' | 'blob'} [responseType] - Set `'blob'` to receive binary downloads.
+ * @property {AbortSignal} [signal] - Optional AbortSignal to cancel in-flight requests.
+ */
+
 export class ApiError extends Error {
-  constructor(msg, status) { super(msg); this.status = status }
+  /**
+   * @param {string} msg
+   * @param {number} status
+   */
+  constructor(msg, status) {
+    super(msg)
+    this.status = status
+    /** @type {boolean | undefined} */
+    this.silent = undefined
+    /** @type {boolean | undefined} */
+    this.aborted = undefined
+  }
 }
 
+/** @type {((why: string) => Promise<string | null>) | null} */
 let confirmHook = null
 let last401Toast = 0
 // Registered by App.vue: shows the TOTP / password prompt and resolves with the code (null = cancelled).
+/** @param {(why: string) => Promise<string | null>} fn */
 export function setConfirmHook(fn) { confirmHook = fn }
 
+/**
+ * @param {string} method
+ * @param {string} url
+ * @param {unknown} [body]
+ * @param {ApiRequestOptions} [opts]
+ * @returns {Promise<any>}
+ */
 export async function request(method, url, body, opts = {}) {
   const headers = { 'X-Requested-With': 'vps-panel' }
   let payload = body
@@ -65,19 +92,14 @@ export async function request(method, url, body, opts = {}) {
 }
 
 export const api = {
+  /** @param {string} u @param {ApiRequestOptions} [o] */
   get: (u, o) => request('GET', u, undefined, o),
+  /** @param {string} u @param {ApiRequestOptions} [o] @returns {Promise<Blob>} */
   blob: (u, o) => request('GET', u, undefined, { ...o, responseType: 'blob' }),
+  /** @param {string} u @param {unknown} [b] @param {ApiRequestOptions} [o] */
   post: (u, b, o) => request('POST', u, b ?? {}, o),
+  /** @param {string} u @param {unknown} [b] @param {ApiRequestOptions} [o] */
   put: (u, b, o) => request('PUT', u, b ?? {}, o),
+  /** @param {string} u @param {ApiRequestOptions} [o] */
   del: (u, o) => request('DELETE', u, undefined, o),
-}
-
-// streamTask follows /tasks/:id/stream; onChunk gets output text; resolves with the final status.
-export function streamTask(id, onChunk) {
-  return new Promise((resolve) => {
-    const es = new EventSource(`/api/tasks/${id}/stream`)
-    es.addEventListener('output', (e) => e.data && onChunk(e.data))
-    es.addEventListener('done', (e) => { es.close(); resolve(e.data) })
-    es.onerror = () => { es.close(); resolve('disconnected') }
-  })
 }

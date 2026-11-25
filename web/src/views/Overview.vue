@@ -110,7 +110,7 @@ const shareTotal = computed(() => (ov.value?.traffic_share || []).reduce((a, b) 
         <b>{{ ov ? money(ov.monthly_cost, ov.currency) : '—' }}</b>
         <span class="muted small">{{ state.servers.length }} 台 · 按汇率折算</span>
       </div>
-      <div class="card stat clickable" @click="router.push({ name: 'alerts' })">
+      <div class="card stat clickable" role="button" tabindex="0" @click="router.push({ name: 'alerts' })" @keydown.enter="router.push({ name: 'alerts' })" @keydown.space.prevent="router.push({ name: 'alerts' })">
         <span class="muted small">未处理告警</span>
         <b :class="{ 'bad-text': ov?.alerts_firing }">{{ ov?.alerts_firing ?? '—' }}</b>
         <span class="muted small">{{ sevCount.critical }} 严重 · {{ sevCount.warning }} 警告</span>
@@ -150,7 +150,7 @@ const shareTotal = computed(() => (ov.value?.traffic_share || []).reduce((a, b) 
           <table class="plain hover">
             <thead><tr><th>名称</th><th>状态</th><th>CPU</th><th>内存</th><th>磁盘</th><th>网速 ↑/↓</th><th>本周期流量</th><th>Xray</th><th>到期</th></tr></thead>
             <tbody>
-              <tr v-for="s in list" :key="s.id" @click="open(s)">
+              <tr v-for="s in list" :key="s.id" tabindex="0" @click="open(s)" @keydown.enter="open(s)">
                 <td>
                   <div class="row nowrap" style="gap: 8px">
                     <span class="flag">{{ flag(s.country_code) }}</span>

@@ -2,11 +2,13 @@
 import { ref, computed, onMounted, watch, onBeforeUnmount } from 'vue'
 import { NButton, NSelect, NRadioGroup, NRadio, NCheckbox, NSwitch, NTabs, NTabPane, NInput, NUpload, NModal } from 'naive-ui'
 import { api } from '../api'
-import { ui, on } from '../store'
+import { state, loadServers, serverName, ui, on } from '../store'
 import { run, ask } from '../helpers'
 import { ago, dt, date } from '../format'
+import { useQueryTab } from '../composables/useQueryTab'
 
-const comp = ref('xray')
+const tab = useQueryTab(['xray', 'agent', 'history'], 'xray')
+const comp = ref(tab.value === 'agent' ? 'agent' : 'xray')
 const data = ref({ items: [], servers: [] })
 const pre = ref(false)
 const version = ref('')
@@ -31,8 +33,19 @@ async function load() {
   picked.value = new Set()
 }
 async function loadHistory() { history.value = (await run(() => api.get('/updates/history'))) || [] }
-onMounted(() => { load(); loadHistory() })
-watch(comp, load)
+onMounted(() => {
+  if (!state.serversLoaded) loadServers().catch(() => {})
+  load(); loadHistory()
+})
+watch(comp, (c) => {
+  if (c === 'agent' && tab.value === 'xray') tab.value = 'agent'
+  else if (c !== 'agent' && tab.value === 'agent') tab.value = 'xray'
+  load()
+})
+watch(tab, (t) => {
+  if (t === 'agent' && comp.value !== 'agent') comp.value = 'agent'
+  else if (t === 'xray' && comp.value === 'agent') comp.value = 'xray'
+})
 const off = on('task', (d) => { if (batch.value) loadBatch(); if (['update_agent', 'update_xray', 'update_geo'].includes(d.type)) loadHistory() })
 onBeforeUnmount(() => { off(); loadAbort?.abort() })
 
@@ -65,7 +78,6 @@ async function loadBatch() {
   batchTasks.value = (await api.get(`/tasks?batch=${batch.value}`).catch(() => [])) || []
   if (batchTasks.value.length && batchTasks.value.every((t) => t.finished_at)) { load(); loadHistory() }
 }
-const serverName = (id) => (data.value.servers || []).find((s) => s.id === id)?.name || '#' + id
 const stLabel = { pending: '排队中', sent: '已下发', running: '进行中', success: '成功', failed: '失败', timeout: '超时' }
 const stClass = { success: 'ok', failed: 'bad', timeout: 'bad', running: 'warn', sent: 'warn' }
 async function sync() {
@@ -173,11 +185,11 @@ const archs = (r) => { try { return Object.keys(JSON.parse(r.assets || '{}')).jo
     </div>
     </section>
 
-    <n-tabs type="line" animated>
+    <n-tabs v-model:value="tab" type="line" animated>
       <n-tab-pane name="xray" tab="Xray 版本">
         <div class="sec-head"><div class="s-head"><h2>Xray 版本</h2><p>版本与更新日志从 GitHub Release 同步。{{ data.latest_xray ? '最新稳定版 ' + data.latest_xray + '。' : '' }}</p></div></div>
         <div class="card s-card">
-          <div v-if="comp === 'agent'" class="empty">切换到上方的 Xray 组件查看版本列表</div>
+          <div v-if="!data.items.length" class="empty">暂无版本数据</div>
           <div v-else class="table-wrap">
           <table class="plain">
             <thead><tr><th>版本</th><th>通道</th><th>发布时间</th><th /></tr></thead>
@@ -200,7 +212,7 @@ const archs = (r) => { try { return Object.keys(JSON.parse(r.assets || '{}')).jo
           <n-button @click="up.show = true">上传新版本</n-button>
         </div>
         <div class="card s-card">
-          <div v-if="comp !== 'agent'" class="empty">切换到上方的 Agent 组件查看版本列表</div>
+          <div v-if="!data.items.length" class="empty">还没有上传过 Agent 版本</div>
           <div v-else class="table-wrap">
           <table class="plain">
             <thead><tr><th>版本</th><th>架构</th><th>上传时间</th><th>状态</th><th /></tr></thead>

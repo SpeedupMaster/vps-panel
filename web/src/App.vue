@@ -9,7 +9,7 @@ const theme = {
   common: {
     primaryColor: '#0f7b45', primaryColorHover: '#0a5c33', primaryColorPressed: '#0a5c33', primaryColorSuppl: '#0f7b45',
     errorColor: '#b4233a', errorColorHover: '#9a1d31', errorColorPressed: '#9a1d31',
-    warningColor: '#b8650a', infoColor: '#2f6fd0', successColor: '#0f7b45',
+    warningColor: '#9a5306', warningColorHover: '#7f4405', warningColorPressed: '#7f4405', infoColor: '#2f6fd0', successColor: '#0f7b45',
     fontFamily: "Inter, 'Noto Sans SC', system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif",
     fontFamilyMono: "'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace",
     borderRadius: '4px', textColorBase: '#1f2225', textColor1: '#1f2225', textColor2: '#3d4248', textColor3: '#5f6368',

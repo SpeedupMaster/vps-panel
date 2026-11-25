@@ -30,7 +30,7 @@ const routes = [
 const history = createWebHistory()
 
 // Old links and bookmarks used hash URLs (/#/latency): rewrite them in place.
-if (location.hash.startsWith('#/')) {
+if (typeof location !== 'undefined' && location.hash.startsWith('#/')) {
   history.replace(location.hash.slice(1))
 }
 

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { NInput, NButton } from 'naive-ui'
 import { api } from '../api'
 import { state, loadMe } from '../store'
+import { isSafeNextPath } from '../helpers'
 
 const route = useRoute()
 const router = useRouter()
@@ -31,8 +32,7 @@ async function submit() {
     }
     state.me = null
     await loadMe()
-    const rawNext = route.query.next
-    const next = typeof rawNext === 'string' && rawNext.startsWith('/') && !rawNext.startsWith('//') && !rawNext.startsWith('/\\') ? rawNext : '/'
+    const next = isSafeNextPath(route.query.next) ? route.query.next : '/'
     router.replace(next)
   } catch (e) {
     err.value = e.message

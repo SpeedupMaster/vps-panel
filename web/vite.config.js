@@ -1,9 +1,9 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { VitePWA } from 'vite-plugin-pwa'
-import { writeFileSync } from 'node:fs'
+import { existsSync, createReadStream, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { dirname, resolve } from 'node:path'
+import { dirname, extname, resolve, sep } from 'node:path'
 
 const outDir = resolve(dirname(fileURLToPath(import.meta.url)), '../internal/panel/webui/dist')
 
@@ -11,6 +11,34 @@ const outDir = resolve(dirname(fileURLToPath(import.meta.url)), '../internal/pan
 const keepFile = {
   name: 'keep-file',
   closeBundle() { writeFileSync(resolve(outDir, '.keep'), '') },
+}
+
+const gzMime = {
+  '.js': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml; charset=utf-8',
+}
+
+// Serve pre-compressed .gz assets during `pnpm preview` when gzip-dist.mjs unlinked the raw >=1KB file.
+const previewGzip = {
+  name: 'preview-gzip',
+  configurePreviewServer(server) {
+    server.middlewares.use((req, res, next) => {
+      if (!req.url || (req.method !== 'GET' && req.method !== 'HEAD')) return next()
+      const cleanPath = decodeURIComponent(req.url.split('?')[0]).replace(/^\/+/, '')
+      if (!cleanPath) return next()
+      const rawFile = resolve(outDir, cleanPath)
+      if (!rawFile.startsWith(outDir + sep) || existsSync(rawFile)) return next()
+      const gzFile = rawFile + '.gz'
+      if (!existsSync(gzFile)) return next()
+      const mime = gzMime[extname(rawFile)]
+      if (mime) res.setHeader('Content-Type', mime)
+      res.setHeader('Content-Encoding', 'gzip')
+      res.setHeader('Vary', 'Accept-Encoding')
+      if (req.method === 'HEAD') { res.end(); return }
+      createReadStream(gzFile).pipe(res)
+    })
+  },
 }
 
 // PWA: precache static hashed assets only (never index.html, because Go
@@ -68,7 +96,7 @@ const pwa = VitePWA({
 
 export default defineConfig({
   base: './',
-  plugins: [vue(), pwa, keepFile],
+  plugins: [vue(), pwa, keepFile, previewGzip],
   build: {
     outDir,
     emptyOutDir: true,

@@ -223,7 +223,7 @@ function peerStyle(c) {
         <table class="plain">
           <thead><tr><th>服务器</th><th>电信</th><th>联通</th><th>移动</th><th>判断</th></tr></thead>
           <tbody>
-            <tr v-for="r in summary" :key="r.s.id" class="click" @click="server = r.s.id">
+            <tr v-for="r in summary" :key="r.s.id" class="click" tabindex="0" @click="server = r.s.id" @keydown.enter="server = r.s.id">
               <td class="nowrap">{{ flag(r.s.country_code) }} <b>{{ r.s.name }}</b></td>
               <td v-for="c in ['telecom', 'unicom', 'mobile']" :key="c" class="mono nowrap">
                 <template v-if="r.per[c]">
