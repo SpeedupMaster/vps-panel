@@ -2,7 +2,7 @@
 export default { name: 'Latency' }
 </script>
 <script setup>
-import { ref, computed, onMounted, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onActivated, onDeactivated, watch, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { NButton, NSelect } from 'naive-ui'
 import { api } from '../api'
@@ -29,28 +29,63 @@ const servers = computed(() => state.servers.filter((s) => s.status !== 'pending
 const serverOpts = computed(() => servers.value.map((s) => ({ label: s.name, value: s.id })))
 const ranges = [{ label: '6 小时', value: 21600 }, { label: '24 小时', value: 86400 }, { label: '7 天', value: 604800 }, { label: '30 天', value: 2592000 }]
 
+let allAbort = null
+let seriesAbort = null
 async function loadAll() {
+  allAbort?.abort()
+  const ac = new AbortController()
+  allAbort = ac
+  const opt = { signal: ac.signal }
   const [t, m, s, p] = await Promise.all([
-    run(() => api.get('/probes/targets')), run(() => api.get('/probes/matrix?kind=backhaul')),
-    run(() => api.get('/probes/matrix?kind=segment')), run(() => api.get('/probes/matrix?kind=peer')),
+    run(() => api.get('/probes/targets', opt)), run(() => api.get('/probes/matrix?kind=backhaul', opt)),
+    run(() => api.get('/probes/matrix?kind=segment', opt)), run(() => api.get('/probes/matrix?kind=peer', opt)),
   ])
+  if (ac.signal.aborted) return
   targets.value = t?.items || []; matrix.value = m || []; segs.value = s || []; peers.value = p || []
 }
 async function loadSeries() {
+  seriesAbort?.abort()
   if (!server.value || !enabled.value.length) { series.value = {}; return }
-  series.value = (await run(() => api.get(`/probes/series?server_id=${server.value}&range=${range.value}&targets=${enabled.value.map((t) => t.id).join(',')}`))) || {}
+  const ac = new AbortController()
+  seriesAbort = ac
+  const r = await run(() => api.get(`/probes/series?server_id=${server.value}&range=${range.value}&targets=${enabled.value.map((t) => t.id).join(',')}`, { signal: ac.signal }))
+  if (ac.signal.aborted) return
+  series.value = r || {}
+}
+let debounce = null
+let off = null
+let initialized = false
+function startLive() {
+  if (!off) {
+    off = on('probe', () => {
+      clearTimeout(debounce)
+      debounce = setTimeout(() => { loadAll(); if (range.value <= 86400) loadSeries() }, 3000)
+    })
+  }
+}
+function stopLive() {
+  if (off) { off(); off = null }
+  clearTimeout(debounce); debounce = null
+  allAbort?.abort(); allAbort = null
+  seriesAbort?.abort(); seriesAbort = null
 }
 onMounted(async () => {
+  startLive()
   if (!state.serversLoaded) await loadServers().catch(() => {})
   await loadAll()
   if (!server.value && servers.value.length) server.value = (servers.value.find((s) => s.mode === 'node') || servers.value[0]).id
+  initialized = true
 })
-watch([server, range, () => enabled.value.length], loadSeries)
+onActivated(() => {
+  startLive()
+  if (initialized) { loadAll(); loadSeries() }
+})
+onDeactivated(stopLive)
+onBeforeUnmount(stopLive)
+const enabledIds = computed(() => enabled.value.map((x) => x.id).join(','))
+watch([server, range, enabledIds], loadSeries)
 // Kept alive: follow ?server= when opened again from a server page.
 watch(() => route.query.server, (v) => { if (route.name === 'latency' && v) server.value = Number(v) })
-let debounce = null
-const off = on('probe', () => { clearTimeout(debounce); debounce = setTimeout(() => { loadAll(); if (range.value <= 86400) loadSeries() }, 3000) })
-onBeforeUnmount(() => { off(); clearTimeout(debounce) })
 
 // ---- smoke chart per carrier: band = min..max across that carrier's targets, line = median of averages ----
 function median(a) { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2 }
@@ -72,7 +107,7 @@ function carrierSeries(c) {
   })
 }
 const fmt = (ts) => { const d = new Date(ts * 1000); const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; return range.value > 86400 ? `${d.getMonth() + 1}-${d.getDate()} ${hm}` : hm }
-function smokeOpt(c) {
+function buildSmokeOpt(c) {
   const pts = carrierSeries(c)
   const x = pts.map((p) => fmt(p.ts))
   return {
@@ -97,6 +132,7 @@ function smokeOpt(c) {
   }
 }
 const carriers = computed(() => ['telecom', 'unicom', 'mobile'].filter((c) => enabled.value.some((t) => t.carrier === c)))
+const smokeOpt = computed(() => Object.fromEntries(carriers.value.map((c) => [c, buildSmokeOpt(c)])))
 // Overall loss of the selected server per carrier over the selected range.
 const carrierLoss = computed(() => Object.fromEntries(carriers.value.map((c) => [c,
   overallLoss(enabled.value.filter((t) => t.carrier === c).flatMap((t) => series.value[t.id] || []))])))
@@ -132,7 +168,12 @@ const peerServers = computed(() => {
   for (const c of peers.value) { ids.add(c.server_id); ids.add(Number(c.target.replace('peer-', ''))) }
   return state.servers.filter((s) => ids.has(s.id))
 })
-function peer(a, b) { return peers.value.find((c) => c.server_id === a && c.target === `peer-${b}`) }
+const peerMap = computed(() => {
+  const m = new Map()
+  for (const c of peers.value) m.set(`${c.server_id}:${c.target}`, c)
+  return m
+})
+function peer(a, b) { return peerMap.value.get(`${a}:peer-${b}`) }
 const peerMax = computed(() => Math.max(1, ...peers.value.filter((c) => c.loss < 100).map((c) => c.avg)))
 function peerStyle(c) {
   if (!c) return {}
@@ -167,7 +208,7 @@ function peerStyle(c) {
           <div class="smokes">
             <div v-for="c in carriers" :key="c">
               <div class="chart-h">{{ carrierLabel[c] }} <span class="muted">· {{ enabled.filter((t) => t.carrier === c).length }} 个目标</span><template v-if="carrierLoss[c] != null"> <span class="muted">·</span> <span :class="['loss-sum', lossClass(carrierLoss[c])]" title="所选时间范围内的整体丢包率（总丢包数 / 总发包数）">丢包 {{ lossText(carrierLoss[c]) }}</span></template></div>
-              <chart :option="smokeOpt(c)" height="170px" />
+              <chart :option="smokeOpt[c]" height="170px" />
             </div>
           </div>
         </template>

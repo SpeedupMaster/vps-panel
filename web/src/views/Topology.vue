@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { shallowRef, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { VueFlow, MarkerType } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
@@ -15,12 +15,24 @@ import { bytes, flag } from '../format'
 import { isMobile } from '../mobile'
 
 const router = useRouter()
-const topo = ref(null)
-async function load() { topo.value = await run(() => api.get('/topology')) }
+const topo = shallowRef(null)
+const dragged = new Map()
+watch(isMobile, () => dragged.clear())
+let loadAbort = null
+async function load() {
+  loadAbort?.abort()
+  const ac = new AbortController()
+  loadAbort = ac
+  const r = await run(() => api.get('/topology', { signal: ac.signal }))
+  if (!ac.signal.aborted && r) topo.value = r
+}
 onMounted(load)
 const off = on('route', load)
 const t = setInterval(() => { if (!document.hidden) load() }, 60000)
-onBeforeUnmount(() => { off(); clearInterval(t) })
+onBeforeUnmount(() => { off(); clearInterval(t); loadAbort?.abort() })
+function onNodeDragStop({ node }) {
+  if (node?.id && node.position) dragged.set(node.id, { x: node.position.x, y: node.position.y })
+}
 
 const graph = computed(() => {
   const tp = topo.value
@@ -41,15 +53,18 @@ const graph = computed(() => {
     return vertical ? { x: off * 1.2, y: col * gapA } : { x: col * gapA, y: off }
   }
   const nodes = []
-  const mk = (n, col, i, len) => nodes.push({
-    id: String(n.id), position: place(col, i, len), type: 'server', data: n,
-    sourcePosition: vertical ? 'bottom' : 'right', targetPosition: vertical ? 'top' : 'left',
-  })
+  const mk = (n, col, i, len) => {
+    const id = String(n.id)
+    nodes.push({
+      id, position: dragged.get(id) || place(col, i, len), type: 'server', data: n,
+      sourcePosition: vertical ? 'bottom' : 'right', targetPosition: vertical ? 'top' : 'left',
+    })
+  }
   cols.entry.forEach((n, i) => mk(n, 0, i, cols.entry.length))
   cols.landing.forEach((n, i) => mk(n, 1, i, cols.landing.length))
   cols.idle.forEach((n, i) => mk(n, 0, cols.entry.length + i, cols.entry.length + cols.idle.length))
   if (edges.some((e) => e.to === 0) || cols.landing.length) {
-    nodes.push({ id: '0', position: place(2, 0, 1), type: 'internet', data: {}, targetPosition: vertical ? 'top' : 'left' })
+    nodes.push({ id: '0', position: dragged.get('0') || place(2, 0, 1), type: 'internet', data: {}, targetPosition: vertical ? 'top' : 'left' })
     // landings exit to the internet too
     for (const l of cols.landing) edges.push({ from: l.id, to: 0, routes: [], names: [], exit: true })
   }
@@ -93,7 +108,7 @@ const roleText = (r) => (r || []).map((x) => ({ entry: '入口', landing: '落�
       </div>
       <div v-if="topo && !topo.nodes?.length" class="empty">还没有节点</div>
       <vue-flow v-else :nodes="graph.nodes" :edges="graph.edges" fit-view-on-init :min-zoom="0.3" :max-zoom="2"
-        :nodes-draggable="true" :nodes-connectable="false" :elements-selectable="false" @node-click="onNodeClick">
+        :nodes-draggable="true" :nodes-connectable="false" :elements-selectable="false" @node-click="onNodeClick" @node-drag-stop="onNodeDragStop">
         <background pattern-color="#e4e6ea" :gap="20" />
         <controls :show-interactive="false" />
         <template #node-server="{ data }">

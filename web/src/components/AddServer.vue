@@ -22,8 +22,16 @@ const sniHolder = computed(() => (form.value.reality_target.trim() || defaultTar
 const created = ref(null) // {server, token, command, expires_at}
 const busy = ref(false)
 const now = ref(Date.now())
-const timer = setInterval(() => { now.value = Date.now() }, 1000)
-onBeforeUnmount(() => clearInterval(timer))
+let timer = null
+let closeTimer = null
+watch(() => props.show && !!created.value, (active) => {
+  if (timer) { clearInterval(timer); timer = null }
+  if (active) {
+    now.value = Date.now()
+    timer = setInterval(() => { now.value = Date.now() }, 1000)
+  }
+}, { immediate: true })
+onBeforeUnmount(() => { clearInterval(timer); clearTimeout(closeTimer) })
 const ssh = ref({ host: '', port: 22, user: 'root', password: '', key: '' })
 const sshTask = ref(null)
 const sshBusy = ref(false)
@@ -42,11 +50,10 @@ watch(() => props.show, (v) => {
 })
 // Poll the list until the agent connects (SSE also updates it).
 let poll = null
-watch(created, (c) => {
-  clearInterval(poll)
-  if (c) poll = setInterval(() => { if (!connected.value) loadServers().catch(() => {}) }, 5000)
+watch(() => props.show && !!created.value && !connected.value, (active) => {
+  if (poll) { clearInterval(poll); poll = null }
+  if (active) poll = setInterval(() => { if (!connected.value) loadServers().catch(() => {}) }, 5000)
 })
-watch(connected, (v) => { if (v) clearInterval(poll) })
 onBeforeUnmount(() => clearInterval(poll))
 
 async function create() {
@@ -92,7 +99,8 @@ async function sshInstall() {
 async function doCopy() { if (await copy(created.value.command)) ui.message.success('已复制') }
 function close() {
   emit('update:show', false)
-  setTimeout(() => { created.value = null; sshTask.value = null }, 300)
+  clearTimeout(closeTimer)
+  closeTimer = setTimeout(() => { created.value = null; sshTask.value = null }, 300)
 }
 function newRoute() { const id = created.value.server.id; close(); router.push({ name: 'route-new', query: { entry: id } }) }
 function openDetail() { const id = created.value.server.id; close(); router.push({ name: 'server', params: { id } }) }

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { NButton, NTabs, NTabPane, NInput, NInputNumber, NSwitch, NSelect, NCheckboxGroup, NCheckbox, NModal, NUpload } from 'naive-ui'
 import QRCode from 'qrcode'
@@ -183,9 +183,20 @@ async function saveSettings(keys) {
   for (const k of keys || dirtyKeys.value) body[k] = cfg.value[k]
   if (!Object.keys(body).length) { ui.message.info('没有修改'); return }
   if (body.fx_rates) { try { JSON.parse(body.fx_rates) } catch { ui.message.error('汇率不是合法的 JSON'); return } }
+  const adminPathChanged = Object.prototype.hasOwnProperty.call(body, 'admin_path') &&
+    String(body.admin_path || '').trim().replace(/^\/+|\/+$/g, '') !== String(orig.value.admin_path || '').trim().replace(/^\/+|\/+$/g, '')
   saving.value = true
   try {
-    if (await run(() => api.put('/settings', body), '已保存')) loadSettings()
+    if (await run(() => api.put('/settings', body), adminPathChanged ? '后台路径已更新，正在跳转…' : '已保存')) {
+      if (adminPathChanged) {
+        const seg = String(body.admin_path || '').trim().replace(/^\/+|\/+$/g, '')
+        const target = seg ? `/${seg}/settings?tab=panel` : '/settings?tab=panel'
+        try { await window.caches?.delete('pages') } catch { /* ignore */ }
+        window.location.assign(target)
+        return
+      }
+      loadSettings()
+    }
   } finally { saving.value = false }
 }
 const settingsTabs = [{ name: 'panel', label: '面板' }, { name: 'agent', label: 'Agent 与探测' }, { name: 'xray', label: 'Xray' }, { name: 'retention', label: '数据保留' }]
@@ -282,17 +293,30 @@ async function doRestore() {
 
 // ---------- audit ----------
 const audit = ref({ type: 'all', items: [], offset: 0, more: false })
+const auditLoading = ref(false)
+let auditAbort = null
 const auditTypes = [{ label: '全部', value: 'all' }, { label: '登录', value: 'login' }, { label: '服务器', value: 'server' }, { label: '线路', value: 'route' }, { label: '订阅', value: 'sub' }, { label: '告警', value: 'alert' }, { label: '系统', value: 'system' }]
 const typeLabel = Object.fromEntries(auditTypes.map((t) => [t.value, t.label]))
 async function loadAudit(reset) {
+  if (!reset && auditLoading.value) return
+  auditAbort?.abort()
+  const ac = new AbortController()
+  auditAbort = ac
   if (reset) audit.value.offset = 0
   const a = audit.value
-  const rows = (await api.get(`/audit?type=${a.type}&limit=100&offset=${a.offset}`).catch(() => [])) || []
-  audit.value.items = reset ? rows : [...a.items, ...rows]
-  audit.value.more = rows.length === 100
-  audit.value.offset += rows.length
+  auditLoading.value = true
+  try {
+    const rows = (await api.get(`/audit?type=${a.type}&limit=100&offset=${a.offset}`, { signal: ac.signal }).catch(() => null))
+    if (ac.signal.aborted || !rows) return
+    audit.value.items = reset ? rows : [...a.items, ...rows]
+    audit.value.more = rows.length === 100
+    audit.value.offset += rows.length
+  } finally {
+    if (auditAbort === ac) auditLoading.value = false
+  }
 }
 watch(() => audit.value.type, () => loadAudit(true))
+onBeforeUnmount(() => auditAbort?.abort())
 
 onMounted(() => {
   loadSettings(); loadSessions()
@@ -592,7 +616,7 @@ onMounted(() => {
               </div>
             </div>
           </template>
-          <div v-if="audit.more" class="f-actions more"><n-button @click="loadAudit(false)">加载更多</n-button></div>
+          <div v-if="audit.more" class="f-actions more"><n-button :loading="auditLoading" :disabled="auditLoading" @click="loadAudit(false)">加载更多</n-button></div>
         </div>
       </n-tab-pane>
     </n-tabs>

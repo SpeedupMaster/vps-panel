@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { NButton, NInput, NSteps, NStep, NSwitch } from 'naive-ui'
 import { api } from '../api'
@@ -122,17 +122,26 @@ async function submit() {
 const view = ref(null)
 const pollDone = ref(false)
 let tries = 0
+let pollTimer = null
+let unmounted = false
+onBeforeUnmount(() => { unmounted = true; clearTimeout(pollTimer) })
 // Chain routes wait for the entry's first segment probe (pushed on save).
 const segmentKnown = (v) => v.type !== 'chain' || v.segment_ms > 0 || v.segment_down
 async function pollStatus() {
+  if (unmounted) return
   const id = result.value?.route?.id
   if (!id) return
   const rs = await api.get('/routes').catch(() => [])
+  if (unmounted) return
   view.value = rs.find((x) => x.id === id) || null
   const v = view.value
   const settled = v && v.share_link && (v.config_synced || v.deploy_error) && segmentKnown(v) && (v.status === 'ok' || v.segment_down)
-  if (++tries < 24 && !settled) setTimeout(pollStatus, 5000)
-  else pollDone.value = true
+  if (++tries < 24 && !settled) {
+    clearTimeout(pollTimer)
+    pollTimer = setTimeout(pollStatus, 5000)
+  } else {
+    pollDone.value = true
+  }
 }
 function segmentCheck(v) {
   const base = '入口 → 落地线路段可达'

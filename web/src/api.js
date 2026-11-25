@@ -26,8 +26,14 @@ export async function request(method, url, body, opts = {}) {
   }
   let res
   try {
-    res = await fetch('/api' + url, { method, headers, body: payload, credentials: 'same-origin' })
+    res = await fetch('/api' + url, { method, headers, body: payload, credentials: 'same-origin', signal: opts.signal })
   } catch (e) {
+    if (e?.name === 'AbortError') {
+      const err = new ApiError('已取消', 0)
+      err.aborted = true
+      err.silent = true
+      throw err
+    }
     throw new ApiError('网络错误：' + e.message, 0)
   }
   if (res.status === 401 && !url.startsWith('/auth/login')) {

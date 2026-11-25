@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, defineAsyncComponent, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { NButton, NSelect, NTabs, NTabPane, NInput, NInputNumber, NModal, NSwitch, NCheckbox, NRadioGroup, NRadioButton } from 'naive-ui'
 import { api } from '../api'
@@ -8,12 +8,13 @@ import { run, ask } from '../helpers'
 import { dt, ago, flag } from '../format'
 import TaskLog from '../components/TaskLog.vue'
 import ToolResult from '../components/ToolResult.vue'
-import WebShell from '../components/WebShell.vue'
+const WebShell = defineAsyncComponent(() => import('../components/WebShell.vue'))
 
 const route = useRoute()
 const router = useRouter()
 const server = ref(Number(route.query.server) || null)
 const tab = ref(route.query.tab || 'check')
+const shellOpened = ref(tab.value === 'shell')
 const sv = computed(() => state.servers.find((s) => s.id === server.value))
 const serverOpts = computed(() => state.servers.filter((s) => s.status !== 'pending').map((s) => ({ label: `${s.name}${s.online ? '' : '（离线）'}`, value: s.id })))
 onMounted(async () => {
@@ -25,6 +26,7 @@ onMounted(async () => {
 })
 watch(server, (v) => { router.replace({ query: { ...route.query, server: v, run: undefined } }); runs.value = {}; loadLatest(); loadHistory() })
 watch(tab, (t) => {
+  if (t === 'shell') shellOpened.value = true
   router.replace({ query: { ...route.query, tab: t, run: undefined } })
   if (t === 'history') loadHistory()
   if (t === 'scripts') loadScripts()
@@ -47,7 +49,20 @@ watch(selected, (t) => router.replace({ query: { ...route.query, tool: t, run: u
 // Runs started on this page, by tool: { task, status, data }. Several tools can run at once.
 const runs = ref({})
 const latest = ref({})
-async function loadLatest() { if (server.value) latest.value = (await api.get(`/servers/${server.value}/tool-results`).catch(() => ({}))) || {} }
+let latestAbort = null
+let historyAbort = null
+let schedTimer = null
+onBeforeUnmount(() => { latestAbort?.abort(); historyAbort?.abort(); clearTimeout(schedTimer) })
+async function loadLatest() {
+  latestAbort?.abort()
+  if (!server.value) { latest.value = {}; return }
+  const ac = new AbortController()
+  latestAbort = ac
+  const sid = server.value
+  const r = await api.get(`/servers/${sid}/tool-results`, { signal: ac.signal }).catch(() => null)
+  if (ac.signal.aborted || server.value !== sid) return
+  latest.value = r || {}
+}
 const isRunning = (tool) => runs.value[tool]?.status === 'running'
 function startRun(tool, task) { runs.value = { ...runs.value, [tool]: { task, status: 'running', data: null } } }
 async function runTool(tool, args) {
@@ -132,10 +147,15 @@ const hTool = ref('')
 const compare = ref(new Set())
 const cmp = ref({ show: false, items: [] })
 async function loadHistory() {
+  historyAbort?.abort()
+  const ac = new AbortController()
+  historyAbort = ac
   const q = new URLSearchParams()
   if (server.value) q.set('server_id', server.value)
   if (hTool.value) q.set('tool', hTool.value)
-  history.value = (await run(() => api.get('/tool-results?' + q))) || []
+  const r = await run(() => api.get('/tool-results?' + q, { signal: ac.signal }))
+  if (ac.signal.aborted) return
+  history.value = r || []
   compare.value = new Set()
 }
 watch(hTool, loadHistory)
@@ -209,7 +229,12 @@ async function delSched(s) {
     if (await run(() => api.del(`/schedules/${s.id}`), '已删除')) loadSchedules()
   } finally { deletingSched.value = 0 }
 }
-async function runSchedNow(s) { if (await run(() => api.post(`/schedules/${s.id}/run`), '已开始执行')) setTimeout(loadSchedules, 1500) }
+async function runSchedNow(s) {
+  if (await run(() => api.post(`/schedules/${s.id}/run`), '已开始执行')) {
+    clearTimeout(schedTimer)
+    schedTimer = setTimeout(loadSchedules, 1500)
+  }
+}
 async function toggleSched(s, v) { if (await run(() => api.put(`/schedules/${s.id}`, { ...s, enabled: v }))) s.enabled = v }
 function specText(v) {
   const o = serverSpec.find((x) => x.value === v)
@@ -346,7 +371,7 @@ function cronText(c) {
         </div>
       </n-tab-pane>
 
-      <n-tab-pane name="shell" tab="终端">
+      <n-tab-pane name="shell" tab="终端" display-directive="show">
         <div class="sec-head"><div class="s-head"><h2>终端</h2><p>打开终端需要二次验证。每次会话写入审计日志（不记录终端内容），关闭页面即断开。</p></div></div>
         <div class="card s-card">
           <div v-if="!sv" class="empty">选择服务器</div>
@@ -357,7 +382,7 @@ function cronText(c) {
             </div>
             <p class="f-note">开启后刷新本页即可使用；关闭方法相同，把 true 改为 false。</p>
           </template>
-          <div v-else class="s-pad"><web-shell :key="sv.id" :server-id="sv.id" /></div>
+          <div v-else-if="shellOpened" class="s-pad"><web-shell :key="sv.id" :server-id="sv.id" /></div>
         </div>
       </n-tab-pane>
 

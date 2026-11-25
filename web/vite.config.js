@@ -2,9 +2,10 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { VitePWA } from 'vite-plugin-pwa'
 import { writeFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 
-const outDir = resolve(__dirname, '../internal/panel/webui/dist')
+const outDir = resolve(dirname(fileURLToPath(import.meta.url)), '../internal/panel/webui/dist')
 
 // The Go embed needs the directory to exist even before the first build.
 const keepFile = {
@@ -12,12 +13,14 @@ const keepFile = {
   closeBundle() { writeFileSync(resolve(outDir, '.keep'), '') },
 }
 
-// PWA: precache the app shell only. API calls, SSE, the WebSSH socket,
-// subscriptions and install/download endpoints always go to the network.
+// PWA: precache static hashed assets only (never index.html, because Go
+// injects dynamic <base href="/<admin_path>/"> and returns 404 on old paths).
+// API calls, SSE, WebSSH, subscriptions and install/download endpoints always
+// bypass navigation caching.
 const pwa = VitePWA({
   registerType: 'prompt',
   injectRegister: false,
-  includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
+  includeManifestIcons: false,
   manifest: {
     name: 'VPS Panel',
     short_name: 'VPS Panel',
@@ -41,17 +44,25 @@ const pwa = VitePWA({
     ],
   },
   workbox: {
-    globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+    globPatterns: ['**/*.{js,css,svg,png,woff2}'],
     maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
-    navigateFallback: 'index.html',
-    navigateFallbackAllowlist: [
-      /\/$/,
-      /\/(login|offline|servers(\/.*)?|routes(\/.*)?|topology|latency|subscription|updates|alerts|tools|settings)$/,
-    ],
-    navigateFallbackDenylist: [/^\/api\//, /^\/s\//, /^\/dl\//, /^\/install\.sh/, /^\/healthz/, /^\/status/],
+    navigateFallback: null,
     cleanupOutdatedCaches: true,
     clientsClaim: true,
-    runtimeCaching: [],
+    runtimeCaching: [
+      {
+        urlPattern: ({ request, url }) =>
+          request.mode === 'navigate' &&
+          !/^\/(api|s|dl)\/|^\/(install\.sh|healthz|status)(\/|$)/.test(url.pathname),
+        handler: 'NetworkFirst',
+        options: {
+          cacheName: 'pages',
+          networkTimeoutSeconds: 5,
+          cacheableResponse: { statuses: [200] },
+          expiration: { maxEntries: 16, maxAgeSeconds: 7 * 24 * 3600 },
+        },
+      },
+    ],
   },
 })
 
@@ -61,14 +72,17 @@ export default defineConfig({
   build: {
     outDir,
     emptyOutDir: true,
-    chunkSizeWarningLimit: 1500,
-    rollupOptions: {
+    chunkSizeWarningLimit: 800,
+    rolldownOptions: {
       output: {
-        manualChunks(id) {
-          if (id.includes('echarts') || id.includes('zrender')) return 'charts'
-          if (id.includes('naive-ui') || id.includes('vueuc') || id.includes('css-render')) return 'ui'
-          if (id.includes('@xterm')) return 'xterm'
-          if (id.includes('@vue-flow')) return 'flow'
+        codeSplitting: {
+          includeDependenciesRecursively: false,
+          groups: [
+            { name: 'vendor', test: /[\\/]node_modules[\\/](?:(?:vue|vue-router)[\\/]|@vue[\\/])/ },
+            { name: 'charts', test: /[\\/]node_modules[\\/](?:echarts|zrender|vue-echarts)[\\/]/ },
+            { name: 'xterm', test: /[\\/]node_modules[\\/]@xterm[\\/]/ },
+            { name: 'flow', test: /[\\/]node_modules[\\/]@vue-flow[\\/]/ },
+          ],
         },
       },
     },
