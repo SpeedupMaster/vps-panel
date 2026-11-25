@@ -8,7 +8,8 @@ all: web panel agent
 web:
 	cd web && pnpm install && pnpm build
 
-panel:
+# panel embeds internal/panel/webui/dist built by web; depend on web so `make -j all` never races.
+panel: web
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -tags nomsgpack -ldflags "$(LDFLAGS)" -o dist/vps-panel-linux-amd64 ./cmd/panel
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -tags nomsgpack -ldflags "$(LDFLAGS)" -o dist/vps-panel-linux-arm64 ./cmd/panel
 

@@ -1,12 +1,15 @@
 # Build from the repo root:  docker build -f deploy/Dockerfile -t vps-panel .
 FROM node:22-alpine AS web
 WORKDIR /src/web
+ENV COREPACK_HOME=/root/.cache/node/corepack
 RUN corepack enable
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+RUN --mount=type=cache,target=/root/.cache/node/corepack \
+    --mount=type=cache,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 COPY web/ ./
-RUN pnpm build
+RUN --mount=type=cache,target=/root/.cache/node/corepack \
+    pnpm build
 
 FROM golang:1.27-alpine AS go
 WORKDIR /src
