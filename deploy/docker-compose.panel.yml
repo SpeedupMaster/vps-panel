@@ -6,10 +6,10 @@ services:
       VPSPANEL_URL: ${VPSPANEL_URL:-}
       VPSPANEL_ADMIN: ${VPSPANEL_ADMIN:-admin}
       VPSPANEL_PASSWORD: ${VPSPANEL_PASSWORD:-}
-      VPSPANEL_TRUSTED_PROXIES: ${VPSPANEL_TRUSTED_PROXIES:-127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7}
+      VPSPANEL_TRUSTED_PROXIES: ${VPSPANEL_TRUSTED_PROXIES:-127.0.0.1,::1}
       TZ: ${TZ:-Asia/Shanghai}
     ports:
-      - "${VPSPANEL_PORT:-8080}:8080"
+      - "${VPSPANEL_PORT:-127.0.0.1:8080}:8080"
     volumes:
       - ./data:/data
     healthcheck:
