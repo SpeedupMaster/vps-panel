@@ -29,6 +29,11 @@ Wants=network-online.target
 [Service]
 User=root
 NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_RAW CAP_DAC_OVERRIDE
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_RAW
 Environment=XRAY_LOCATION_ASSET=/usr/local/share/xray
 ExecStart=/usr/local/bin/xray run -c /usr/local/etc/xray/config.json
 Restart=on-failure

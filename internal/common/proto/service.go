@@ -10,6 +10,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/encoding"
+	"google.golang.org/grpc/mem"
 )
 
 // CodecName is the gRPC content-subtype used by both sides.
@@ -17,11 +18,21 @@ const CodecName = "json"
 
 type jsonCodec struct{}
 
-func (jsonCodec) Marshal(v any) ([]byte, error)   { return json.Marshal(v) }
-func (jsonCodec) Unmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
-func (jsonCodec) Name() string                    { return CodecName }
+func (jsonCodec) Marshal(v any) (mem.BufferSlice, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	return mem.BufferSlice{mem.SliceBuffer(b)}, nil
+}
 
-func init() { encoding.RegisterCodec(jsonCodec{}) }
+func (jsonCodec) Unmarshal(data mem.BufferSlice, v any) error {
+	return json.Unmarshal(data.Materialize(), v)
+}
+
+func (jsonCodec) Name() string { return CodecName }
+
+func init() { encoding.RegisterCodecV2(jsonCodec{}) }
 
 // CallOption makes a client call use the JSON codec.
 func CallOption() grpc.CallOption { return grpc.CallContentSubtype(CodecName) }

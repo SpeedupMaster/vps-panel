@@ -5,9 +5,12 @@
 // proto/agenthub.proto documents the same shapes for reference.
 package proto
 
-import "encoding/json"
-
-import "time"
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+)
 
 // ---------- Agent -> Panel ----------
 
@@ -20,6 +23,39 @@ type AgentMessage struct {
 	TaskResult *TaskResult   `json:"task_result,omitempty"`
 	XrayState  *XrayState    `json:"xray_state,omitempty"`
 	Event      *Event        `json:"event,omitempty"`
+}
+
+// Validate enforces the oneof invariant: exactly one payload field must be set.
+func (m *AgentMessage) Validate() error {
+	if m == nil {
+		return errors.New("nil AgentMessage")
+	}
+	n := 0
+	if m.Hello != nil {
+		n++
+	}
+	if m.Metrics != nil {
+		n++
+	}
+	if m.Traffic != nil {
+		n++
+	}
+	if m.Probe != nil {
+		n++
+	}
+	if m.TaskResult != nil {
+		n++
+	}
+	if m.XrayState != nil {
+		n++
+	}
+	if m.Event != nil {
+		n++
+	}
+	if n != 1 {
+		return fmt.Errorf("AgentMessage must have exactly 1 payload field set, got %d", n)
+	}
+	return nil
 }
 
 // Hello is the first frame after the stream opens.
@@ -148,6 +184,39 @@ type PanelMessage struct {
 	Ack         *Ack           `json:"ack,omitempty"`
 	Settings    *AgentSettings `json:"settings,omitempty"`
 	ShellInput  *ShellInput    `json:"shell_input,omitempty"`
+}
+
+// Validate enforces the oneof invariant: exactly one payload field must be set.
+func (m *PanelMessage) Validate() error {
+	if m == nil {
+		return errors.New("nil PanelMessage")
+	}
+	n := 0
+	if m.ApplyConfig != nil {
+		n++
+	}
+	if m.XrayOp != nil {
+		n++
+	}
+	if m.ProbeTasks != nil {
+		n++
+	}
+	if m.Task != nil {
+		n++
+	}
+	if m.Ack != nil {
+		n++
+	}
+	if m.Settings != nil {
+		n++
+	}
+	if m.ShellInput != nil {
+		n++
+	}
+	if n != 1 {
+		return fmt.Errorf("PanelMessage must have exactly 1 payload field set, got %d", n)
+	}
+	return nil
 }
 
 // ShellInput feeds keystrokes / resize events into a WebSSH session.

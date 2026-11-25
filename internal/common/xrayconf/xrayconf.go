@@ -200,24 +200,83 @@ func SupportsX25519MLKEM768(v string) bool {
 	return compareVersion(v, "25.5.16") >= 0
 }
 
+func splitVersion(v string) (nums [3]int, pre string) {
+	s := strings.TrimSpace(v)
+	s = strings.TrimPrefix(strings.TrimPrefix(s, "v"), "V")
+	if core, _, ok := strings.Cut(s, "+"); ok {
+		s = core
+	}
+	core, pre, _ := strings.Cut(s, "-")
+	parts := strings.Split(core, ".")
+	for i := 0; i < 3 && i < len(parts); i++ {
+		p := parts[i]
+		// Take leading decimal digits so suffixes without '-' still parse cleanly.
+		j := 0
+		for j < len(p) && p[j] >= '0' && p[j] <= '9' {
+			j++
+		}
+		if j > 0 {
+			nums[i], _ = strconv.Atoi(p[:j])
+		}
+	}
+	return nums, pre
+}
+
+func comparePreRelease(a, b string) int {
+	if a == b {
+		return 0
+	}
+	if a == "" {
+		return 1 // release > pre-release
+	}
+	if b == "" {
+		return -1
+	}
+	pa, pb := strings.Split(a, "."), strings.Split(b, ".")
+	n := min(len(pa), len(pb))
+	for i := 0; i < n; i++ {
+		if pa[i] == pb[i] {
+			continue
+		}
+		ai, aErr := strconv.Atoi(pa[i])
+		bi, bErr := strconv.Atoi(pb[i])
+		switch {
+		case aErr == nil && bErr == nil:
+			if ai < bi {
+				return -1
+			}
+			return 1
+		case aErr == nil:
+			return -1 // numeric identifiers have lower precedence than non-numeric
+		case bErr == nil:
+			return 1
+		case pa[i] < pb[i]:
+			return -1
+		default:
+			return 1
+		}
+	}
+	if len(pa) < len(pb) {
+		return -1
+	}
+	if len(pa) > len(pb) {
+		return 1
+	}
+	return 0
+}
+
 func compareVersion(a, b string) int {
-	pa, pb := strings.Split(strings.TrimPrefix(a, "v"), "."), strings.Split(strings.TrimPrefix(b, "v"), ".")
+	na, preA := splitVersion(a)
+	nb, preB := splitVersion(b)
 	for i := 0; i < 3; i++ {
-		var x, y int
-		if i < len(pa) {
-			x, _ = strconv.Atoi(pa[i])
-		}
-		if i < len(pb) {
-			y, _ = strconv.Atoi(pb[i])
-		}
-		if x != y {
-			if x < y {
+		if na[i] != nb[i] {
+			if na[i] < nb[i] {
 				return -1
 			}
 			return 1
 		}
 	}
-	return 0
+	return comparePreRelease(preA, preB)
 }
 
 // CompareVersion is exported for update checks.

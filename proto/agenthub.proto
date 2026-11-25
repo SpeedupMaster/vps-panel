@@ -1,57 +1,253 @@
 // Reference description of the panel <-> agent protocol.
 //
 // The Go code does not generate stubs from this file: both sides use the
-// structs in internal/common/proto with a JSON gRPC codec (content-subtype
-// "json"), so builds need no protoc. Keep this file in sync with messages.go.
+// structs in internal/common/proto with a JSON gRPC CodecV2 (content-subtype
+// "json"), so builds need no protoc. Keep this file strictly in sync with
+// internal/common/proto/messages.go and internal/common/proto/service.go.
 syntax = "proto3";
 package vpspanel;
 
 service AgentHub {
-  // One-time install token -> long-lived agent_id + agent_secret.
+  // Exchanges a one-time install token for long-lived agent_id + agent_secret.
   rpc Register(RegisterRequest) returns (RegisterResponse);
   // Agent dials out; metadata x-agent-id / x-agent-ts / x-agent-nonce /
   // x-agent-sig = hex(HMAC-SHA256(secret, id|ts|nonce)).
   rpc Connect(stream AgentMessage) returns (stream PanelMessage);
 }
 
+// ---------- Registration ----------
+
+message RegisterRequest {
+  string     token    = 1;
+  string     mode     = 2; // probe | node
+  string     hostname = 3;
+  SystemInfo system   = 4;
+}
+
+message RegisterResponse {
+  string agent_id     = 1;
+  string agent_secret = 2;
+  string server_name  = 3;
+}
+
+// ---------- Agent -> Panel ----------
+
+// Exactly one payload field must be set (enforced by AgentMessage.Validate).
 message AgentMessage {
   oneof payload {
-    Hello        hello       = 1;  // version, mode, system info, local switches
-    Metrics      metrics     = 2;
-    TrafficDelta traffic     = 3;  // carries seq, deduped by the panel
-    ProbeResult  probe       = 4;
-    TaskResult   task_result = 5;  // streamed output chunks
-    XrayState    xray_state  = 6;  // config hash, version, running, drift
-    Event        event       = 7;  // xray crash, config drift, ip change
+    Hello        hello       = 1; // version, mode, switches, system info
+    Metrics      metrics     = 2; // periodic host + Xray resource sample
+    TrafficDelta traffic     = 3; // strictly increasing seq, deduped by panel
+    ProbeResult  probe       = 4; // backhaul / segment / peer / egress samples
+    TaskResult   task_result = 5; // streamed output chunks & final result
+    XrayState    xray_state  = 6; // installed, version, running, config hash/ver, drift
+    Event        event       = 7; // xray_crash, xray_restart, config_drift, ip_changed, rollback
   }
 }
 
+message Hello {
+  string        version  = 1;
+  string        mode     = 2; // probe | node
+  LocalSwitches switches = 3;
+  SystemInfo    system   = 4;
+}
+
+// LocalSwitches can only be edited in /etc/vpsagent/agent.yaml on the VPS.
+message LocalSwitches {
+  bool allow_remote_exec = 1;
+  bool allow_system_tune = 2;
+  bool allow_self_update = 3;
+}
+
+message SystemInfo {
+  string hostname   = 1;
+  string os         = 2;
+  string kernel     = 3;
+  string arch       = 4;
+  string virt       = 5;  // kvm, openvz, lxc, docker, ...
+  string cpu_model  = 6;
+  int32  cpu_cores  = 7;
+  uint64 mem_total  = 8;
+  uint64 swap_total = 9;
+  uint64 disk_total = 10;
+  int64  boot_time  = 11;
+  string ipv4       = 12;
+  string ipv6       = 13;
+  string congestion = 14; // current tcp_congestion_control
+  string qdisc      = 15;
+  string avail_cc   = 16;
+}
+
+message Metrics {
+  int64    ts         = 1;
+  double   cpu        = 2;  // percent
+  double   steal      = 3;  // percent
+  double   load1      = 4;
+  double   load5      = 5;
+  double   load15     = 6;
+  uint64   mem_used   = 7;
+  uint64   swap_used  = 8;
+  uint64   disk_used  = 9;
+  uint64   disk_read  = 10; // bytes/s
+  uint64   disk_write = 11; // bytes/s
+  uint64   net_in     = 12; // bytes/s
+  uint64   net_out    = 13; // bytes/s
+  int32    tcp        = 14;
+  int32    udp        = 15;
+  int64    uptime     = 16;
+  XrayProc xray       = 17;
+}
+
+message XrayProc {
+  bool   running = 1;
+  int32  pid     = 2;
+  double cpu     = 3;
+  uint64 mem     = 4;
+  int64  uptime  = 5;
+  string version = 6;
+}
+
+message TrafficDelta {
+  uint64               seq   = 1;
+  int64                ts    = 2;
+  repeated TrafficItem items = 3;
+}
+
+message TrafficItem {
+  string scope = 1; // server | user | outbound | inbound
+  string name  = 2; // iface / email / outbound tag
+  uint64 up    = 3;
+  uint64 down  = 4;
+}
+
+message ProbeResult {
+  int64                ts      = 1;
+  string               kind    = 2; // backhaul | segment | peer | egress
+  repeated ProbeSample samples = 3;
+}
+
+message ProbeSample {
+  string target = 1; // target id / route email / server id
+  double avg    = 2; // ms, -1 when all lost
+  double min    = 3;
+  double max    = 4;
+  double jitter = 5;
+  double loss   = 6; // 0..1 from agents; panel converts to percent on ingest
+}
+
+message TaskResult {
+  uint64 task_id  = 1;
+  string status   = 2; // running | success | failed
+  string output   = 3; // appended chunk when status == running
+  string data     = 4; // arbitrary JSON-encoded result object
+  bool   finished = 5;
+}
+
+message XrayState {
+  bool   installed   = 1;
+  string version     = 2;
+  bool   running     = 3;
+  string config_hash = 4;
+  int32  config_ver  = 5;
+  bool   drift       = 6; // local config.json differs from last applied config
+}
+
+message Event {
+  int64  ts     = 1;
+  string kind   = 2; // xray_crash, xray_restart, config_drift, ip_changed, rollback
+  string detail = 3;
+}
+
+// ---------- Panel -> Agent ----------
+
+// Exactly one payload field must be set (enforced by PanelMessage.Validate).
 message PanelMessage {
   oneof payload {
-    ApplyConfig   apply_config = 1;  // full Xray config + version (+ firewall)
-    XrayOp        xray_op      = 2;  // hot add / remove user
+    ApplyConfig   apply_config = 1; // full Xray config + version (+ optional firewall)
+    XrayOp        xray_op      = 2; // hot add_user / remove_user via Xray API
     ProbeTasks    probe_tasks  = 3;
-    Task          task         = 4;  // install, update, bbr, diagnose, ...
-    Ack           ack          = 5;  // traffic seq acknowledged
-    AgentSettings settings     = 6;
-    ShellInput    shell_input  = 7;  // WebSSH keystrokes
+    Task          task         = 4; // one-off task (install_xray, update_agent, tune_net, ...)
+    Ack           ack          = 5; // traffic seq acknowledged
+    AgentSettings settings     = 6; // report_interval & failover panel_urls
+    ShellInput    shell_input  = 7; // WebSSH keystrokes / resize / close
   }
 }
 
-// Field-level definitions: see internal/common/proto/messages.go.
-message RegisterRequest {}
-message RegisterResponse {}
-message Hello {}
-message Metrics {}
-message TrafficDelta {}
-message ProbeResult {}
-message TaskResult {}
-message XrayState {}
-message Event {}
-message ApplyConfig {}
-message XrayOp {}
-message ProbeTasks {}
-message Task {}
-message Ack {}
-message AgentSettings {}
-message ShellInput {}
+message ShellInput {
+  uint64 task_id = 1;
+  bytes  data    = 2;
+  int32  cols    = 3;
+  int32  rows    = 4;
+  bool   close   = 5;
+}
+
+message ApplyConfig {
+  uint64         task_id  = 1;
+  int32          version  = 2;
+  bytes          config   = 3;
+  FirewallPolicy firewall = 4;
+  bool           restart  = 5;
+}
+
+message FirewallPolicy {
+  int32           port    = 1;
+  repeated string allowed = 2;
+}
+
+message XrayOp {
+  uint64   task_id     = 1;
+  string   op          = 2; // add_user | remove_user
+  string   tag         = 3;
+  XrayUser user        = 4;
+  bytes    rule        = 5; // raw JSON routing rule (ruleTag = user email)
+  bytes    full_config = 6; // full config for restart fallback & persistence
+  int32    version     = 7;
+}
+
+message XrayUser {
+  string email    = 1;
+  string id       = 2;
+  string flow     = 3;
+  string password = 4;
+}
+
+message ProbeTasks {
+  int32                interval_sec = 1;
+  int32                count        = 2; // probes per round
+  repeated ProbeTarget targets      = 3;
+}
+
+message ProbeTarget {
+  string id   = 1;
+  string kind = 2; // backhaul | segment | peer | egress
+  string type = 3; // tcp | icmp | http
+  string host = 4;
+  int32  port = 5;
+  string url  = 6;
+}
+
+// Task types: install_xray, uninstall_xray, update_xray, update_agent,
+// update_geo, restart_xray, restart_agent, xray_log, tune_net, restore_net,
+// net_status, reality_scan, diagnose, unlock_check, ip_quality, trace,
+// speedtest, iperf, exec, shell.
+message Task {
+  uint64              id      = 1;
+  string              type    = 2;
+  map<string, string> args    = 3;
+  bytes               payload = 4;
+  int32               timeout = 5; // seconds
+}
+
+// Payload of ip_quality tasks.
+message IPQualityKeys {
+  string ipapi_is = 1;
+}
+
+message Ack {
+  uint64 seq = 1;
+}
+
+message AgentSettings {
+  int32           report_interval = 1; // seconds
+  repeated string panel_urls      = 2; // primary first; agent reconnects in order
+}

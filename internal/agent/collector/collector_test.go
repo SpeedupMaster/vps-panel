@@ -107,3 +107,50 @@ func TestSampleConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestProcParsers(t *testing.T) {
+	cpu := parseCPUStat("cpu  100 10 50 800 20 5 5 10 0 0\ncpu0 50 5 25 400 10 2 3 5 0 0\n")
+	if cpu.total != 1000 || cpu.idle != 820 || cpu.steal != 10 {
+		t.Fatalf("parseCPUStat = %+v, want {total:1000 idle:820 steal:10}", cpu)
+	}
+
+	mi := parseMeminfo("MemTotal:        1048576 kB\nMemAvailable:    2097152 kB\nSwapTotal:        524288 kB\nSwapFree:         262144 kB\n")
+	if got := subClamp(mi["MemTotal"], mi["MemAvailable"]); got != 0 {
+		t.Fatalf("LXC MemAvailable > MemTotal underflowed: %d", got)
+	}
+	if got := subClamp(mi["SwapTotal"], mi["SwapFree"]); got != 262144*1024 {
+		t.Fatalf("SwapUsed = %d, want %d", got, 262144*1024)
+	}
+
+	netDev := `Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo: 99999 10 0 0 0 0 0 0 99999 10 0 0 0 0 0 0
+  eth0: 1000 10 0 0 0 0 0 0 2000 10 0 0 0 0 0 0
+ warp0: 5000 10 0 0 0 0 0 0 5000 10 0 0 0 0 0 0
+CloudflareWARP: 5000 10 0 0 0 0 0 0 5000 10 0 0 0 0 0 0
+tailscale0: 5000 10 0 0 0 0 0 0 5000 10 0 0 0 0 0 0
+  ens3:  500 10 0 0 0 0 0 0  700 10 0 0 0 0 0 0
+`
+	if got := parseNetDev(netDev, ""); got.RX != 1500 || got.TX != 2700 {
+		t.Fatalf("parseNetDev(all) = %+v, want {RX:1500 TX:2700}", got)
+	}
+	if got := parseNetDev(netDev, "eth0"); got.RX != 1000 || got.TX != 2000 {
+		t.Fatalf("parseNetDev(eth0) = %+v, want {RX:1000 TX:2000}", got)
+	}
+
+	diskstats := `   8       0 sda 1 0 10 0 1 0 20 0 0 0 0
+   8       1 sda1 1 0 10 0 1 0 20 0 0 0 0
+ 252       0 zram0 1 0 999 0 1 0 999 0 0 0 0
+   9       0 md0 1 0 999 0 1 0 999 0 0 0 0
+ 259       0 nvme0n1 1 0 4 0 1 0 6 0 0 0 0
+ 259       1 nvme0n1p1 1 0 4 0 1 0 6 0 0 0 0
+`
+	if got := parseDiskstats(diskstats); got[0] != 14*512 || got[1] != 26*512 {
+		t.Fatalf("parseDiskstats = %v, want [%d %d]", got, 14*512, 26*512)
+	}
+
+	tcp, udp := parseSockstat("sockets: used 100\nTCP: inuse 12 orphan 0\nUDP: inuse 4 mem 0\nTCP6: inuse 3\nUDP6: inuse 2\n")
+	if tcp != 15 || udp != 6 {
+		t.Fatalf("parseSockstat = (%d, %d), want (15, 6)", tcp, udp)
+	}
+}

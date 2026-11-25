@@ -152,3 +152,33 @@ func TestSSRFProtectionAndLandingSniffing(t *testing.T) {
 		t.Fatal("missing bittorrent block rule")
 	}
 }
+
+func TestCompareVersionPreReleaseAndPrefixes(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want int
+	}{
+		{"v26.9.8", "26.9.8", 0},
+		{"V26.9.8+build.1", "26.9.8", 0},
+		{"26.9.8-rc1", "26.9.7", 1},
+		{"26.9.8-rc1", "26.9.8", -1},
+		{"26.9.8-rc2", "26.9.8-rc1", 1},
+		{"26.9.8-beta.10", "26.9.8-beta.2", 1},
+		{"0.1.2-dirty", "0.1.1", 1},
+		{"0.1.2-dirty", "0.1.2", -1},
+		{"v25.10.15", "25.5.16", 1},
+		{"25.5.16-rc1", "25.5.16", -1},
+		{"25.5.17-rc1", "25.5.16", 1},
+	}
+	for _, tc := range cases {
+		if got := CompareVersion(tc.a, tc.b); got != tc.want {
+			t.Errorf("CompareVersion(%q, %q) = %d, want %d", tc.a, tc.b, got, tc.want)
+		}
+	}
+	if !SupportsX25519MLKEM768("26.9.8-rc1") {
+		t.Fatal("SupportsX25519MLKEM768(26.9.8-rc1) should be true")
+	}
+	if !SupportsTarget("25.1.2-dirty") {
+		t.Fatal("SupportsTarget(25.1.2-dirty) should be true")
+	}
+}

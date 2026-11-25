@@ -4,9 +4,11 @@
 package collector
 
 import (
+	"bufio"
 	"net"
 	"net/netip"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -95,6 +97,109 @@ func parseCPUModel(cpuinfo string) string {
 		return fallbackProc
 	}
 	return fallbackHW
+}
+
+func parseCPUStat(text string) cpuTimes {
+	line := strings.SplitN(text, "\n", 2)[0]
+	f := strings.Fields(line)
+	var t cpuTimes
+	for i := 1; i < len(f); i++ {
+		v, _ := strconv.ParseUint(f[i], 10, 64)
+		if i <= 8 { // user..steal; guest is already in user
+			t.total += v
+		}
+		switch i {
+		case 4, 5: // idle, iowait
+			t.idle += v
+		case 8:
+			t.steal = v
+		}
+	}
+	return t
+}
+
+func parseMeminfo(text string) map[string]uint64 {
+	m := map[string]uint64{}
+	sc := bufio.NewScanner(strings.NewReader(text))
+	for sc.Scan() {
+		k, v, ok := strings.Cut(sc.Text(), ":")
+		if !ok {
+			continue
+		}
+		fields := strings.Fields(v)
+		if len(fields) == 0 {
+			continue
+		}
+		n, _ := strconv.ParseUint(fields[0], 10, 64)
+		m[k] = n * 1024
+	}
+	return m
+}
+
+func parseNetDev(text, onlyIface string) NetCounters {
+	var n NetCounters
+	lines := strings.Split(text, "\n")
+	if len(lines) <= 2 {
+		return n
+	}
+	for _, line := range lines[2:] {
+		name, rest, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		name = strings.TrimSpace(name)
+		if onlyIface != "" {
+			if name != onlyIface {
+				continue
+			}
+		} else if isExcludedIface(name) {
+			continue
+		}
+		f := strings.Fields(rest)
+		if len(f) < 9 {
+			continue
+		}
+		rx, _ := strconv.ParseUint(f[0], 10, 64)
+		tx, _ := strconv.ParseUint(f[8], 10, 64)
+		n.RX += rx
+		n.TX += tx
+	}
+	return n
+}
+
+func parseDiskstats(text string) [2]uint64 {
+	var out [2]uint64
+	for _, line := range strings.Split(text, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 10 {
+			continue
+		}
+		if isExcludedDisk(f[2]) {
+			continue
+		}
+		r, _ := strconv.ParseUint(f[5], 10, 64)
+		w, _ := strconv.ParseUint(f[9], 10, 64)
+		out[0] += r * 512
+		out[1] += w * 512
+	}
+	return out
+}
+
+func parseSockstat(text string) (tcp, udp int) {
+	for _, line := range strings.Split(text, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 3 {
+			continue
+		}
+		n, _ := strconv.Atoi(f[2])
+		switch f[0] {
+		case "TCP:", "TCP6:":
+			tcp += n
+		case "UDP:", "UDP6:":
+			udp += n
+		}
+	}
+	return
 }
 
 func isPublicIPv4(s string) bool {

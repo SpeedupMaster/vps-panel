@@ -356,3 +356,18 @@ func TestUpdateGeoFailClosedAndCleansBak(t *testing.T) {
 		}
 	}
 }
+
+func TestSystemdUnitSandboxing(t *testing.T) {
+	for _, want := range []string{
+		"NoNewPrivileges=true",
+		"ProtectSystem=full",
+		"ProtectHome=true",
+		"PrivateTmp=true",
+		"CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_RAW CAP_DAC_OVERRIDE",
+		"AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_RAW",
+	} {
+		if !strings.Contains(unitFile, want) {
+			t.Errorf("xray.service unitFile missing %q", want)
+		}
+	}
+}
