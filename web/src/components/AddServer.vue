@@ -5,7 +5,7 @@ import { NDrawer, NDrawerContent, NInput, NButton, NRadioGroup, NRadio, NSwitch,
 import { api } from '../api'
 import { state, loadServers, ui } from '../store'
 import { run } from '../helpers'
-import { copy } from '../format'
+import { copy, countdown } from '../format'
 import TaskLog from './TaskLog.vue'
 import { drawerWidth } from '../mobile'
 
@@ -26,13 +26,11 @@ const timer = setInterval(() => { now.value = Date.now() }, 1000)
 onBeforeUnmount(() => clearInterval(timer))
 const ssh = ref({ host: '', port: 22, user: 'root', password: '', key: '' })
 const sshTask = ref(null)
+const sshBusy = ref(false)
+const regenBusy = ref(false)
 
 const groups = computed(() => [...new Set(state.servers.map((s) => s.group).filter(Boolean))].map((g) => ({ label: g, value: g })))
-const left = computed(() => {
-  if (!created.value) return ''
-  const s = Math.max(0, Math.floor((new Date(created.value.expires_at).getTime() - now.value) / 1000))
-  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
-})
+const left = computed(() => (created.value ? countdown(created.value.expires_at, now.value) : ''))
 const live = computed(() => created.value && state.servers.find((s) => s.id === created.value.server.id))
 const connected = computed(() => live.value && (live.value.online || live.value.status === 'online'))
 
@@ -63,14 +61,33 @@ async function create() {
   if (r) { created.value = r; loadServers() }
 }
 async function regen() {
-  const r = await run(() => api.post(`/servers/${created.value.server.id}/token`), '已生成新命令，旧命令失效')
-  if (r) created.value = { ...created.value, token: r.token, command: r.command, expires_at: new Date(Date.now() + 30 * 60000).toISOString() }
+  if (regenBusy.value) return
+  regenBusy.value = true
+  try {
+    const r = await run(() => api.post(`/servers/${created.value.server.id}/token`), '已生成新命令，旧命令失效')
+    if (r) {
+      created.value = {
+        ...created.value,
+        token: r.token,
+        command: r.command,
+        expires_at: r.install_token_exp || r.expires_at || new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+      }
+    }
+  } finally {
+    regenBusy.value = false
+  }
 }
 async function sshInstall() {
+  if (sshBusy.value) return
   const s = ssh.value
   if (!s.host || (!s.password && !s.key)) { ui.message.warning('请填写地址和密码或私钥'); return }
-  const r = await run(() => api.post(`/servers/${created.value.server.id}/ssh-install`, { ...s, mode: created.value.server.mode }))
-  if (r) { sshTask.value = r.task_id; ssh.value.password = ''; ssh.value.key = '' }
+  sshBusy.value = true
+  try {
+    const r = await run(() => api.post(`/servers/${created.value.server.id}/ssh-install`, { ...s, mode: created.value.server.mode }, { confirm: 'SSH 远程安装需要确认身份' }))
+    if (r) { sshTask.value = r.task_id; ssh.value.password = ''; ssh.value.key = '' }
+  } finally {
+    sshBusy.value = false
+  }
 }
 async function doCopy() { if (await copy(created.value.command)) ui.message.success('已复制') }
 function close() {
@@ -149,7 +166,7 @@ function openDetail() { const id = created.value.server.id; close(); router.push
               <div class="f-actions">
                 <n-button type="primary" @click="doCopy">复制命令</n-button>
                 <span class="spacer" />
-                <n-button quaternary @click="regen">重新生成</n-button>
+                <n-button quaternary :loading="regenBusy" :disabled="regenBusy" @click="regen">重新生成</n-button>
               </div>
               <p class="f-note">支持 Debian 11+ / Ubuntu 20.04+ / Rocky·Alma 9 / Alpine 3.18+ · amd64 / arm64</p>
             </div>
@@ -175,7 +192,7 @@ function openDetail() { const id = created.value.server.id; close(); router.push
               </div>
               <p class="f-note">凭据只在本次安装时使用，安装结束后立即丢弃，不写入数据库或日志。</p>
             </div>
-            <n-button type="primary" block class="go" :disabled="!!sshTask" @click="sshInstall">连接并安装</n-button>
+            <n-button type="primary" block class="go" :loading="sshBusy" :disabled="!!sshTask || sshBusy" @click="sshInstall">连接并安装</n-button>
             <task-log v-if="sshTask" :task-id="sshTask" height="260px" style="margin-top: 12px" />
           </n-tab-pane>
         </n-tabs>

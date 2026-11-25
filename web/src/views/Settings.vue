@@ -15,35 +15,67 @@ watch(tab, (t) => { router.replace({ query: { tab: t } }); if (t === 'backup') l
 
 // ---------- account ----------
 const pw = ref({ old: '', new: '', again: '' })
+const pwBusy = ref(false)
+const totpBusy = ref(false)
+const kicking = ref(0)
+async function copyText(text, msg = '已复制') {
+  if (await copy(text)) ui.message.success(msg)
+}
 async function changePw() {
+  if (pwBusy.value) return
   const p = pw.value
   if (p.new.length < 10) { ui.message.warning('新密码至少 10 位'); return }
   if (p.new !== p.again) { ui.message.warning('两次输入的新密码不一致'); return }
-  if (await run(() => api.post('/account/password', { old: p.old, new: p.new }), '密码已修改，其他会话已退出')) { pw.value = { old: '', new: '', again: '' }; loadSessions() }
+  pwBusy.value = true
+  try {
+    if (await run(() => api.post('/account/password', { old: p.old, new: p.new }), '密码已修改，其他会话已退出')) { pw.value = { old: '', new: '', again: '' }; loadSessions() }
+  } finally { pwBusy.value = false }
 }
 const totp = ref({ step: '', secret: '', qr: '', code: '', codes: [] })
 async function beginTotp() {
-  const r = await run(() => api.post('/account/totp/begin'))
-  if (!r) return
-  totp.value = { step: 'scan', secret: r.secret, qr: await QRCode.toDataURL(r.uri, { margin: 1, width: 200 }), code: '', codes: [] }
+  if (totpBusy.value) return
+  totpBusy.value = true
+  try {
+    const r = await run(() => api.post('/account/totp/begin'))
+    if (!r) return
+    totp.value = { step: 'scan', secret: r.secret, qr: await QRCode.toDataURL(r.uri, { margin: 1, width: 200 }), code: '', codes: [] }
+  } finally { totpBusy.value = false }
 }
 async function confirmTotp() {
-  const r = await run(() => api.post('/account/totp/confirm', { code: totp.value.code }), '两步验证已开启')
-  if (r) { totp.value = { step: 'codes', codes: r.recovery_codes }; loadMe() }
+  if (totpBusy.value) return
+  totpBusy.value = true
+  try {
+    const r = await run(() => api.post('/account/totp/confirm', { code: totp.value.code }), '两步验证已开启')
+    if (r) { totp.value = { step: 'codes', codes: r.recovery_codes }; loadMe() }
+  } finally { totpBusy.value = false }
 }
 const disableCode = ref('')
 async function disableTotp() {
-  if (!(await ask('关闭两步验证', '关闭后只凭密码即可登录，敏感操作改为验证密码。', { danger: true }))) return
-  if (await run(() => api.post('/account/totp/disable', { code: disableCode.value }), '已关闭')) { disableCode.value = ''; loadMe() }
+  if (totpBusy.value) return
+  totpBusy.value = true
+  try {
+    if (!(await ask('关闭两步验证', '关闭后只凭密码即可登录，敏感操作改为验证密码。', { danger: true }))) return
+    if (await run(() => api.post('/account/totp/disable', { code: disableCode.value }), '已关闭')) { disableCode.value = ''; loadMe() }
+  } finally { totpBusy.value = false }
 }
 async function regenCodes() {
-  if (!(await ask('重新生成恢复码', '旧的恢复码会全部作废。'))) return
-  const r = await run(() => api.post('/account/totp/recovery'))
-  if (r) { totp.value = { step: 'codes', codes: r.recovery_codes }; loadMe() }
+  if (totpBusy.value) return
+  totpBusy.value = true
+  try {
+    if (!(await ask('重新生成恢复码', '旧的恢复码会全部作废。'))) return
+    const r = await run(() => api.post('/account/totp/recovery'))
+    if (r) { totp.value = { step: 'codes', codes: r.recovery_codes }; loadMe() }
+  } finally { totpBusy.value = false }
 }
 const sessions = ref([])
 async function loadSessions() { sessions.value = (await api.get('/account/sessions').catch(() => [])) || [] }
-async function kick(s) { if (await run(() => api.del(`/account/sessions/${s.id}`), '已踢下线')) loadSessions() }
+async function kick(s) {
+  if (kicking.value === s.id) return
+  kicking.value = s.id
+  try {
+    if (await run(() => api.del(`/account/sessions/${s.id}`), '已踢下线')) loadSessions()
+  } finally { kicking.value = 0 }
+}
 function uaShort(ua) {
   if (!ua) return '—'
   const b = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : ua.slice(0, 24)
@@ -66,7 +98,7 @@ const groups = {
       S('panel_urls_backup', '备用面板地址', '', '逗号分隔；主地址不可达时 Agent 依次尝试'),
       S('sub_url', '订阅地址', '', '留空 = 用面板地址；填写独立域名或 CDN 时需先将其解析并反代到面板（独立域名仅暴露订阅接口）'),
       S('admin_path', '后台路径', '', '例如 /x7k2，留空 = 根路径；改后旧路径返回 404'),
-      S('allow_ips', '允许访问的 IP', '', '逗号分隔，支持 CIDR；留空 = 不限制。订阅与 Agent 连接不受影响'),
+      { k: 'allow_ips', label: '允许访问的 IP', type: 'text', def: '', hint: '每行或逗号分隔一个 IP / CIDR；留空 = 不限制。订阅与 Agent 连接不受影响' },
     ] },
     { title: '费用', desc: '服务器月费按所选币种换算后汇总。', fields: [
       { k: 'currency', label: '统计币种', type: 'select', def: 'USD', options: opts(['USD', 'USD 美元'], ['CNY', 'CNY 人民币'], ['EUR', 'EUR 欧元'], ['HKD', 'HKD 港币'], ['JPY', 'JPY 日元'], ['GBP', 'GBP 英镑'], ['CAD', 'CAD 加元']) },
@@ -144,12 +176,17 @@ function setFx(c, v) {
   o[c] = v == null ? fxDefault[c] : v
   setVal('fx_rates', Object.keys(fxDefault).every((k) => o[k] === fxDefault[k]) && Object.keys(o).length === Object.keys(fxDefault).length ? '' : JSON.stringify(o))
 }
+const saving = ref(false)
 async function saveSettings(keys) {
+  if (saving.value) return
   const body = {}
   for (const k of keys || dirtyKeys.value) body[k] = cfg.value[k]
   if (!Object.keys(body).length) { ui.message.info('没有修改'); return }
   if (body.fx_rates) { try { JSON.parse(body.fx_rates) } catch { ui.message.error('汇率不是合法的 JSON'); return } }
-  if (await run(() => api.put('/settings', body), '已保存')) loadSettings()
+  saving.value = true
+  try {
+    if (await run(() => api.put('/settings', body), '已保存')) loadSettings()
+  } finally { saving.value = false }
 }
 const settingsTabs = [{ name: 'panel', label: '面板' }, { name: 'agent', label: 'Agent 与探测' }, { name: 'xray', label: 'Xray' }, { name: 'retention', label: '数据保留' }]
 
@@ -187,31 +224,60 @@ const remoteGroups = computed(() => [
   ] },
 ].filter(Boolean))
 const backing = ref(false)
+const downloading = ref('')
+const deletingBackup = ref('')
+const restoring = ref(false)
 async function backupNow() {
+  if (backing.value) return
   backing.value = true
-  const r = await run(() => api.post('/backups'))
-  backing.value = false
-  if (r) { r.warning ? ui.message.warning('本地备份已完成，远程上传失败：' + r.warning) : ui.message.success('备份完成：' + r.name); loadBackups() }
+  try {
+    const r = await run(() => api.post('/backups'))
+    if (r) { r.warning ? ui.message.warning('本地备份已完成，远程上传失败：' + r.warning) : ui.message.success('备份完成：' + r.name); loadBackups() }
+  } finally { backing.value = false }
+}
+async function downloadBackup(b) {
+  if (downloading.value) return
+  downloading.value = b.name
+  try {
+    const blob = await run(() => api.blob(`/backups/${encodeURIComponent(b.name)}`, { confirm: '下载备份需要确认身份' }))
+    if (!blob) return
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = b.name
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } finally { downloading.value = '' }
 }
 async function delBackup(b) {
-  if (!(await ask('删除备份', `删除 ${b.name}？只删除面板本地的副本。`, { danger: true }))) return
-  if (await run(() => api.del(`/backups/${encodeURIComponent(b.name)}`), '已删除')) loadBackups()
+  if (deletingBackup.value) return
+  deletingBackup.value = b.name
+  try {
+    if (!(await ask('删除备份', `删除 ${b.name}？只删除面板本地的副本。`, { danger: true }))) return
+    if (await run(() => api.del(`/backups/${encodeURIComponent(b.name)}`), '已删除')) loadBackups()
+  } finally { deletingBackup.value = '' }
 }
 const restore = ref({ show: false, name: '', file: null, password: '' })
 function openRestore(b) { restore.value = { show: true, name: b?.name || '', file: null, password: '' } }
 async function doRestore() {
+  if (restoring.value) return
   const r = restore.value
   if (!r.name && !r.file) { ui.message.warning('选择备份文件'); return }
-  if (!(await ask('恢复备份', '当前数据会被备份文件覆盖（恢复前自动再备份一次），面板随后重启，所有会话需要重新登录。', { danger: true, okText: '恢复' }))) return
-  const fd = new FormData()
-  if (r.name) fd.append('name', r.name); else fd.append('file', r.file)
-  if (r.password) fd.append('password', r.password)
-  const res = await run(() => api.post('/backups/restore', fd, { confirm: '恢复备份需要确认身份' }))
-  if (res) {
-    restore.value.show = false
-    ui.message.loading('面板重启中…', { duration: 0 })
-    setTimeout(() => location.reload(), 6000)
-  }
+  restoring.value = true
+  try {
+    if (!(await ask('恢复备份', '当前数据会被备份文件覆盖（恢复前自动再备份一次），面板随后重启，所有会话需要重新登录。', { danger: true, okText: '恢复' }))) return
+    const fd = new FormData()
+    if (r.name) fd.append('name', r.name); else fd.append('file', r.file)
+    if (r.password) fd.append('password', r.password)
+    const res = await run(() => api.post('/backups/restore', fd, { confirm: '恢复备份需要确认身份' }))
+    if (res) {
+      restore.value.show = false
+      ui.message.loading('面板重启中…', { duration: 0 })
+      setTimeout(() => location.reload(), 6000)
+    }
+  } finally { restoring.value = false }
 }
 
 // ---------- audit ----------
@@ -266,7 +332,7 @@ onMounted(() => {
               <div class="f-actions">
                 <span class="f-hint">忘记密码时，在面板所在机器上执行 <code class="mono">vps-panel reset-admin</code></span>
                 <span class="spacer" />
-                <n-button type="primary" :disabled="!pw.old || !pw.new || !pw.again" @click="changePw">修改密码</n-button>
+                <n-button type="primary" :loading="pwBusy" :disabled="!pw.old || !pw.new || !pw.again || pwBusy" @click="changePw">修改密码</n-button>
               </div>
             </div>
           </section>
@@ -283,9 +349,9 @@ onMounted(() => {
                   <img :src="totp.qr" alt="两步验证二维码" width="160" height="160" />
                   <div class="totp-side">
                     <span class="f-hint">无法扫码时手动输入（点击复制）：</span>
-                    <code class="mono small secret" @click="copy(totp.secret)">{{ totp.secret }}</code>
+                    <code class="mono small secret" @click="copyText(totp.secret, '已复制密钥')">{{ totp.secret }}</code>
                     <n-input v-model:value="totp.code" placeholder="6 位验证码" maxlength="6" :input-props="{ inputmode: 'numeric', autocomplete: 'one-time-code' }" @keyup.enter="confirmTotp" />
-                    <div class="row"><n-button @click="totp.step = ''">取消</n-button><n-button type="primary" :disabled="totp.code.length < 6" @click="confirmTotp">确认开启</n-button></div>
+                    <div class="row"><n-button @click="totp.step = ''">取消</n-button><n-button type="primary" :loading="totpBusy" :disabled="totp.code.length < 6 || totpBusy" @click="confirmTotp">确认开启</n-button></div>
                   </div>
                 </div>
               </div>
@@ -293,7 +359,7 @@ onMounted(() => {
                 <div class="f-label"><span class="f-name">恢复码</span><span class="f-hint">只显示这一次。手机丢失时可用其中任意一个登录，每个只能用一次。</span></div>
                 <div class="f-ctl">
                   <div class="codes mono"><span v-for="c in totp.codes" :key="c">{{ c }}</span></div>
-                  <div class="row"><n-button @click="copy(totp.codes.join('\n'))">复制全部</n-button><n-button type="primary" @click="totp.step = ''">我已保存</n-button></div>
+                  <div class="row"><n-button @click="copyText(totp.codes.join('\n'), '已复制全部恢复码')">复制全部</n-button><n-button type="primary" @click="totp.step = ''">我已保存</n-button></div>
                 </div>
               </div>
               <template v-else>
@@ -304,19 +370,19 @@ onMounted(() => {
                 <template v-if="state.me?.totp">
                   <div class="field f-inline">
                     <div class="f-label"><span class="f-name">恢复码</span><span class="f-hint">重新生成后，旧的恢复码全部作废</span></div>
-                    <div class="f-ctl"><n-button @click="regenCodes">重新生成</n-button></div>
+                    <div class="f-ctl"><n-button :loading="totpBusy" :disabled="totpBusy" @click="regenCodes">重新生成</n-button></div>
                   </div>
                   <div class="field">
                     <div class="f-label"><span class="f-name">关闭两步验证</span><span class="f-hint">输入当前验证码确认。关闭后只凭密码即可登录</span></div>
                     <div class="f-ctl ctl-row">
                       <n-input v-model:value="disableCode" placeholder="6 位验证码" maxlength="6" :input-props="{ inputmode: 'numeric', autocomplete: 'one-time-code' }" />
-                      <n-button type="error" ghost :disabled="disableCode.length < 6" @click="disableTotp">关闭</n-button>
+                      <n-button type="error" ghost :loading="totpBusy" :disabled="disableCode.length < 6 || totpBusy" @click="disableTotp">关闭</n-button>
                     </div>
                   </div>
                 </template>
                 <div v-else class="f-actions">
                   <span class="spacer" />
-                  <n-button type="primary" @click="beginTotp">开启两步验证</n-button>
+                  <n-button type="primary" :loading="totpBusy" :disabled="totpBusy" @click="beginTotp">开启两步验证</n-button>
                 </div>
               </template>
             </div>
@@ -337,14 +403,14 @@ onMounted(() => {
                     <tr v-for="s in sessions" :key="s.id">
                       <td :title="s.ua">{{ uaShort(s.ua) }} <span v-if="s.current" class="tag ok">当前</span></td>
                       <td class="mono">{{ s.ip }}</td><td class="nowrap">{{ dt(s.created_at) }}</td><td class="nowrap">{{ ago(s.last_seen) }}</td>
-                      <td style="text-align: right"><n-button v-if="!s.current" size="tiny" quaternary type="error" @click="kick(s)">踢下线</n-button></td>
+                      <td style="text-align: right"><n-button v-if="!s.current" size="tiny" quaternary type="error" :loading="kicking === s.id" :disabled="kicking === s.id" @click="kick(s)">踢下线</n-button></td>
                     </tr>
                   </tbody>
                 </table>
               </div>
               <div class="m-list only-mobile">
                 <div v-for="s in sessions" :key="s.id" class="m-item">
-                  <div class="m-row"><b>{{ uaShort(s.ua) }}</b><span v-if="s.current" class="tag ok">当前</span><span class="spacer" /><n-button v-if="!s.current" size="small" quaternary type="error" @click="kick(s)">踢下线</n-button></div>
+                  <div class="m-row"><b>{{ uaShort(s.ua) }}</b><span v-if="s.current" class="tag ok">当前</span><span class="spacer" /><n-button v-if="!s.current" size="small" quaternary type="error" :loading="kicking === s.id" :disabled="kicking === s.id" @click="kick(s)">踢下线</n-button></div>
                   <div class="m-row small muted"><span class="mono">{{ s.ip }}</span><span>· {{ ago(s.last_seen) }}</span></div>
                 </div>
               </div>
@@ -396,7 +462,7 @@ onMounted(() => {
           <span v-else class="small muted">留空的项使用默认值</span>
           <span class="spacer" />
           <n-button :disabled="!dirtyKeys.length" @click="cfg = { ...orig }">撤销</n-button>
-          <n-button type="primary" :disabled="!dirtyKeys.length" @click="saveSettings()">保存</n-button>
+          <n-button type="primary" :loading="saving" :disabled="!dirtyKeys.length || saving" @click="saveSettings()">保存</n-button>
         </div>
       </n-tab-pane>
 
@@ -423,9 +489,9 @@ onMounted(() => {
                   <span class="f-hint">{{ dt(b.at) }} · {{ bytes(b.size) }}{{ b.encrypted ? ' · 已加密' : '' }}</span>
                 </div>
                 <div class="row b-act">
-                  <n-button tag="a" size="tiny" quaternary :href="`/api/backups/${encodeURIComponent(b.name)}`" download>下载</n-button>
+                  <n-button size="tiny" quaternary :loading="downloading === b.name" :disabled="!!downloading" @click="downloadBackup(b)">下载</n-button>
                   <n-button size="tiny" quaternary @click="openRestore(b)">恢复</n-button>
-                  <n-button size="tiny" quaternary type="error" @click="delBackup(b)">删除</n-button>
+                  <n-button size="tiny" quaternary type="error" :loading="deletingBackup === b.name" :disabled="!!deletingBackup" @click="delBackup(b)">删除</n-button>
                 </div>
               </div>
             </div>
@@ -490,7 +556,7 @@ onMounted(() => {
           <span v-else class="small muted">留空的项使用默认值</span>
           <span class="spacer" />
           <n-button :disabled="!backupDirtyKeys.length" @click="resetKeys(backupKeys)">撤销</n-button>
-          <n-button type="primary" :disabled="!backupDirtyKeys.length" @click="saveBackupSettings">保存</n-button>
+          <n-button type="primary" :loading="saving" :disabled="!backupDirtyKeys.length || saving" @click="saveBackupSettings">保存</n-button>
         </div>
       </n-tab-pane>
 
@@ -549,7 +615,7 @@ onMounted(() => {
         </div>
         <div class="banner warn">恢复会覆盖数据库与密钥，面板随后自动重启。</div>
       </div>
-      <template #footer><div class="m-foot"><n-button @click="restore.show = false">取消</n-button><n-button type="error" @click="doRestore">恢复</n-button></div></template>
+      <template #footer><div class="m-foot"><n-button @click="restore.show = false">取消</n-button><n-button type="error" :loading="restoring" :disabled="restoring" @click="doRestore">恢复</n-button></div></template>
     </n-modal>
   </div>
 </template>

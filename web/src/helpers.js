@@ -7,7 +7,7 @@ export async function run(fn, okText) {
     if (okText) ui.message?.success(okText)
     return r
   } catch (e) {
-    if (e?.message !== '已取消') ui.message?.error(e?.message || String(e))
+    if (!e?.silent && e?.message !== '已取消') ui.message?.error(e?.message || String(e))
     return undefined
   }
 }

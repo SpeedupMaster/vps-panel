@@ -31,7 +31,8 @@ async function submit() {
     }
     state.me = null
     await loadMe()
-    const next = typeof route.query.next === 'string' && route.query.next.startsWith('/') ? route.query.next : '/'
+    const rawNext = route.query.next
+    const next = typeof rawNext === 'string' && rawNext.startsWith('/') && !rawNext.startsWith('//') && !rawNext.startsWith('/\\') ? rawNext : '/'
     router.replace(next)
   } catch (e) {
     err.value = e.message

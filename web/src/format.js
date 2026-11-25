@@ -32,6 +32,12 @@ export function dur(sec) {
   if (sec < 86400) return (sec / 3600).toFixed(1) + ' 小时'
   return Math.floor(sec / 86400) + ' 天'
 }
+export function countdown(exp, now = Date.now()) {
+  if (!exp) return ''
+  const s = Math.max(0, Math.floor((toMs(exp) - now) / 1000))
+  if (s >= 3600) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+}
 const p2 = (n) => String(n).padStart(2, '0')
 export function dt(t, withYear = false) {
   if (!t || !valid(t)) return '—'

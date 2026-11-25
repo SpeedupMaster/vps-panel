@@ -100,16 +100,30 @@ watch(() => [server.value, sv.value?.bandwidth_mbps], () => { tune.value.bandwid
 const bbrLoaded = computed(() => (sv.value?.system?.avail_cc || '').split(/\s+/).includes('bbr'))
 const profiles = [{ label: '保守', value: 'conservative' }, { label: '均衡', value: 'balanced' }, { label: '激进', value: 'aggressive' }]
 function tuneArgs(dry) { return { profile: tune.value.profile, bandwidth_mbps: String(tune.value.bandwidth_mbps || 1000), dry_run: dry ? '1' : '0' } }
-async function previewTune() { bbrTool.value = 'tune_net'; await runTool('tune_net', tuneArgs(true)) }
-async function applyTune() {
-  if (!(await ask('应用网络优化', '会写入 /etc/sysctl.d/99-vpspanel.conf 并立即生效，原值自动备份，可随时还原。'))) return
+const tuneBusy = ref(false)
+async function previewTune() {
+  if (tuneBusy.value) return
   bbrTool.value = 'tune_net'
-  runTool('tune_net', tuneArgs(false))
+  tuneBusy.value = true
+  try { await runTool('tune_net', tuneArgs(true)) } finally { tuneBusy.value = false }
+}
+async function applyTune() {
+  if (tuneBusy.value) return
+  bbrTool.value = 'tune_net'
+  tuneBusy.value = true
+  try {
+    if (!(await ask('应用网络优化', '会写入 /etc/sysctl.d/99-vpspanel.conf 并立即生效，原值自动备份，可随时还原。'))) return
+    await runTool('tune_net', tuneArgs(false))
+  } finally { tuneBusy.value = false }
 }
 async function restoreTune() {
-  if (!(await ask('还原网络参数', '把所有项改回优化前的数值并删除 /etc/sysctl.d/99-vpspanel.conf。'))) return
+  if (tuneBusy.value) return
   bbrTool.value = 'restore_net'
-  runTool('restore_net')
+  tuneBusy.value = true
+  try {
+    if (!(await ask('还原网络参数', '把所有项改回优化前的数值并删除 /etc/sysctl.d/99-vpspanel.conf。'))) return
+    await runTool('restore_net')
+  } finally { tuneBusy.value = false }
 }
 
 // ---------- history ----------
@@ -143,17 +157,27 @@ async function saveScript() {
   const r = await run(() => (s.id ? api.put(`/scripts/${s.id}`, s) : api.post('/scripts', s)), '已保存')
   if (r) { script.value = { ...r }; loadScripts() }
 }
+const runningScript = ref(false)
+const deletingScript = ref(0)
 async function delScript(s) {
-  if (!(await ask('删除脚本', `删除「${s.name}」？`, { danger: true }))) return
-  if (await run(() => api.del(`/scripts/${s.id}`), '已删除')) { if (script.value.id === s.id) pickScript(null); loadScripts() }
+  if (deletingScript.value) return
+  deletingScript.value = s.id
+  try {
+    if (!(await ask('删除脚本', `删除「${s.name}」？`, { danger: true }))) return
+    if (await run(() => api.del(`/scripts/${s.id}`), '已删除')) { if (script.value.id === s.id) pickScript(null); loadScripts() }
+  } finally { deletingScript.value = 0 }
 }
 const execServers = computed(() => state.servers.filter((s) => s.online))
 async function runScript() {
+  if (runningScript.value) return
   if (!targets.value.length || !script.value.content) { ui.message.warning('选择服务器并填写脚本'); return }
   const names = targets.value.map((id) => state.servers.find((s) => s.id === id)?.name).join('、')
-  if (!(await ask('执行脚本', `在 ${names} 上以 root 执行「${script.value.name || '临时脚本'}」，超时 ${timeout.value} 秒。`))) return
-  const r = await run(() => api.post('/scripts/run', { script_id: script.value.id, content: script.value.id ? '' : script.value.content, server_ids: targets.value, timeout: timeout.value }, { confirm: '远程执行需要确认身份' }))
-  if (r) scriptRun.value = { tasks: (r.task_ids || []).map((id, i) => ({ id, server: targets.value[i] })) }
+  runningScript.value = true
+  try {
+    if (!(await ask('执行脚本', `在 ${names} 上以 root 执行「${script.value.name || '临时脚本'}」，超时 ${timeout.value} 秒。`))) return
+    const r = await run(() => api.post('/scripts/run', { script_id: script.value.id, content: script.value.id ? '' : script.value.content, server_ids: targets.value, timeout: timeout.value }, { confirm: '远程执行需要确认身份' }))
+    if (r) scriptRun.value = { tasks: (r.task_ids || []).map((id, i) => ({ id, server: targets.value[i] })) }
+  } finally { runningScript.value = false }
 }
 const dirty = computed(() => { const o = scripts.value.find((s) => s.id === script.value.id); return o && o.content !== script.value.content })
 
@@ -176,9 +200,14 @@ async function saveSched() {
   const body = { id: s.id, name: s.name || actions.value[s.action], cron: s.cron, action: s.action, servers: s.spec === 'ids' ? s.ids.join(',') : s.spec, enabled: s.enabled }
   if (await run(() => (s.id ? api.put(`/schedules/${s.id}`, body) : api.post('/schedules', body)), '已保存')) { sched.value.show = false; loadSchedules() }
 }
+const deletingSched = ref(0)
 async function delSched(s) {
-  if (!(await ask('删除定时任务', `删除「${s.name}」？`, { danger: true }))) return
-  if (await run(() => api.del(`/schedules/${s.id}`), '已删除')) loadSchedules()
+  if (deletingSched.value) return
+  deletingSched.value = s.id
+  try {
+    if (!(await ask('删除定时任务', `删除「${s.name}」？`, { danger: true }))) return
+    if (await run(() => api.del(`/schedules/${s.id}`), '已删除')) loadSchedules()
+  } finally { deletingSched.value = 0 }
 }
 async function runSchedNow(s) { if (await run(() => api.post(`/schedules/${s.id}/run`), '已开始执行')) setTimeout(loadSchedules, 1500) }
 async function toggleSched(s, v) { if (await run(() => api.put(`/schedules/${s.id}`, { ...s, enabled: v }))) s.enabled = v }
@@ -273,10 +302,10 @@ function cronText(c) {
               </div>
             </div>
             <div class="f-actions">
-              <n-button :disabled="!sv?.online || !sv?.switches?.allow_system_tune" @click="restoreTune">还原到优化前</n-button>
+              <n-button :loading="tuneBusy && bbrTool === 'restore_net'" :disabled="!sv?.online || !sv?.switches?.allow_system_tune || tuneBusy || isRunning('restore_net')" @click="restoreTune">还原到优化前</n-button>
               <span class="spacer" />
-              <n-button :disabled="!sv?.online" @click="previewTune">预览改动</n-button>
-              <n-button type="primary" :disabled="!sv?.online || !sv?.switches?.allow_system_tune" @click="applyTune">应用优化</n-button>
+              <n-button :disabled="!sv?.online || tuneBusy || isRunning('tune_net')" @click="previewTune">预览改动</n-button>
+              <n-button type="primary" :loading="tuneBusy && bbrTool === 'tune_net'" :disabled="!sv?.online || !sv?.switches?.allow_system_tune || tuneBusy || isRunning('tune_net')" @click="applyTune">应用优化</n-button>
             </div>
             <p class="f-note">「还原」把所有项改回优化前的数值，并删除上面的配置文件。</p>
           </div>
@@ -341,7 +370,7 @@ function cronText(c) {
             <div v-else class="s-list">
               <div v-for="s in scripts" :key="s.id" :class="['s-item', { on: script.id === s.id }]" @click="pickScript(s)">
                 <span>{{ s.name }}</span><span class="spacer" />
-                <n-button size="tiny" quaternary type="error" @click.stop="delScript(s)">删除</n-button>
+                <n-button size="tiny" quaternary type="error" :loading="deletingScript === s.id" :disabled="!!deletingScript" @click.stop="delScript(s)">删除</n-button>
               </div>
             </div>
           </div>
@@ -363,7 +392,7 @@ function cronText(c) {
               <div class="f-label"><span class="f-name">超时</span><span class="f-hint">10–3600 秒</span></div>
               <div class="f-ctl"><n-input-number v-model:value="timeout" :min="10" :max="3600" :show-button="false"><template #suffix><span class="f-unit">秒</span></template></n-input-number></div>
             </div>
-            <div class="f-actions"><span class="spacer" /><n-button type="primary" :disabled="!targets.length" @click="runScript">执行</n-button></div>
+            <div class="f-actions"><span class="spacer" /><n-button type="primary" :loading="runningScript" :disabled="!targets.length || runningScript" @click="runScript">执行</n-button></div>
           </div>
         </div>
         <div v-if="scriptRun.tasks.length" class="outs">
@@ -393,7 +422,7 @@ function cronText(c) {
                   <td class="nowrap" style="text-align: right">
                     <n-button size="tiny" quaternary @click="runSchedNow(s)">立即执行</n-button>
                     <n-button size="tiny" quaternary @click="editSched(s)">编辑</n-button>
-                    <n-button size="tiny" quaternary type="error" @click="delSched(s)">删除</n-button>
+                    <n-button size="tiny" quaternary type="error" :loading="deletingSched === s.id" :disabled="!!deletingSched" @click="delSched(s)">删除</n-button>
                   </td>
                 </tr>
               </tbody>
