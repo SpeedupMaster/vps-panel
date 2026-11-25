@@ -18,8 +18,8 @@ func (p *Panel) Roles(sv *store.Server) []string {
 	var roles []string
 	if sv.CapReality {
 		var direct, chain int64
-		p.St.DB.Model(&store.Route{}).Where("entry_server_id = ? AND type = ?", sv.ID, "direct").Count(&direct)
-		p.St.DB.Model(&store.Route{}).Where("entry_server_id = ? AND type = ?", sv.ID, "chain").Count(&chain)
+		p.St.R().Model(&store.Route{}).Where("entry_server_id = ? AND type = ?", sv.ID, "direct").Count(&direct)
+		p.St.R().Model(&store.Route{}).Where("entry_server_id = ? AND type = ?", sv.ID, "chain").Count(&chain)
 		if chain > 0 {
 			roles = append(roles, "entry")
 		}
@@ -31,6 +31,52 @@ func (p *Panel) Roles(sv *store.Server) []string {
 		roles = append(roles, "landing")
 	}
 	return roles
+}
+
+// RolesMap derives display roles for a batch of servers using a single
+// aggregated query instead of per-server route COUNT queries.
+func (p *Panel) RolesMap(svs []store.Server) map[uint][]string {
+	out := make(map[uint][]string, len(svs))
+	if len(svs) == 0 {
+		return out
+	}
+	var counts []struct {
+		EntryServerID uint
+		Type          string
+		N             int64
+	}
+	p.St.R().Model(&store.Route{}).Select("entry_server_id, type, COUNT(*) AS n").Group("entry_server_id, type").Scan(&counts)
+	directBy := map[uint]int64{}
+	chainBy := map[uint]int64{}
+	for _, c := range counts {
+		switch c.Type {
+		case "direct":
+			directBy[c.EntryServerID] = c.N
+		case "chain":
+			chainBy[c.EntryServerID] = c.N
+		}
+	}
+	for i := range svs {
+		sv := &svs[i]
+		if sv.Mode != "node" {
+			out[sv.ID] = []string{"probe"}
+			continue
+		}
+		var roles []string
+		if sv.CapReality {
+			if chainBy[sv.ID] > 0 {
+				roles = append(roles, "entry")
+			}
+			if directBy[sv.ID] > 0 || chainBy[sv.ID] == 0 {
+				roles = append(roles, "direct")
+			}
+		}
+		if sv.CapLanding {
+			roles = append(roles, "landing")
+		}
+		out[sv.ID] = roles
+	}
+	return out
 }
 
 // ToCurrency converts an amount to the display currency using the fx_rates

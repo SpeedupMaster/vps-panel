@@ -72,9 +72,75 @@ func (p *Panel) flushPendingTasks(serverID uint) {
 	}
 }
 
+func trimTaskOutputTail(out string) string {
+	const maxBytes = 256 << 10
+	if len(out) <= maxBytes {
+		return out
+	}
+	start := len(out) - maxBytes
+	for start < len(out) && !utf8.RuneStart(out[start]) {
+		start++
+	}
+	return out[start:]
+}
+
+// TaskOutput returns the freshest output for a task (including any buffered
+// streaming chunks not yet flushed to SQLite).
+func (p *Panel) TaskOutput(id uint64, stored string) string {
+	p.taskOutMu.Lock()
+	defer p.taskOutMu.Unlock()
+	if b := p.taskOut[id]; b != nil {
+		return b.buf
+	}
+	return stored
+}
+
+// FlushTaskOutputs flushes any dirty in-memory streaming task output buffers
+// to SQLite.
+func (p *Panel) FlushTaskOutputs() {
+	type item struct {
+		id     uint64
+		status string
+		out    string
+	}
+	now := time.Now()
+	p.taskOutMu.Lock()
+	var items []item
+	for id, b := range p.taskOut {
+		if b.dirty {
+			items = append(items, item{id: id, status: b.status, out: b.buf})
+			b.dirty = false
+			b.lastFlush = now
+		}
+	}
+	p.taskOutMu.Unlock()
+	for _, it := range items {
+		upd := map[string]any{"output": it.out}
+		if it.status != "" {
+			upd["status"] = it.status
+		}
+		p.St.DB.Model(&store.Task{}).Where("id = ? AND finished_at IS NULL", it.id).Updates(upd)
+	}
+}
+
 func (p *Panel) finishTask(t *store.Task, status, out string) {
 	now := time.Now()
-	p.St.DB.Model(t).Updates(map[string]any{"status": status, "output": t.Output + out, "finished_at": &now})
+	p.taskOutMu.Lock()
+	base := t.Output
+	hasBuf := false
+	if b := p.taskOut[t.ID]; b != nil {
+		base = b.buf
+		hasBuf = true
+		delete(p.taskOut, t.ID)
+	}
+	p.taskOutMu.Unlock()
+	if !hasBuf && base == "" && t.ID != 0 {
+		var cur struct{ Output string }
+		if p.St.DB.Model(&store.Task{}).Select("output").Where("id = ?", t.ID).First(&cur).Error == nil {
+			base = cur.Output
+		}
+	}
+	p.St.DB.Model(t).Updates(map[string]any{"status": status, "output": trimTaskOutputTail(base + out), "finished_at": &now})
 	p.mu.Lock()
 	ws := p.waiters[t.ID]
 	delete(p.waiters, t.ID)
@@ -86,30 +152,65 @@ func (p *Panel) finishTask(t *store.Task, status, out string) {
 
 func (p *Panel) onTaskResult(serverID uint, r *proto.TaskResult) {
 	var t store.Task
-	if err := p.St.DB.First(&t, "id = ? AND server_id = ?", r.TaskID, serverID).Error; err != nil {
+	p.taskOutMu.Lock()
+	existing := p.taskOut[r.TaskID]
+	p.taskOutMu.Unlock()
+
+	q := p.St.DB.Where("id = ? AND server_id = ?", r.TaskID, serverID)
+	if existing != nil {
+		q = q.Omit("output", "payload")
+	} else {
+		q = q.Omit("payload")
+	}
+	if err := q.First(&t).Error; err != nil {
 		return
 	}
-	upd := map[string]any{"status": r.Status}
-	if r.Output != "" && t.Type != proto.TaskShell { // never persist terminal sessions
-		out := t.Output + r.Output
-		if len(out) > 256<<10 { // keep the tail on a valid UTF-8 rune boundary
-			start := len(out) - (256 << 10)
-			for start < len(out) && !utf8.RuneStart(out[start]) {
-				start++
-			}
-			out = out[start:]
+
+	upd := map[string]any{}
+	statusChanged := r.Status != "" && r.Status != t.Status
+	if statusChanged || r.Finished {
+		upd["status"] = r.Status
+	}
+	now := time.Now()
+	if t.Type != proto.TaskShell { // never persist terminal sessions
+		p.taskOutMu.Lock()
+		if p.taskOut == nil {
+			p.taskOut = map[uint64]*taskOutBuf{}
 		}
-		upd["output"] = out
+		b := p.taskOut[r.TaskID]
+		if b == nil {
+			b = &taskOutBuf{serverID: serverID, buf: t.Output}
+			p.taskOut[r.TaskID] = b
+		}
+		if r.Status != "" {
+			b.status = r.Status
+		}
+		if r.Output != "" {
+			b.buf = trimTaskOutputTail(b.buf + r.Output)
+			b.dirty = true
+		}
+		if r.Finished {
+			upd["output"] = b.buf
+			b.dirty = false
+			b.lastFlush = now
+			delete(p.taskOut, r.TaskID)
+		} else if b.dirty && (r.Data != nil || b.lastFlush.IsZero() || now.Sub(b.lastFlush) >= time.Second) {
+			upd["output"] = b.buf
+			b.dirty = false
+			b.lastFlush = now
+		}
+		p.taskOutMu.Unlock()
 	}
 	if r.Data != nil {
 		b, _ := json.Marshal(r.Data)
 		upd["data"] = string(b)
 	}
 	if r.Finished {
-		now := time.Now()
 		upd["finished_at"] = &now
 	}
-	p.St.DB.Model(&t).Updates(upd)
+	if len(upd) > 0 {
+		p.St.DB.Model(&t).Updates(upd)
+	}
 
 	p.mu.Lock()
 	ws := p.waiters[r.TaskID]
@@ -129,6 +230,8 @@ func (p *Panel) onTaskResult(serverID uint, r *proto.TaskResult) {
 	if r.Finished {
 		p.Bus.Publish("task", map[string]any{"id": strconv.FormatUint(r.TaskID, 10), "server_id": serverID, "type": t.Type, "status": r.Status})
 		p.afterTask(&t, r)
+	} else if r.Output != "" {
+		p.Bus.Publish("task_output", map[string]any{"id": strconv.FormatUint(r.TaskID, 10), "server_id": serverID, "output": r.Output})
 	}
 }
 
@@ -202,7 +305,7 @@ func (p *Panel) RunTask(ctx context.Context, serverID uint, typ string, args map
 // ExpireTasks marks sent/running tasks that ran past their timeout.
 func (p *Panel) ExpireTasks() {
 	var ts []store.Task
-	p.St.DB.Where("status IN ?", []string{"sent", "running"}).Find(&ts)
+	p.St.DB.Omit("output", "payload").Where("status IN ?", []string{"sent", "running"}).Find(&ts)
 	for i := range ts {
 		if time.Since(ts[i].CreatedAt) > time.Duration(ts[i].Timeout+60)*time.Second {
 			p.finishTask(&ts[i], "timeout", "\n任务超时")

@@ -265,7 +265,13 @@ func (p *Panel) ingestProbe(serverID uint, r *proto.ProbeResult) {
 		rows = append(rows, store.ProbeResult{ServerID: serverID, Target: s.Target, TS: r.TS, Kind: r.Kind, Avg: s.Avg, Min: s.Min, Max: s.Max, Jitter: s.Jitter, Loss: s.Loss})
 	}
 	if len(rows) > 0 {
-		p.St.DB.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(rows, 200)
+		p.teleMu.Lock()
+		p.pendingProbes = append(p.pendingProbes, rows...)
+		shouldFlush := len(p.pendingProbes) >= 500
+		p.teleMu.Unlock()
+		if shouldFlush {
+			p.FlushTelemetry()
+		}
 	}
 	probes.mu.Lock()
 	if probes.latest[serverID] == nil {
@@ -406,6 +412,7 @@ func (p *Panel) segmentDown(entry, landing uint) bool {
 // RollupProbes aggregates complete hours into probe_results_1h and trims raw
 // data (default 3 days raw, 90 days hourly).
 func (p *Panel) RollupProbes() {
+	p.FlushTelemetry()
 	now := time.Now().Unix()
 	from := (now - 3*3600) / 3600 * 3600
 	to := now / 3600 * 3600
@@ -419,14 +426,15 @@ func (p *Panel) RollupProbes() {
 
 // ProbeSeries returns raw rows for ranges up to 2 days, hourly beyond.
 func (p *Panel) ProbeSeries(serverID uint, target string, rangeSec int64) []store.ProbeResult {
+	p.FlushTelemetry()
 	since := time.Now().Unix() - rangeSec
 	var rows []store.ProbeResult
 	if rangeSec <= 2*86400 {
-		p.St.DB.Where("server_id = ? AND target = ? AND ts >= ?", serverID, target, since).Order("ts").Find(&rows)
+		p.St.R().Where("server_id = ? AND target = ? AND ts >= ?", serverID, target, since).Order("ts").Find(&rows)
 		return rows
 	}
 	var hs []store.ProbeResultHour
-	p.St.DB.Where("server_id = ? AND target = ? AND ts >= ?", serverID, target, since).Order("ts").Find(&hs)
+	p.St.R().Where("server_id = ? AND target = ? AND ts >= ?", serverID, target, since).Order("ts").Find(&hs)
 	rows = make([]store.ProbeResult, len(hs))
 	for i, h := range hs {
 		rows[i] = h.ProbeResult

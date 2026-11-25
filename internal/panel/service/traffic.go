@@ -88,18 +88,33 @@ type Usage struct {
 // Sum returns up/down for a scope since a time.
 func (p *Panel) Sum(scope, scopeID string, since time.Time) (up, down uint64) {
 	var r struct{ Up, Down uint64 }
-	p.St.DB.Model(&store.TrafficHourly{}).Select("COALESCE(SUM(up),0) AS up, COALESCE(SUM(down),0) AS down").
+	p.St.R().Model(&store.TrafficHourly{}).Select("COALESCE(SUM(up),0) AS up, COALESCE(SUM(down),0) AS down").
 		Where("scope = ? AND scope_id = ? AND hour >= ?", scope, scopeID, since.Unix()/3600*3600).Scan(&r)
 	return r.Up, r.Down
 }
 
-// CycleUsage is the server's NIC traffic in the current billing cycle.
-// For the NIC, "up" = bytes sent (out), "down" = bytes received (in).
-func (p *Panel) CycleUsage(sv *store.Server) Usage {
-	now := time.Now()
-	start := CycleStart(sv.ResetDay, now)
-	end := clampDay(start.Year(), start.Month()+1, sv.ResetDay, now.Location())
-	up, down := p.Sum("server", strconv.FormatUint(uint64(sv.ID), 10), start)
+// SumMany returns up/down totals for multiple scopeIDs in a single GROUP BY query.
+func (p *Panel) SumMany(scope string, scopeIDs []string, since time.Time) map[string][2]uint64 {
+	out := make(map[string][2]uint64, len(scopeIDs))
+	if len(scopeIDs) == 0 {
+		return out
+	}
+	var rows []struct {
+		ScopeID string
+		Up      uint64
+		Down    uint64
+	}
+	p.St.R().Model(&store.TrafficHourly{}).
+		Select("scope_id, COALESCE(SUM(up),0) AS up, COALESCE(SUM(down),0) AS down").
+		Where("scope = ? AND scope_id IN ? AND hour >= ?", scope, scopeIDs, since.Unix()/3600*3600).
+		Group("scope_id").Scan(&rows)
+	for _, r := range rows {
+		out[r.ScopeID] = [2]uint64{r.Up, r.Down}
+	}
+	return out
+}
+
+func buildUsage(sv *store.Server, up, down uint64, start, end, now time.Time) Usage {
 	u := Usage{Up: up, Down: down, Quota: sv.QuotaBytes, CycleStart: start, CycleEnd: end}
 	switch sv.CountMode {
 	case "in":
@@ -126,6 +141,64 @@ func (p *Panel) CycleUsage(sv *store.Server) Usage {
 		}
 	}
 	return u
+}
+
+// CycleUsage is the server's NIC traffic in the current billing cycle.
+// For the NIC, "up" = bytes sent (out), "down" = bytes received (in).
+func (p *Panel) CycleUsage(sv *store.Server) Usage {
+	now := time.Now()
+	start := CycleStart(sv.ResetDay, now)
+	end := clampDay(start.Year(), start.Month()+1, sv.ResetDay, now.Location())
+	up, down := p.Sum("server", strconv.FormatUint(uint64(sv.ID), 10), start)
+	return buildUsage(sv, up, down, start, end, now)
+}
+
+// CycleUsageMap computes CycleUsage for a batch of servers in a single SQL query.
+func (p *Panel) CycleUsageMap(svs []store.Server) map[uint]Usage {
+	out := make(map[uint]Usage, len(svs))
+	if len(svs) == 0 {
+		return out
+	}
+	now := time.Now()
+	starts := make(map[uint]time.Time, len(svs))
+	ends := make(map[uint]time.Time, len(svs))
+	startHours := make(map[string]int64, len(svs))
+	sids := make([]string, 0, len(svs))
+	var minHour int64
+	for i := range svs {
+		sv := &svs[i]
+		start := CycleStart(sv.ResetDay, now)
+		end := clampDay(start.Year(), start.Month()+1, sv.ResetDay, now.Location())
+		sh := start.Unix() / 3600 * 3600
+		sid := strconv.FormatUint(uint64(sv.ID), 10)
+		starts[sv.ID] = start
+		ends[sv.ID] = end
+		startHours[sid] = sh
+		sids = append(sids, sid)
+		if i == 0 || sh < minHour {
+			minHour = sh
+		}
+	}
+	var rows []store.TrafficHourly
+	p.St.R().Select("scope_id, hour, up, down").
+		Where("scope = ? AND scope_id IN ? AND hour >= ?", "server", sids, minHour).
+		Find(&rows)
+	totals := make(map[string][2]uint64, len(svs))
+	for _, r := range rows {
+		if r.Hour >= startHours[r.ScopeID] {
+			cur := totals[r.ScopeID]
+			cur[0] += r.Up
+			cur[1] += r.Down
+			totals[r.ScopeID] = cur
+		}
+	}
+	for i := range svs {
+		sv := &svs[i]
+		sid := strconv.FormatUint(uint64(sv.ID), 10)
+		t := totals[sid]
+		out[sv.ID] = buildUsage(sv, t[0], t[1], starts[sv.ID], ends[sv.ID], now)
+	}
+	return out
 }
 
 // checkTrafficQuota fires 80/90/100% alerts once per level per cycle and
@@ -175,7 +248,7 @@ func (p *Panel) checkTrafficQuota(serverID uint) {
 // TrafficSeries returns hourly or daily buckets for a scope.
 func (p *Panel) TrafficSeries(scope, scopeID string, since time.Time, daily bool) []store.TrafficHourly {
 	var rows []store.TrafficHourly
-	q := p.St.DB.Model(&store.TrafficHourly{}).Where("scope = ? AND scope_id = ? AND hour >= ?", scope, scopeID, since.Unix())
+	q := p.St.R().Model(&store.TrafficHourly{}).Where("scope = ? AND scope_id = ? AND hour >= ?", scope, scopeID, since.Unix())
 	if daily {
 		// Group by local day.
 		_, off := time.Now().Zone()

@@ -20,7 +20,7 @@ type Session struct {
 	UA        string
 	CreatedAt time.Time
 	LastSeen  time.Time
-	ExpiresAt time.Time
+	ExpiresAt time.Time `gorm:"index"`
 }
 
 type Server struct {
@@ -146,18 +146,18 @@ type SubTemplate struct {
 
 type SubAccessLog struct {
 	ID       uint      `gorm:"primaryKey" json:"id"`
-	TokenID  uint      `gorm:"index" json:"token_id"`
+	TokenID  uint      `gorm:"index;index:idx_sub_access_token_ts,priority:1" json:"token_id"`
 	IP       string    `json:"ip"`
 	UA       string    `json:"ua"`
 	Target   string    `json:"target"`
 	Stranger bool      `json:"stranger"`
-	TS       time.Time `gorm:"index" json:"ts"`
+	TS       time.Time `gorm:"index;index:idx_sub_access_token_ts,priority:2" json:"ts"`
 }
 
 // Metric rows share one shape; Res picks the table via Scopes.
 type Metric struct {
 	ServerID  uint  `gorm:"primaryKey;autoIncrement:false"`
-	TS        int64 `gorm:"primaryKey;autoIncrement:false"`
+	TS        int64 `gorm:"primaryKey;autoIncrement:false;index"`
 	CPU       float64
 	Steal     float64
 	Load1     float64
@@ -195,7 +195,7 @@ type ProbeTarget struct {
 type ProbeResult struct {
 	ServerID uint    `gorm:"primaryKey;autoIncrement:false" json:"server_id"`
 	Target   string  `gorm:"primaryKey" json:"target"`
-	TS       int64   `gorm:"primaryKey;autoIncrement:false" json:"ts"`
+	TS       int64   `gorm:"primaryKey;autoIncrement:false;index" json:"ts"`
 	Kind     string  `gorm:"index" json:"kind"`
 	Avg      float64 `json:"avg"`
 	Min      float64 `json:"min"`
@@ -221,8 +221,8 @@ type TrafficSeq struct {
 
 type ConfigVersion struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
-	ServerID  uint      `gorm:"index" json:"server_id"`
-	Version   int       `json:"version"`
+	ServerID  uint      `gorm:"index;uniqueIndex:idx_config_ver_server_version,priority:1" json:"server_id"`
+	Version   int       `gorm:"uniqueIndex:idx_config_ver_server_version,priority:2" json:"version"`
 	Config    string    `json:"config"`
 	Diff      string    `json:"diff"`
 	Reason    string    `json:"reason"`
@@ -237,13 +237,13 @@ type Task struct {
 	Type       string     `json:"type"`
 	Args       string     `json:"args"`
 	Payload    []byte     `json:"-"`
-	Status     string     `json:"status"` // pending | sent | running | success | failed | timeout
+	Status     string     `gorm:"index" json:"status"` // pending | sent | running | success | failed | timeout
 	Output     string     `json:"output"`
 	Data       string     `json:"data"`
 	ExpireAt   *time.Time `json:"expire_at"`
 	Timeout    int        `json:"timeout"`
 	CreatedAt  time.Time  `json:"created_at"`
-	FinishedAt *time.Time `json:"finished_at"`
+	FinishedAt *time.Time `gorm:"index" json:"finished_at"`
 }
 
 type AlertRule struct {
@@ -267,10 +267,10 @@ type AlertEvent struct {
 	Key        string     `gorm:"index" json:"key"` // dedupe key
 	Severity   string     `json:"severity"`
 	Text       string     `json:"text"`
-	Status     string     `json:"status"` // firing | resolved | notified
+	Status     string     `gorm:"index" json:"status"` // firing | resolved | notified
 	Acked      bool       `json:"acked"`
 	SilencedTo *time.Time `json:"silenced_to"`
-	StartedAt  time.Time  `json:"started_at"`
+	StartedAt  time.Time  `gorm:"index" json:"started_at"`
 	ResolvedAt *time.Time `json:"resolved_at"`
 	LastSentAt *time.Time `json:"last_sent_at"`
 }

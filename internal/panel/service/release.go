@@ -139,36 +139,59 @@ func (p *Panel) Releases(component string) []store.Release {
 
 // ---------- Xray download relay ----------
 
-var (
-	relayName = regexp.MustCompile(`^Xray-linux-(64|32|arm64-v8a|arm32-v7a)\.zip(\.dgst)?$`)
-	relayMu   sync.Mutex
-)
+var relayName = regexp.MustCompile(`^Xray-linux-(64|32|arm64-v8a|arm32-v7a)\.zip(\.dgst)?$`)
+
+func (p *Panel) relayKeyLock(key string) *sync.Mutex {
+	p.relayMu.Lock()
+	defer p.relayMu.Unlock()
+	if p.relayLocks == nil {
+		p.relayLocks = map[string]*sync.Mutex{}
+	}
+	m := p.relayLocks[key]
+	if m == nil {
+		m = &sync.Mutex{}
+		p.relayLocks[key] = m
+	}
+	return m
+}
 
 // XrayRelayFile returns a cached copy of a release asset, fetching it from
 // GitHub on first use. Only versions known to the panel are relayed.
+// Cached files are served lock-free; cache misses deduplicate per (ver, name).
 func (p *Panel) XrayRelayFile(ver, name string) (string, error) {
 	ver = strings.TrimPrefix(ver, "v")
 	if !relayName.MatchString(name) {
 		return "", errors.New("unknown asset")
 	}
 	var n int64
-	p.St.DB.Model(&store.Release{}).Where("component = ? AND version = ?", "xray", ver).Count(&n)
+	p.St.R().Model(&store.Release{}).Where("component = ? AND version = ?", "xray", ver).Count(&n)
 	if n == 0 {
 		return "", errors.New("unknown version")
 	}
 	dir := filepath.Join(p.DataDir, "cache", "xray", "v"+ver)
 	path := filepath.Join(dir, name)
-	relayMu.Lock()
-	defer relayMu.Unlock()
+	// Fast path: already cached on disk (lock-free).
+	if _, err := os.Stat(path); err == nil {
+		return path, nil
+	}
+	// Deduplicate concurrent fetches for the same (ver, name) only.
+	lock := p.relayKeyLock(ver + "/" + name)
+	lock.Lock()
+	defer lock.Unlock()
 	if _, err := os.Stat(path); err == nil {
 		return path, nil
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 	url := fmt.Sprintf("https://github.com/XTLS/Xray-core/releases/download/v%s/%s", ver, name)
-	req, _ := http.NewRequest(http.MethodGet, url, nil)
-	resp, err := (&http.Client{Timeout: 10 * time.Minute}).Do(req)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := (&http.Client{Timeout: 5 * time.Minute}).Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -186,7 +209,10 @@ func (p *Panel) XrayRelayFile(ver, name string) (string, error) {
 		os.Remove(tmp)
 		return "", err
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return "", err
+	}
 	return path, os.Rename(tmp, path)
 }
 

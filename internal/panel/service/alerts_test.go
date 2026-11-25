@@ -89,6 +89,7 @@ func TestBlockDetection(t *testing.T) {
 	if !sv.Blocked {
 		t.Fatal("not marked blocked")
 	}
+	p.FlushTelemetry()
 	var row store.ProbeResult
 	p.St.DB.First(&row, "server_id = ? AND target = ?", a.ID, "zs-he-cm")
 	if row.Loss != 100 {

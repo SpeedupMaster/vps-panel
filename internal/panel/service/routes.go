@@ -304,28 +304,61 @@ type RouteView struct {
 }
 
 func (p *Panel) RouteViews() []RouteView {
+	db := p.St.R()
 	var rs []store.Route
-	p.St.DB.Order("sort, id").Find(&rs)
+	db.Order("sort, id").Find(&rs)
 	var svs []store.Server
-	p.St.DB.Find(&svs)
+	db.Find(&svs)
 	byID := map[uint]*store.Server{}
 	for i := range svs {
 		byID[svs[i].ID] = &svs[i]
 	}
+	var ris []store.RealityInbound
+	db.Find(&ris)
+	riBy := make(map[uint]*store.RealityInbound, len(ris))
+	for i := range ris {
+		riBy[ris[i].ServerID] = &ris[i]
+	}
 	now := time.Now()
 	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	month := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	dayHour := day.Unix() / 3600 * 3600
+	monthHour := month.Unix() / 3600 * 3600
+
+	todayBytes := map[string]uint64{}
+	monthBytes := map[string]uint64{}
+	if len(rs) > 0 {
+		var trows []store.TrafficHourly
+		db.Select("scope_id, hour, up, down").Where("scope = ? AND hour >= ?", "route", monthHour).Find(&trows)
+		for _, tr := range trows {
+			sum := tr.Up + tr.Down
+			monthBytes[tr.ScopeID] += sum
+			if tr.Hour >= dayHour {
+				todayBytes[tr.ScopeID] += sum
+			}
+		}
+	}
+
 	latest := map[uint]int{}
 	var vers []struct {
 		ServerID uint
 		V        int
 	}
-	p.St.DB.Model(&store.ConfigVersion{}).Select("server_id, MAX(version) AS v").Group("server_id").Scan(&vers)
+	db.Model(&store.ConfigVersion{}).Select("server_id, MAX(version) AS v").Group("server_id").Scan(&vers)
 	for _, x := range vers {
 		latest[x.ServerID] = x.V
 	}
 	synced := func(sv *store.Server) bool {
 		return sv != nil && latest[sv.ID] > 0 && sv.XrayConfigVer >= latest[sv.ID] && !sv.XrayDrift
+	}
+	deployErrCache := map[uint]string{}
+	getDeployErr := func(sid uint) string {
+		if msg, cached := deployErrCache[sid]; cached {
+			return msg
+		}
+		msg := p.lastDeployError(sid)
+		deployErrCache[sid] = msg
+		return msg
 	}
 	out := make([]RouteView, 0, len(rs))
 	for _, r := range rs {
@@ -343,10 +376,8 @@ func (p *Panel) RouteViews() []RouteView {
 			}
 		}
 		id := strconv.FormatUint(uint64(r.ID), 10)
-		up, down := p.Sum("route", id, day)
-		v.TodayBytes = up + down
-		up, down = p.Sum("route", id, month)
-		v.MonthBytes = up + down
+		v.TodayBytes = todayBytes[id]
+		v.MonthBytes = monthBytes[id]
 		v.BackhaulMs = p.backhaulAvg(r.EntryServerID)
 		v.LatencyMs = v.BackhaulMs
 		if r.Type == "chain" {
@@ -387,16 +418,15 @@ func (p *Panel) RouteViews() []RouteView {
 				sids = append(sids, parseIDs(r.BackupIDs)...)
 			}
 			for _, sid := range sids {
-				if msg := p.lastDeployError(sid); sid != 0 && msg != "" {
+				if msg := getDeployErr(sid); sid != 0 && msg != "" {
 					v.DeployError = msg
 					break
 				}
 			}
 		}
 		if e != nil {
-			var ri store.RealityInbound
-			if p.St.DB.First(&ri, "server_id = ?", e.ID).Error == nil {
-				v.ShareLink = VLESSLink(nodeFor(&r, e, byID[r.LandingServerID], &ri, ""))
+			if ri := riBy[e.ID]; ri != nil {
+				v.ShareLink = VLESSLink(nodeFor(&r, e, byID[r.LandingServerID], ri, ""))
 			}
 		}
 		out = append(out, v)
@@ -408,7 +438,7 @@ func (p *Panel) RouteViews() []RouteView {
 // server when that push failed, else "".
 func (p *Panel) lastDeployError(serverID uint) string {
 	var t store.Task
-	if p.St.DB.Where("server_id = ? AND type IN ? AND finished_at IS NOT NULL", serverID, []string{"apply_config", "xray_op"}).
+	if p.St.R().Where("server_id = ? AND type IN ? AND finished_at IS NOT NULL", serverID, []string{"apply_config", "xray_op"}).
 		Order("id DESC").First(&t).Error != nil || t.Status == "success" {
 		return ""
 	}
@@ -440,11 +470,12 @@ type TopoEdge struct {
 
 func (p *Panel) Topology() map[string]any {
 	var svs []store.Server
-	p.St.DB.Where("mode = ?", "node").Order("sort, id").Find(&svs)
+	p.St.R().Where("mode = ?", "node").Order("sort, id").Find(&svs)
+	rolesBy := p.RolesMap(svs)
 	nodes := make([]TopoNode, 0, len(svs))
 	for i := range svs {
 		sv := &svs[i]
-		nodes = append(nodes, TopoNode{sv.ID, sv.Name, sv.CountryCode, p.Roles(sv), sv.Status, sv.Blocked, p.backhaulAvg(sv.ID)})
+		nodes = append(nodes, TopoNode{sv.ID, sv.Name, sv.CountryCode, rolesBy[sv.ID], sv.Status, sv.Blocked, p.backhaulAvg(sv.ID)})
 	}
 	edges := map[[2]uint]*TopoEdge{}
 	get := func(from, to uint, backup bool) *TopoEdge {

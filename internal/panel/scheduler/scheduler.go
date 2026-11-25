@@ -6,19 +6,28 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
 type Scheduler struct {
 	ctx context.Context
+	wg  sync.WaitGroup
 }
 
 func New(ctx context.Context) *Scheduler { return &Scheduler{ctx: ctx} }
 
+// Wait blocks until all scheduled goroutines and in-flight jobs finish after
+// the scheduler's context is cancelled.
+func (s *Scheduler) Wait() { s.wg.Wait() }
+
 // Every runs fn every d (first run after d, or immediately when now is true).
 func (s *Scheduler) Every(name string, d time.Duration, now bool, fn func()) {
+	s.wg.Add(1)
 	go func() {
-		if now {
+		defer s.wg.Done()
+		if now && s.ctx.Err() == nil {
 			safe(name, fn)
 		}
 		t := time.NewTicker(d)
@@ -36,9 +45,13 @@ func (s *Scheduler) Every(name string, d time.Duration, now bool, fn func()) {
 
 // Daily runs fn once a day at the time returned by at() ("HH:MM", local).
 // at is re-read every minute so settings changes apply without restart.
+// Overlapping runs are prevented if a previous day's job is still executing.
 func (s *Scheduler) Daily(name string, at func() string, fn func()) {
+	s.wg.Add(1)
 	go func() {
+		defer s.wg.Done()
 		last := ""
+		var running atomic.Bool
 		t := time.NewTicker(30 * time.Second)
 		defer t.Stop()
 		for {
@@ -52,8 +65,16 @@ func (s *Scheduler) Daily(name string, at func() string, fn func()) {
 				}
 				day := now.Format("2006-01-02")
 				if now.Hour() == h && now.Minute() == m && last != day {
+					if !running.CompareAndSwap(false, true) {
+						continue
+					}
 					last = day
-					go safe(name, fn)
+					s.wg.Add(1)
+					go func() {
+						defer s.wg.Done()
+						defer running.Store(false)
+						safe(name, fn)
+					}()
 				}
 			}
 		}

@@ -84,7 +84,7 @@ func (a *API) statusPage(c *gin.Context) {
 		return
 	}
 	var svs []store.Server
-	q := a.P.St.DB.Where("status <> ?", "pending").Order("sort, id")
+	q := a.P.St.R().Where("status <> ?", "pending").Order("sort, id")
 	if spec := strings.TrimSpace(a.P.St.Get("status_servers", "")); spec != "" && spec != "all" {
 		var ids []uint
 		for _, s := range strings.Split(spec, ",") {
@@ -100,7 +100,7 @@ func (a *API) statusPage(c *gin.Context) {
 	lat := map[uint]map[string][]service.ProbeCell{}
 	if showLat {
 		var targets []store.ProbeTarget
-		a.P.St.DB.Find(&targets)
+		a.P.St.R().Find(&targets)
 		carrier := map[string]string{}
 		for _, t := range targets {
 			carrier[t.ID] = t.Carrier

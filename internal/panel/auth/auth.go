@@ -271,7 +271,7 @@ func (a *Auth) Check(raw, ip string) (*store.Session, bool) {
 		return nil, false
 	}
 	var s store.Session
-	if err := a.st.DB.First(&s, "id = ?", secret.Hash(raw)).Error; err != nil {
+	if err := a.st.R().First(&s, "id = ?", secret.Hash(raw)).Error; err != nil {
 		return nil, false
 	}
 	if time.Now().After(s.ExpiresAt) {

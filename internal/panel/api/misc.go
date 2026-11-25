@@ -45,10 +45,11 @@ func (a *API) listTasks(c *gin.Context) {
 
 func (a *API) getTask(c *gin.Context) {
 	var t store.Task
-	if err := a.P.St.DB.First(&t, c.Param("id")).Error; err != nil {
+	if err := a.P.St.R().First(&t, c.Param("id")).Error; err != nil {
 		fail(c, http.StatusNotFound, "任务不存在")
 		return
 	}
+	t.Output = a.P.TaskOutput(t.ID, t.Output)
 	ok(c, t)
 }
 
@@ -56,10 +57,11 @@ func (a *API) getTask(c *gin.Context) {
 func (a *API) streamTask(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var t store.Task
-	if err := a.P.St.DB.First(&t, id).Error; err != nil {
+	if err := a.P.St.R().First(&t, id).Error; err != nil {
 		fail(c, http.StatusNotFound, "任务不存在")
 		return
 	}
+	t.Output = a.P.TaskOutput(t.ID, t.Output)
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("X-Accel-Buffering", "no")
@@ -123,7 +125,7 @@ func (a *API) events(c *gin.Context) {
 }
 
 func (a *API) audit(c *gin.Context) {
-	q := a.P.St.DB.Order("id desc")
+	q := a.P.St.R().Order("id desc")
 	if t := c.Query("type"); t != "" && t != "all" {
 		q = q.Where("type = ?", t)
 	}
@@ -148,8 +150,16 @@ func (a *API) audit(c *gin.Context) {
 		w.Flush()
 		return
 	}
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
-	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	limit, err := strconv.Atoi(c.DefaultQuery("limit", "100"))
+	if err != nil || limit < 1 {
+		limit = 100
+	} else if limit > 500 {
+		limit = 500
+	}
+	offset, err := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	if err != nil || offset < 0 {
+		offset = 0
+	}
 	var logs []store.AuditLog
 	q.Limit(limit).Offset(offset).Find(&logs)
 	ok(c, logs)
@@ -162,7 +172,7 @@ var settingKeys = []string{
 	// agents & probes
 	"agent_report_interval", "offline_after_sec", "probe_interval", "probe_count", "probe_peer", "block_rounds",
 	// retention
-	"retention_metrics_1m_days", "retention_metrics_1h_days", "retention_probe_raw_days", "retention_probe_1h_days", "config_versions_keep",
+	"retention_metrics_1m_days", "retention_metrics_1h_days", "retention_probe_raw_days", "retention_probe_1h_days", "retention_traffic_days", "retention_tool_results_days", "config_versions_keep",
 	// xray
 	"auto_install_xray", "drift_autofix", "reality_default_target", "landing_firewall", "xray_access_log", "xray_block_bt",
 	"xray_probe_url", "xray_pinned_version", "xray_relay", "geo_source",

@@ -152,7 +152,7 @@ func (p *Panel) HasSubToken(tok string) bool {
 		return false
 	}
 	var n int64
-	p.St.DB.Model(&store.SubToken{}).Where("token_hash = ?", secret.Hash(tok)).Count(&n)
+	p.St.R().Model(&store.SubToken{}).Where("token_hash = ?", secret.Hash(tok)).Count(&n)
 	return n > 0
 }
 
@@ -166,16 +166,31 @@ func (p *Panel) HasSubTokenFold(tok string) bool {
 }
 
 func (p *Panel) SubTokens() []SubTokenView {
+	db := p.St.R()
 	var ts []store.SubToken
-	p.St.DB.Order("id").Find(&ts)
+	db.Order("id").Find(&ts)
+	counts := map[uint]int64{}
+	if len(ts) > 0 {
+		var rows []struct {
+			TokenID uint
+			N       int64
+		}
+		db.Model(&store.SubAccessLog{}).
+			Select("token_id, COUNT(*) AS n").
+			Where("ts > ?", time.Now().AddDate(0, 0, -7)).
+			Group("token_id").Scan(&rows)
+		for _, r := range rows {
+			counts[r.TokenID] = r.N
+		}
+	}
+	base := p.SubBase()
 	out := make([]SubTokenView, 0, len(ts))
 	for _, t := range ts {
-		v := SubTokenView{SubToken: t}
+		v := SubTokenView{SubToken: t, Accesses: counts[t.ID]}
 		if tok, err := p.Box.Open(t.TokenEnc); err == nil {
 			v.Token = tok
-			v.URL = p.SubBase() + "/" + tok
+			v.URL = base + "/" + tok
 		}
-		p.St.DB.Model(&store.SubAccessLog{}).Where("token_id = ? AND ts > ?", t.ID, time.Now().AddDate(0, 0, -7)).Count(&v.Accesses)
 		out = append(out, v)
 	}
 	return out
@@ -367,8 +382,9 @@ func (p *Panel) SubNodes() []sub.Node {
 // SubNodesFor lists the routes that go into subscriptions for token t
 // (or global default when t is nil).
 func (p *Panel) SubNodesFor(t *store.SubToken) []sub.Node {
+	db := p.St.R()
 	var rs []store.Route
-	q := p.St.DB.Where("enabled = ? AND in_sub = ?", true, true)
+	q := db.Where("enabled = ? AND in_sub = ?", true, true)
 	if ids := p.effectiveRouteIDs(t); ids != nil {
 		if len(ids) == 0 {
 			return nil
@@ -377,13 +393,13 @@ func (p *Panel) SubNodesFor(t *store.SubToken) []sub.Node {
 	}
 	q.Order("sort, id").Find(&rs)
 	var svs []store.Server
-	p.St.DB.Find(&svs)
+	db.Find(&svs)
 	byID := map[uint]*store.Server{}
 	for i := range svs {
 		byID[svs[i].ID] = &svs[i]
 	}
 	var ris []store.RealityInbound
-	p.St.DB.Find(&ris)
+	db.Find(&ris)
 	riBy := map[uint]*store.RealityInbound{}
 	for i := range ris {
 		riBy[ris[i].ServerID] = &ris[i]
@@ -529,7 +545,7 @@ func (p *Panel) ServeSub(token, target, ua, ip string) (*SubResponse, error) {
 		return nil, ErrSubRateLimited
 	}
 	var t store.SubToken
-	if err := p.St.DB.First(&t, "token_hash = ?", secret.Hash(token)).Error; err != nil || !t.Enabled {
+	if err := p.St.R().First(&t, "token_hash = ?", secret.Hash(token)).Error; err != nil || !t.Enabled {
 		return nil, ErrSubNotFound
 	}
 	if !allowSub(t.ID) {
@@ -613,7 +629,7 @@ func (p *Panel) PreviewSubFor(target string, tokenID uint) (string, int, error) 
 
 func (p *Panel) activeTemplate(target string) string {
 	var t store.SubTemplate
-	if err := p.St.DB.Where("target = ? AND active = ?", target, true).First(&t).Error; err == nil {
+	if err := p.St.R().Where("target = ? AND active = ?", target, true).First(&t).Error; err == nil {
 		return t.Content
 	}
 	return ""
@@ -675,8 +691,9 @@ func formatContentDisposition(name string) string {
 // backup landings) used by routes currently included for token t (or global
 // default when t is nil).
 func (p *Panel) subRouteServerIDsFor(t *store.SubToken) []uint {
+	db := p.St.R()
 	var rs []store.Route
-	q := p.St.DB.Where("enabled = ? AND in_sub = ?", true, true)
+	q := db.Where("enabled = ? AND in_sub = ?", true, true)
 	if ids := p.effectiveRouteIDs(t); ids != nil {
 		if len(ids) == 0 {
 			return nil
@@ -688,13 +705,13 @@ func (p *Panel) subRouteServerIDsFor(t *store.SubToken) []uint {
 		return nil
 	}
 	var svs []store.Server
-	p.St.DB.Where("mode = ?", "node").Find(&svs)
+	db.Where("mode = ?", "node").Find(&svs)
 	byID := map[uint]*store.Server{}
 	for i := range svs {
 		byID[svs[i].ID] = &svs[i]
 	}
 	var ris []store.RealityInbound
-	p.St.DB.Find(&ris)
+	db.Find(&ris)
 	riBy := map[uint]*store.RealityInbound{}
 	for i := range ris {
 		riBy[ris[i].ServerID] = &ris[i]
@@ -746,23 +763,25 @@ func (p *Panel) subUserinfoFor(t *store.SubToken) string {
 	if mode == "none" {
 		return ""
 	}
+	db := p.St.R()
 	var svs []store.Server
 	switch {
 	case mode == "sub" || (mode == "all" && p.effectiveRouteIDs(t) != nil):
 		if ids := p.subRouteServerIDsFor(t); len(ids) > 0 {
-			p.St.DB.Where("mode = ? AND id IN ?", "node", ids).Find(&svs)
+			db.Where("mode = ? AND id IN ?", "node", ids).Find(&svs)
 		}
 	default:
 		if id, err := strconv.Atoi(mode); err == nil {
-			p.St.DB.Where("id = ?", id).Find(&svs)
+			db.Where("id = ?", id).Find(&svs)
 		} else {
-			p.St.DB.Where("mode = ?", "node").Find(&svs)
+			db.Where("mode = ?", "node").Find(&svs)
 		}
 	}
+	usageBy := p.CycleUsageMap(svs)
 	var up, down, total uint64
 	var expire int64
 	for i := range svs {
-		u := p.CycleUsage(&svs[i])
+		u := usageBy[svs[i].ID]
 		up, down = up+u.Up, down+u.Down
 		if svs[i].QuotaBytes > 0 {
 			total += uint64(svs[i].QuotaBytes)
@@ -824,7 +843,7 @@ func truncate(s string, n int) string {
 
 func (p *Panel) SubAccessLogs(tokenID uint, limit int) []store.SubAccessLog {
 	var logs []store.SubAccessLog
-	q := p.St.DB.Order("id DESC").Limit(limit)
+	q := p.St.R().Order("id DESC").Limit(limit)
 	if tokenID > 0 {
 		q = q.Where("token_id = ?", tokenID)
 	}
