@@ -247,3 +247,95 @@ func TestLosslessTrafficReplayAcrossReconnects(t *testing.T) {
 		t.Fatalf("expected empty buffer after full replay, remaining %d", buf.Count())
 	}
 }
+
+func TestNextProbeWait(t *testing.T) {
+	if got := nextProbeWait(60*time.Second, 15*time.Second); got != 45*time.Second {
+		t.Fatalf("nextProbeWait(60s, 15s) = %s, want 45s", got)
+	}
+	if got := nextProbeWait(60*time.Second, 70*time.Second); got != 5*time.Second {
+		t.Fatalf("nextProbeWait(60s, 70s) = %s, want 5s", got)
+	}
+	if got := nextProbeWait(10*time.Second, 8*time.Second); got != 5*time.Second {
+		t.Fatalf("nextProbeWait(10s, 8s) = %s, want 5s", got)
+	}
+}
+
+type fakeXray struct {
+	mu          sync.Mutex
+	applyCtxErr error
+	done        chan struct{}
+}
+
+func (f *fakeXray) Proc() *proto.XrayProc  { return &proto.XrayProc{} }
+func (f *fakeXray) State() *proto.XrayState { return &proto.XrayState{Installed: true, Running: true} }
+func (f *fakeXray) Stats() []proto.TrafficItem { return nil }
+func (f *fakeXray) Watch(context.Context, chan<- *proto.Event) {}
+func (f *fakeXray) Op(context.Context, *proto.XrayOp, func(string)) error { return nil }
+func (f *fakeXray) Apply(ctx context.Context, _ *proto.ApplyConfig, _ func(string)) error {
+	time.Sleep(60 * time.Millisecond)
+	f.mu.Lock()
+	f.applyCtxErr = ctx.Err()
+	f.mu.Unlock()
+	close(f.done)
+	return nil
+}
+
+func TestRunApplyDecoupledFromStreamContext(t *testing.T) {
+	rootCtx, rootCancel := context.WithCancel(context.Background())
+	defer rootCancel()
+
+	fx := &fakeXray{done: make(chan struct{})}
+	a := New(&config.Credentials{PanelURLs: []string{"http://127.0.0.1:1"}}, config.Local{Mode: "node"}, nil)
+	a.Xray = fx
+	// Provide a buffered send channel so finish() does not retry/sleep.
+	a.mu.Lock()
+	a.send = make(chan *proto.AgentMessage, 16)
+	a.mu.Unlock()
+
+	streamCtx, streamCancel := context.WithCancel(rootCtx)
+	// Handle passes rootCtx (not streamCtx); cancel streamCtx immediately after dispatch.
+	a.handle(rootCtx, &proto.PanelMessage{ApplyConfig: &proto.ApplyConfig{TaskID: 99, Version: 1}}, "http://127.0.0.1:1")
+	streamCancel()
+	_ = streamCtx
+
+	select {
+	case <-fx.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for Apply")
+	}
+	fx.mu.Lock()
+	defer fx.mu.Unlock()
+	if fx.applyCtxErr != nil {
+		t.Fatalf("Apply context was cancelled when stream disconnected: %v", fx.applyCtxErr)
+	}
+}
+
+func TestPanelURLsConcurrentAccess(t *testing.T) {
+	oldDir := config.Dir
+	defer func() { config.Dir = oldDir }()
+	config.Dir = t.TempDir()
+
+	a := New(&config.Credentials{PanelURLs: []string{"https://p1.example.com"}}, config.Local{Mode: "probe"}, nil)
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				_ = a.PanelURLs()
+			}
+		}()
+	}
+	for i := 0; i < 20; i++ {
+		a.handle(context.Background(), &proto.PanelMessage{
+			Settings: &proto.AgentSettings{
+				ReportInterval: 10,
+				PanelURLs:      []string{"https://p1.example.com", "https://p2.example.com"},
+			},
+		}, "https://p1.example.com")
+	}
+	wg.Wait()
+	if got := a.PanelURLs(); len(got) != 2 {
+		t.Fatalf("PanelURLs = %v", got)
+	}
+}

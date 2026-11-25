@@ -4,10 +4,9 @@ package collector
 
 import (
 	"bufio"
-	"net/netip"
+	"context"
 	"os"
 	"os/exec"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -18,9 +17,6 @@ import (
 )
 
 type cpuTimes struct{ total, idle, steal uint64 }
-
-// partition matches sda1 / vdb2 / xvda1 / nvme0n1p1 / mmcblk0p1.
-var partition = regexp.MustCompile(`^((s|v|xv|h)d[a-z]+\d+|(nvme\d+n\d+|mmcblk\d+)p\d+)$`)
 
 func readCPU() cpuTimes {
 	b, err := os.ReadFile("/proc/stat")
@@ -81,8 +77,7 @@ func (c *Collector) ReadNet() NetCounters {
 			if name != c.Iface {
 				continue
 			}
-		} else if name == "lo" || strings.HasPrefix(name, "docker") || strings.HasPrefix(name, "veth") ||
-			strings.HasPrefix(name, "br-") || strings.HasPrefix(name, "virbr") || strings.HasPrefix(name, "tun") || strings.HasPrefix(name, "wg") {
+		} else if isExcludedIface(name) {
 			continue
 		}
 		f := strings.Fields(rest)
@@ -110,10 +105,7 @@ func readDisk() [2]uint64 {
 		}
 		name := f[2]
 		// whole disks only
-		if strings.HasPrefix(name, "loop") || strings.HasPrefix(name, "ram") || strings.HasPrefix(name, "dm-") {
-			continue
-		}
-		if partition.MatchString(name) {
+		if isExcludedDisk(name) {
 			continue
 		}
 		r, _ := strconv.ParseUint(f[5], 10, 64)
@@ -158,29 +150,33 @@ func uptime() int64 {
 
 // Sample returns one metrics frame; rates are relative to the previous call.
 func (c *Collector) Sample() *proto.Metrics {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	now := time.Now().Unix()
 	m := &proto.Metrics{TS: now, Uptime: uptime()}
 	cpu := readCPU()
 	if c.prevCPU.total > 0 && cpu.total > c.prevCPU.total {
 		dt := float64(cpu.total - c.prevCPU.total)
-		m.CPU = 100 * (1 - float64(cpu.idle-c.prevCPU.idle)/dt)
-		m.Steal = 100 * float64(cpu.steal-c.prevCPU.steal) / dt
+		m.CPU = 100 * (1 - float64(subClamp(cpu.idle, c.prevCPU.idle))/dt)
+		m.Steal = 100 * float64(subClamp(cpu.steal, c.prevCPU.steal)) / dt
 	}
 	c.prevCPU = cpu
 
 	if b, err := os.ReadFile("/proc/loadavg"); err == nil {
 		f := strings.Fields(string(b))
-		m.Load1, _ = strconv.ParseFloat(f[0], 64)
-		m.Load5, _ = strconv.ParseFloat(f[1], 64)
-		m.Load15, _ = strconv.ParseFloat(f[2], 64)
+		if len(f) >= 3 {
+			m.Load1, _ = strconv.ParseFloat(f[0], 64)
+			m.Load5, _ = strconv.ParseFloat(f[1], 64)
+			m.Load15, _ = strconv.ParseFloat(f[2], 64)
+		}
 	}
 	mi := meminfo()
-	m.MemUsed = mi["MemTotal"] - mi["MemAvailable"]
-	m.SwapUsed = mi["SwapTotal"] - mi["SwapFree"]
+	m.MemUsed = subClamp(mi["MemTotal"], mi["MemAvailable"])
+	m.SwapUsed = subClamp(mi["SwapTotal"], mi["SwapFree"])
 
 	var fs syscall.Statfs_t
 	if syscall.Statfs(c.DiskPath, &fs) == nil {
-		m.DiskUsed = (fs.Blocks - fs.Bfree) * uint64(fs.Bsize)
+		m.DiskUsed = subClamp(fs.Blocks, fs.Bfree) * uint64(fs.Bsize)
 	}
 	net := c.ReadNet()
 	disk := readDisk()
@@ -207,7 +203,9 @@ func readFirst(path string) string {
 
 // DetectVirt returns kvm / openvz / lxc / docker / xen / none ...
 func DetectVirt() string {
-	if out, err := exec.Command("systemd-detect-virt").Output(); err == nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, "systemd-detect-virt").Output(); err == nil {
 		return strings.TrimSpace(string(out))
 	}
 	if _, err := os.Stat("/proc/user_beancounters"); err == nil {
@@ -238,12 +236,7 @@ func (c *Collector) System() proto.SystemInfo {
 		}
 	}
 	if b, err := os.ReadFile("/proc/cpuinfo"); err == nil {
-		for _, l := range strings.Split(string(b), "\n") {
-			if k, v, ok := strings.Cut(l, ":"); ok && strings.TrimSpace(k) == "model name" {
-				s.CPUModel = strings.TrimSpace(v)
-				break
-			}
-		}
+		s.CPUModel = parseCPUModel(string(b))
 	}
 	mi := meminfo()
 	s.MemTotal, s.SwapTotal = mi["MemTotal"], mi["SwapTotal"]
@@ -253,15 +246,9 @@ func (c *Collector) System() proto.SystemInfo {
 	}
 	s.BootTime = time.Now().Unix() - uptime()
 	s.Virt = DetectVirt()
-	s.IPv4, s.IPv6 = localIPs()
-	if a, err := netip.ParseAddr(s.IPv4); err != nil || a.IsPrivate() || a.IsLoopback() || a.IsLinkLocalUnicast() || cgnat.Contains(a) {
-		s.IPv4 = PublicIPv4()
-	}
+	s.IPv4, s.IPv6 = c.CurrentIPs()
 	s.Congestion = readFirst("/proc/sys/net/ipv4/tcp_congestion_control")
 	s.Qdisc = readFirst("/proc/sys/net/core/default_qdisc")
 	s.AvailCC = readFirst("/proc/sys/net/ipv4/tcp_available_congestion_control")
 	return s
 }
-
-// cgnat is the carrier-grade NAT range (100.64.0.0/10): not public either.
-var cgnat = netip.MustParsePrefix("100.64.0.0/10")

@@ -81,3 +81,37 @@ func TestBufferOrderedReplayAndAckOver1200Items(t *testing.T) {
 		t.Fatalf("next seq = %d, want %d", next.Seq, total+1)
 	}
 }
+
+func TestAddWithMetaAtomic(t *testing.T) {
+	dir := t.TempDir()
+	b, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type counters struct{ RX, TX uint64 }
+	d, err := b.AddWithMeta(1700001000, []proto.TrafficItem{{Scope: "server", Name: "nic", Up: 11, Down: 22}}, "nic", counters{RX: 100, TX: 200})
+	if err != nil {
+		t.Fatalf("AddWithMeta: %v", err)
+	}
+	if d.Seq != 1 {
+		t.Fatalf("seq = %d, want 1", d.Seq)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	b, err = Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+
+	var got counters
+	if !b.Get("nic", &got) || got.RX != 100 || got.TX != 200 {
+		t.Fatalf("Get(nic) = %+v", got)
+	}
+	pending := b.Pending(10)
+	if len(pending) != 1 || pending[0].Seq != 1 || len(pending[0].Items) != 1 || pending[0].Items[0].Up != 11 {
+		t.Fatalf("Pending = %+v", pending)
+	}
+}

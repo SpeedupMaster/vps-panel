@@ -64,7 +64,25 @@ type Agent struct {
 	shells      map[uint64]chan *proto.ShellInput
 }
 
-const trafficBatchSize = 200
+const (
+	trafficBatchSize = 200
+	xrayOpTimeout    = 90 * time.Second
+)
+
+var (
+	ipRefreshInterval = 20 * time.Minute
+	errIPChanged      = errors.New("public IP changed")
+)
+
+// PanelURLs returns a concurrency-safe snapshot of configured panel URLs.
+func (a *Agent) PanelURLs() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.Creds == nil {
+		return nil
+	}
+	return append([]string(nil), a.Creds.PanelURLs...)
+}
 
 func randomNonce() (string, error) {
 	var b [16]byte
@@ -138,8 +156,9 @@ func (a *Agent) Run(ctx context.Context) {
 	go a.trafficLoop(ctx)
 	backoff := time.Second
 	idx := 0
+	tried := 0
 	for ctx.Err() == nil {
-		urls := a.Creds.PanelURLs
+		urls := a.PanelURLs()
 		if len(urls) == 0 {
 			log.Print("no panel URL configured")
 			return
@@ -150,10 +169,23 @@ func (a *Agent) Run(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		if errors.Is(err, errIPChanged) {
+			backoff = time.Second
+			tried = 0
+			continue
+		}
 		if time.Since(start) > time.Minute {
 			backoff = time.Second // the session was healthy
-		} else {
+			tried = 0
+		} else if len(urls) > 1 {
 			idx++ // try the next panel address
+			tried++
+			if tried < len(urls) {
+				backoff = time.Second
+				log.Printf("panel %s: %v; switching to next panel URL", u, err)
+				continue
+			}
+			tried = 0
 		}
 		wait := backoff + time.Duration(rand.Int63n(int64(backoff/2)+1))
 		log.Printf("panel %s: %v; retry in %s", u, err, wait.Round(time.Millisecond))
@@ -166,14 +198,18 @@ func (a *Agent) Run(ctx context.Context) {
 	}
 }
 
-func (a *Agent) session(ctx context.Context, panelURL string) error {
+func (a *Agent) session(rootCtx context.Context, panelURL string) error {
 	conn, err := dial(panelURL)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	ctx, cancel := context.WithCancel(rootCtx)
+	var wg sync.WaitGroup
+	defer func() {
+		cancel()
+		_ = conn.Close()
+		wg.Wait()
+	}()
 
 	ts := time.Now().Unix()
 	nonce, err := randomNonce()
@@ -202,8 +238,10 @@ func (a *Agent) session(ctx context.Context, panelURL string) error {
 		a.mu.Unlock()
 	}()
 
-	errc := make(chan error, 3)
+	errc := make(chan error, 4)
+	wg.Add(1)
 	go func() { // writer
+		defer wg.Done()
 		for {
 			select {
 			case <-ctx.Done():
@@ -217,17 +255,34 @@ func (a *Agent) session(ctx context.Context, panelURL string) error {
 		}
 	}()
 
-	hello := &proto.Hello{Version: version.Version, Mode: a.Local.Mode, Switches: a.Local.Switches, System: a.Col.System()}
+	sys := a.Col.System()
+	hello := &proto.Hello{Version: version.Version, Mode: a.Local.Mode, Switches: a.Local.Switches, System: sys}
 	send <- &proto.AgentMessage{Hello: hello}
 	if a.Xray != nil {
 		send <- &proto.AgentMessage{XrayState: a.Xray.State()}
 	}
-	go a.drainTraffic(ctx, send, wake)
+	wg.Add(4)
+	go func() {
+		defer wg.Done()
+		a.drainTraffic(ctx, send, wake)
+	}()
 	log.Printf("connected to %s as %s", panelURL, a.Creds.ServerName)
 
-	go a.metricsLoop(ctx)
-	go a.probeLoop(ctx)
+	go func() {
+		defer wg.Done()
+		a.metricsLoop(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		a.probeLoop(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		a.ipRefreshLoop(ctx, sys.IPv4, sys.IPv6, errc)
+	}()
+	wg.Add(1)
 	go func() { // reader
+		defer wg.Done()
 		first := true
 		for {
 			m := new(proto.PanelMessage)
@@ -239,7 +294,7 @@ func (a *Agent) session(ctx context.Context, panelURL string) error {
 				first = false
 				go a.OnConnected()
 			}
-			a.handle(ctx, m, panelURL)
+			a.handle(rootCtx, m, panelURL)
 		}
 	}()
 	return <-errc
@@ -270,14 +325,22 @@ func (a *Agent) handle(ctx context.Context, m *proto.PanelMessage, current strin
 		}
 		a.notifyTraffic()
 	case m.Settings != nil:
+		var saveCopy *config.Credentials
+		a.mu.Lock()
 		if m.Settings.ReportInterval >= 2 {
-			a.mu.Lock()
 			a.interval = time.Duration(m.Settings.ReportInterval) * time.Second
-			a.mu.Unlock()
 		}
-		if urls := mergePanelURLs(m.Settings.PanelURLs, current); !slices.Equal(urls, a.Creds.PanelURLs) {
-			a.Creds.PanelURLs = urls
-			if err := config.SaveCredentials(a.Creds); err != nil {
+		if a.Creds != nil {
+			if urls := mergePanelURLs(m.Settings.PanelURLs, current); !slices.Equal(urls, a.Creds.PanelURLs) {
+				a.Creds.PanelURLs = urls
+				cp := *a.Creds
+				cp.PanelURLs = append([]string(nil), urls...)
+				saveCopy = &cp
+			}
+		}
+		a.mu.Unlock()
+		if saveCopy != nil {
+			if err := config.SaveCredentials(saveCopy); err != nil {
 				log.Printf("save panel urls: %v", err)
 			}
 		}
@@ -294,7 +357,7 @@ func (a *Agent) handle(ctx context.Context, m *proto.PanelMessage, current strin
 	case m.XrayOp != nil:
 		go a.runXrayOp(ctx, m.XrayOp)
 	case m.Task != nil:
-		go a.runTask(m.Task)
+		go a.runTask(ctx, m.Task)
 	case m.ShellInput != nil:
 		a.mu.Lock()
 		ch := a.shells[m.ShellInput.TaskID]
@@ -355,12 +418,11 @@ func (a *Agent) trafficLoop(ctx context.Context) {
 			down = cur.RX
 		}
 		last = cur
-		a.Buf.Put("nic", last)
 		items := []proto.TrafficItem{{Scope: "server", Name: "nic", Up: up, Down: down}}
 		if a.Xray != nil {
 			items = append(items, a.Xray.Stats()...)
 		}
-		if _, err := a.Buf.Add(time.Now().Unix(), items); err != nil {
+		if _, err := a.Buf.AddWithMeta(time.Now().Unix(), items, "nic", last); err != nil {
 			log.Printf("buffer: %v", err)
 			continue
 		}
@@ -419,21 +481,42 @@ func (a *Agent) drainTraffic(ctx context.Context, send chan<- *proto.AgentMessag
 	}
 }
 
+func nextProbeWait(interval, elapsed time.Duration) time.Duration {
+	const minWait = 5 * time.Second
+	if interval < minWait {
+		return minWait
+	}
+	rem := interval - elapsed
+	if rem < minWait {
+		return minWait
+	}
+	return rem
+}
+
 func (a *Agent) probeLoop(ctx context.Context) {
 	for {
 		a.mu.Lock()
 		pt := a.probes
 		a.mu.Unlock()
 		wait := time.Minute
+		start := time.Now()
+		ran := false
 		if pt != nil && len(pt.Targets) > 0 {
+			ran = true
 			if pt.IntervalSec >= 10 {
 				wait = time.Duration(pt.IntervalSec) * time.Second
 			}
-			res := prober.MeasureAll(pt.Targets, pt.Count, 3*time.Second)
+			res := prober.MeasureAllContext(ctx, pt.Targets, pt.Count, 3*time.Second)
+			if ctx.Err() != nil {
+				return
+			}
 			now := time.Now().Unix()
 			for kind, samples := range res {
 				a.Emit(&proto.AgentMessage{Probe: &proto.ProbeResult{TS: now, Kind: kind, Samples: samples}})
 			}
+		}
+		if ran {
+			wait = nextProbeWait(wait, time.Since(start))
 		}
 		select {
 		case <-ctx.Done():
@@ -441,6 +524,46 @@ func (a *Agent) probeLoop(ctx context.Context) {
 		case <-a.probeReset:
 		case <-time.After(wait):
 		}
+	}
+}
+
+// ipRefreshLoop periodically re-checks public IPs so dynamic IP changes on a
+// long-lived stream trigger a panel update and clean reconnect.
+func (a *Agent) ipRefreshLoop(ctx context.Context, lastV4, lastV6 string, errc chan<- error) {
+	iv := ipRefreshInterval
+	if iv <= 0 {
+		return
+	}
+	t := time.NewTicker(iv)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		curV4, curV6 := a.Col.CurrentIPs()
+		v4Changed := curV4 != "" && curV4 != lastV4
+		v6Changed := curV6 != "" && curV6 != lastV6
+		if !v4Changed && !v6Changed {
+			continue
+		}
+		log.Printf("public IP changed (%s/%s -> %s/%s); reconnecting to update panel", lastV4, lastV6, curV4, curV6)
+		sys := a.Col.System()
+		if curV4 != "" {
+			sys.IPv4 = curV4
+		}
+		if curV6 != "" {
+			sys.IPv6 = curV6
+		}
+		a.Emit(&proto.AgentMessage{Hello: &proto.Hello{
+			Version: version.Version, Mode: a.Local.Mode, Switches: a.Local.Switches, System: sys,
+		}})
+		select {
+		case errc <- errIPChanged:
+		default:
+		}
+		return
 	}
 }
 
@@ -510,7 +633,7 @@ func (a *Agent) finish(id uint64, out *output, data any, err error) {
 	}
 }
 
-func (a *Agent) runTask(t *proto.Task) {
+func (a *Agent) runTask(rootCtx context.Context, t *proto.Task) {
 	out := &output{a: a, id: t.ID, last: time.Now(), immediate: t.Type == proto.TaskShell}
 	fn := a.Tasks[t.Type]
 	if fn == nil {
@@ -521,30 +644,45 @@ func (a *Agent) runTask(t *proto.Task) {
 	if timeout <= 0 {
 		timeout = 5 * time.Minute
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	if rootCtx == nil {
+		rootCtx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(rootCtx, timeout)
 	defer cancel()
 	a.Emit(&proto.AgentMessage{TaskResult: &proto.TaskResult{TaskID: t.ID, Status: "running"}})
 	data, err := fn(ctx, t, out.write)
 	a.finish(t.ID, out, data, err)
 }
 
-func (a *Agent) runApply(ctx context.Context, ac *proto.ApplyConfig) {
+func (a *Agent) runApply(rootCtx context.Context, ac *proto.ApplyConfig) {
 	out := &output{a: a, id: ac.TaskID, last: time.Now()}
 	if a.Xray == nil {
 		a.finish(ac.TaskID, out, nil, errors.New("这台机器是仅探针模式"))
 		return
 	}
+	if rootCtx == nil {
+		rootCtx = context.Background()
+	}
+	// Decouple from the transient stream context so a brief reconnect mid-Apply
+	// cannot cancel waitActive or break rollback RestartService.
+	ctx, cancel := context.WithTimeout(rootCtx, xrayOpTimeout)
+	defer cancel()
 	err := a.Xray.Apply(ctx, ac, out.write)
 	a.finish(ac.TaskID, out, a.Xray.State(), err)
 	a.Emit(&proto.AgentMessage{XrayState: a.Xray.State()})
 }
 
-func (a *Agent) runXrayOp(ctx context.Context, op *proto.XrayOp) {
+func (a *Agent) runXrayOp(rootCtx context.Context, op *proto.XrayOp) {
 	out := &output{a: a, id: op.TaskID, last: time.Now()}
 	if a.Xray == nil {
 		a.finish(op.TaskID, out, nil, errors.New("这台机器是仅探针模式"))
 		return
 	}
+	if rootCtx == nil {
+		rootCtx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(rootCtx, xrayOpTimeout)
+	defer cancel()
 	err := a.Xray.Op(ctx, op, out.write)
 	a.finish(op.TaskID, out, a.Xray.State(), err)
 	a.Emit(&proto.AgentMessage{XrayState: a.Xray.State()})

@@ -9,7 +9,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -132,7 +131,7 @@ func Trace(ctx context.Context, args map[string]string, out func(string)) ([]Tra
 		out("未找到 traceroute，尝试安装\n")
 		for _, pm := range [][]string{{"apt-get", "install", "-y", "-qq", "traceroute"}, {"dnf", "install", "-y", "-q", "traceroute"}, {"apk", "add", "-q", "traceroute"}} {
 			if have(pm[0]) {
-				_ = exec.CommandContext(ctx, pm[0], pm[1:]...).Run()
+				_ = nonInteractiveCmd(ctx, pm[0], pm[1:]...).Run()
 				break
 			}
 		}
@@ -298,7 +297,7 @@ func Iperf(ctx context.Context, args map[string]string, out func(string)) (any, 
 		out("安装 iperf3\n")
 		for _, pm := range [][]string{{"apt-get", "install", "-y", "-qq", "iperf3"}, {"dnf", "install", "-y", "-q", "iperf3"}, {"apk", "add", "-q", "iperf3"}} {
 			if have(pm[0]) {
-				_ = exec.CommandContext(ctx, pm[0], pm[1:]...).Run()
+				_ = nonInteractiveCmd(ctx, pm[0], pm[1:]...).Run()
 				break
 			}
 		}

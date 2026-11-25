@@ -14,7 +14,11 @@ type cpuTimes struct{ total, idle, steal uint64 }
 
 func (c *Collector) ReadNet() NetCounters { return NetCounters{} }
 
-func (c *Collector) Sample() *proto.Metrics { return &proto.Metrics{TS: time.Now().Unix()} }
+func (c *Collector) Sample() *proto.Metrics {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return &proto.Metrics{TS: time.Now().Unix()}
+}
 
 func DetectVirt() string { return "unknown" }
 

@@ -48,30 +48,57 @@ func key(seq uint64) []byte {
 	return k
 }
 
+func addTx(tx *bolt.Tx, ts int64, items []proto.TrafficItem) (*proto.TrafficDelta, error) {
+	meta := tx.Bucket(bMeta)
+	var seq uint64
+	if v := meta.Get(kSeq); v != nil {
+		seq = binary.BigEndian.Uint64(v)
+	}
+	seq++
+	if err := meta.Put(kSeq, key(seq)); err != nil {
+		return nil, err
+	}
+	d := &proto.TrafficDelta{Seq: seq, TS: ts, Items: items}
+	raw, _ := json.Marshal(d)
+	bk := tx.Bucket(bTraffic)
+	// Cap the backlog (~1 week at 1/min) to bound disk use.
+	if bk.Stats().KeyN > 10000 {
+		c := bk.Cursor()
+		if k, _ := c.First(); k != nil {
+			_ = bk.Delete(k)
+		}
+	}
+	if err := bk.Put(key(seq), raw); err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
 // Add assigns the next sequence number and stores the delta.
 func (b *Buffer) Add(ts int64, items []proto.TrafficItem) (*proto.TrafficDelta, error) {
 	var d *proto.TrafficDelta
 	err := b.db.Update(func(tx *bolt.Tx) error {
-		meta := tx.Bucket(bMeta)
-		var seq uint64
-		if v := meta.Get(kSeq); v != nil {
-			seq = binary.BigEndian.Uint64(v)
-		}
-		seq++
-		if err := meta.Put(kSeq, key(seq)); err != nil {
-			return err
-		}
-		d = &proto.TrafficDelta{Seq: seq, TS: ts, Items: items}
-		raw, _ := json.Marshal(d)
-		bk := tx.Bucket(bTraffic)
-		// Cap the backlog (~1 week at 1/min) to bound disk use.
-		if bk.Stats().KeyN > 10000 {
-			c := bk.Cursor()
-			if k, _ := c.First(); k != nil {
-				_ = bk.Delete(k)
+		var err error
+		d, err = addTx(tx, ts, items)
+		return err
+	})
+	return d, err
+}
+
+// AddWithMeta persists a metadata value and appends the next traffic delta in
+// a single bbolt write transaction so only one fdatasync occurs per minute.
+func (b *Buffer) AddWithMeta(ts int64, items []proto.TrafficItem, metaKey string, metaVal any) (*proto.TrafficDelta, error) {
+	rawMeta, _ := json.Marshal(metaVal)
+	var d *proto.TrafficDelta
+	err := b.db.Update(func(tx *bolt.Tx) error {
+		if metaKey != "" {
+			if err := tx.Bucket(bMeta).Put([]byte(metaKey), rawMeta); err != nil {
+				return err
 			}
 		}
-		return bk.Put(key(seq), raw)
+		var err error
+		d, err = addTx(tx, ts, items)
+		return err
 	})
 	return d, err
 }

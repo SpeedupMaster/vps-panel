@@ -27,14 +27,10 @@ func registerXray(a *agent.Agent) {
 		mgr = xraymgr.New(config.DataDir) // probe mode: only used by install
 	}
 	src := func(t *proto.Task) xraymgr.Source {
-		var panelURLs []string
-		if a.Creds != nil {
-			panelURLs = append([]string(nil), a.Creds.PanelURLs...)
-		}
 		return xraymgr.Source{
 			Version:          t.Args["version"],
 			BaseURL:          t.Args["base_url"],
-			AllowedPanelURLs: panelURLs,
+			AllowedPanelURLs: a.PanelURLs(),
 		}
 	}
 

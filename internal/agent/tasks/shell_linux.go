@@ -6,6 +6,8 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"sync"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -13,6 +15,19 @@ import (
 
 	"vpspanel/internal/common/proto"
 )
+
+func setProcGroup(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+}
+
+func killProcGroup(cmd *exec.Cmd) error {
+	if cmd.Process == nil || cmd.Process.Pid <= 0 {
+		return nil
+	}
+	err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	_ = cmd.Process.Kill()
+	return err
+}
 
 // Shell runs an interactive login shell on a PTY. Input arrives as
 // ShellInput frames; output is streamed as task output. Idle sessions end
@@ -28,7 +43,6 @@ func Shell(ctx context.Context, in <-chan *proto.ShellInput, out func(string)) e
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
 	done := make(chan struct{})
 	go func() {
@@ -64,24 +78,41 @@ func Shell(ctx context.Context, in <-chan *proto.ShellInput, out func(string)) e
 		}
 	}()
 
+	var reapOnce sync.Once
+	reap := func(kill bool) {
+		reapOnce.Do(func() {
+			if kill && cmd.Process != nil {
+				_ = killProcGroup(cmd)
+			}
+			_ = f.Close()
+			_ = cmd.Wait()
+			<-done
+		})
+	}
+	defer reap(true)
+
 	idle := time.NewTimer(15 * time.Minute)
 	defer idle.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			_ = cmd.Process.Kill()
+			reap(true)
 			return nil
 		case <-done:
-			_ = cmd.Wait()
+			reap(false)
 			return nil
 		case <-idle.C:
 			out("\r\n[15 分钟无操作，会话已断开]\r\n")
-			_ = cmd.Process.Kill()
+			reap(true)
 			return nil
-		case m := <-in:
+		case m, ok := <-in:
+			if !ok {
+				reap(true)
+				return nil
+			}
 			idle.Reset(15 * time.Minute)
 			if m.Close {
-				_ = cmd.Process.Kill()
+				reap(true)
 				return nil
 			}
 			if m.Cols > 0 && m.Rows > 0 {

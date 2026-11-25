@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var (
@@ -78,38 +79,44 @@ func runServiceCmd(ctx context.Context, name string, args ...string) error {
 }
 
 func installService() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	if systemd() {
 		if err := os.WriteFile(systemdUnitPath, []byte(unitFile), 0o644); err != nil {
 			return err
 		}
-		if err := runServiceCmd(context.Background(), "systemctl", "daemon-reload"); err != nil {
+		if err := runServiceCmd(ctx, "systemctl", "daemon-reload"); err != nil {
 			return err
 		}
-		return runServiceCmd(context.Background(), "systemctl", "enable", "xray")
+		return runServiceCmd(ctx, "systemctl", "enable", "xray")
 	}
 	if err := os.WriteFile(openrcInitPath, []byte(openrcFile), 0o755); err != nil {
 		return err
 	}
-	return runServiceCmd(context.Background(), "rc-update", "add", "xray", "default")
+	return runServiceCmd(ctx, "rc-update", "add", "xray", "default")
 }
 
 func removeService() {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	if systemd() {
-		_ = exec.Command("systemctl", "disable", "--now", "xray").Run()
+		_ = exec.CommandContext(ctx, "systemctl", "disable", "--now", "xray").Run()
 		_ = os.Remove(systemdUnitPath)
-		_ = exec.Command("systemctl", "daemon-reload").Run()
+		_ = exec.CommandContext(ctx, "systemctl", "daemon-reload").Run()
 		return
 	}
-	_ = exec.Command("rc-service", "xray", "stop").Run()
-	_ = exec.Command("rc-update", "del", "xray", "default").Run()
+	_ = exec.CommandContext(ctx, "rc-service", "xray", "stop").Run()
+	_ = exec.CommandContext(ctx, "rc-update", "del", "xray", "default").Run()
 	_ = os.Remove(openrcInitPath)
 }
 
 func ServiceActive() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
 	if systemd() {
-		return exec.Command("systemctl", "is-active", "--quiet", "xray").Run() == nil
+		return exec.CommandContext(ctx, "systemctl", "is-active", "--quiet", "xray").Run() == nil
 	}
-	return exec.Command("rc-service", "xray", "status").Run() == nil
+	return exec.CommandContext(ctx, "rc-service", "xray", "status").Run() == nil
 }
 
 func RestartService(ctx context.Context) error {
@@ -165,7 +172,9 @@ func startErrDetail(ctx context.Context, restartErr error) string {
 // mainPID returns Xray's PID or 0.
 func mainPID() int {
 	if systemd() {
-		b, err := exec.Command("systemctl", "show", "-p", "MainPID", "--value", "xray").Output()
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		b, err := exec.CommandContext(ctx, "systemctl", "show", "-p", "MainPID", "--value", "xray").Output()
 		if err == nil {
 			pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
 			return pid

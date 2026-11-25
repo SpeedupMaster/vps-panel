@@ -98,12 +98,20 @@ func Register(a *agent.Agent) {
 	registerXray(a)
 }
 
-// RunStream runs a command and streams combined output.
+// RunStream runs a command and streams combined output. On Linux the child
+// runs in its own process group so cancellation kills background grandchildren
+// holding stdout/stderr instead of hanging cmd.Wait.
 func RunStream(ctx context.Context, out func(string), name string, args ...string) (int, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	setProcGroup(cmd)
+	cmd.Cancel = func() error { return killProcGroup(cmd) }
+	cmd.WaitDelay = time.Second
+
 	pr, pw := io.Pipe()
 	cmd.Stdout, cmd.Stderr = pw, pw
 	if err := cmd.Start(); err != nil {
+		_ = pr.Close()
+		_ = pw.Close()
 		return -1, err
 	}
 	var wg sync.WaitGroup
@@ -117,8 +125,12 @@ func RunStream(ctx context.Context, out func(string), name string, args ...strin
 		}
 	}()
 	err := cmd.Wait()
-	pw.Close()
+	_ = pw.Close()
+	_ = pr.Close()
 	wg.Wait()
+	if err == nil && ctx.Err() != nil {
+		err = ctx.Err()
+	}
 	code := 0
 	if cmd.ProcessState != nil {
 		code = cmd.ProcessState.ExitCode()

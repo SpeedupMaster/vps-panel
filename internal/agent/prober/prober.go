@@ -22,27 +22,38 @@ import (
 
 // TCPPing measures connect time once.
 func TCPPing(host string, port int, timeout time.Duration) (time.Duration, error) {
+	return TCPPingContext(context.Background(), host, port, timeout)
+}
+
+// TCPPingContext measures TCP connect time once, respecting ctx cancellation.
+func TCPPingContext(ctx context.Context, host string, port int, timeout time.Duration) (time.Duration, error) {
+	d := &net.Dialer{Timeout: timeout}
 	start := time.Now()
-	c, err := net.DialTimeout("tcp", net.JoinHostPort(host, strconv.Itoa(port)), timeout)
+	c, err := d.DialContext(ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
 	if err != nil {
 		return 0, err
 	}
-	d := time.Since(start)
+	dur := time.Since(start)
 	c.Close()
-	return d, nil
+	return dur, nil
 }
 
 var pingRe = regexp.MustCompile(`time[=<]([\d.]+) ?ms`)
 
 // ICMPPing uses the system ping binary (one echo).
 func ICMPPing(host string, timeout time.Duration) (time.Duration, error) {
+	return ICMPPingContext(context.Background(), host, timeout)
+}
+
+// ICMPPingContext runs one system ping echo, respecting ctx cancellation.
+func ICMPPingContext(ctx context.Context, host string, timeout time.Duration) (time.Duration, error) {
 	host = strings.TrimSpace(host)
 	if host == "" || strings.HasPrefix(host, "-") {
 		return 0, fmt.Errorf("invalid host %q", host)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout+time.Second)
+	cctx, cancel := context.WithTimeout(ctx, timeout+time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "ping", "-c", "1", "-W", strconv.Itoa(int(math.Ceil(timeout.Seconds()))), "--", host).Output()
+	out, err := exec.CommandContext(cctx, "ping", "-c", "1", "-W", strconv.Itoa(int(math.Ceil(timeout.Seconds()))), "--", host).Output()
 	if err != nil {
 		return 0, err
 	}
@@ -63,9 +74,14 @@ var httpPingClient = &http.Client{
 
 // HTTPPing times a GET (connection reuse disabled).
 func HTTPPing(url string, timeout time.Duration) (time.Duration, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	return HTTPPingContext(context.Background(), url, timeout)
+}
+
+// HTTPPingContext times a GET, respecting ctx cancellation.
+func HTTPPingContext(ctx context.Context, url string, timeout time.Duration) (time.Duration, error) {
+	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(cctx, http.MethodGet, url, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -81,30 +97,42 @@ func HTTPPing(url string, timeout time.Duration) (time.Duration, error) {
 	return time.Since(start), nil
 }
 
-func once(t proto.ProbeTarget, timeout time.Duration) (time.Duration, error) {
+func onceContext(ctx context.Context, t proto.ProbeTarget, timeout time.Duration) (time.Duration, error) {
 	switch t.Type {
 	case "icmp":
-		return ICMPPing(t.Host, timeout)
+		return ICMPPingContext(ctx, t.Host, timeout)
 	case "http":
-		return HTTPPing(t.URL, timeout)
+		return HTTPPingContext(ctx, t.URL, timeout)
 	default:
-		return TCPPing(t.Host, t.Port, timeout)
+		return TCPPingContext(ctx, t.Host, t.Port, timeout)
 	}
 }
 
 // Measure runs count probes against a target and summarizes them.
 func Measure(t proto.ProbeTarget, count int, timeout time.Duration) proto.ProbeSample {
+	return MeasureContext(context.Background(), t, count, timeout)
+}
+
+// MeasureContext runs count probes against a target, stopping early if ctx cancels.
+func MeasureContext(ctx context.Context, t proto.ProbeTarget, count int, timeout time.Duration) proto.ProbeSample {
 	if count <= 0 {
 		count = 5
 	}
 	var rtts []float64
 	for i := 0; i < count; i++ {
-		d, err := once(t, timeout)
+		if ctx.Err() != nil {
+			break
+		}
+		d, err := onceContext(ctx, t, timeout)
 		if err == nil {
 			rtts = append(rtts, float64(d.Microseconds())/1000)
 		}
 		if i < count-1 {
-			time.Sleep(200 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				return Summarize(t.ID, rtts, count)
+			case <-time.After(200 * time.Millisecond):
+			}
 		}
 	}
 	return Summarize(t.ID, rtts, count)
@@ -146,17 +174,33 @@ func round(f float64) float64 { return math.Round(f*100) / 100 }
 
 // MeasureAll probes targets concurrently (bounded) and groups by kind.
 func MeasureAll(targets []proto.ProbeTarget, count int, timeout time.Duration) map[string][]proto.ProbeSample {
+	return MeasureAllContext(context.Background(), targets, count, timeout)
+}
+
+// MeasureAllContext probes targets concurrently while respecting ctx cancellation.
+func MeasureAllContext(ctx context.Context, targets []proto.ProbeTarget, count int, timeout time.Duration) map[string][]proto.ProbeSample {
 	out := map[string][]proto.ProbeSample{}
 	var mu sync.Mutex
 	sem := make(chan struct{}, 8)
 	var wg sync.WaitGroup
 	for _, t := range targets {
+		if ctx.Err() != nil {
+			break
+		}
 		wg.Add(1)
-		sem <- struct{}{}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Done()
+			continue
+		}
 		go func(t proto.ProbeTarget) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			s := Measure(t, count, timeout)
+			s := MeasureContext(ctx, t, count, timeout)
+			if ctx.Err() != nil {
+				return
+			}
 			mu.Lock()
 			out[t.Kind] = append(out[t.Kind], s)
 			mu.Unlock()

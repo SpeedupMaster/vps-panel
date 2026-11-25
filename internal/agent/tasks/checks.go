@@ -20,8 +20,17 @@ import (
 	"vpspanel/internal/common/proto"
 )
 
+const maxCheckBody = 384 << 10 // cap concurrent HTML reads well under 16 MiB GOMEMLIMIT
+
+var sharedCheckTransport = &http.Transport{
+	MaxIdleConns:        8,
+	MaxIdleConnsPerHost: 2,
+	IdleConnTimeout:     15 * time.Second,
+	ForceAttemptHTTP2:   true,
+}
+
 func httpClient(timeout time.Duration, follow bool) *http.Client {
-	c := &http.Client{Timeout: timeout, Transport: &http.Transport{DisableKeepAlives: true, ForceAttemptHTTP2: true}}
+	c := &http.Client{Timeout: timeout, Transport: sharedCheckTransport}
 	if !follow {
 		c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	}
@@ -30,8 +39,11 @@ func httpClient(timeout time.Duration, follow bool) *http.Client {
 
 const ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"
 
-func get(ctx context.Context, url string, follow bool) (*http.Response, string, error) {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+func get(ctx context.Context, rawURL string, follow bool) (*http.Response, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, "", err
+	}
 	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 	resp, err := httpClient(15*time.Second, follow).Do(req)
@@ -39,7 +51,7 @@ func get(ctx context.Context, url string, follow bool) (*http.Response, string, 
 		return nil, "", err
 	}
 	defer resp.Body.Close()
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, maxCheckBody))
 	return resp, string(b), nil
 }
 
@@ -53,11 +65,16 @@ type UnlockItem struct {
 }
 
 var (
-	reCountry  = regexp.MustCompile(`"(?:countryCode|GL|region)":"([A-Z]{2})"`)
-	reNFRegion = regexp.MustCompile(`netflix\.com/([a-z]{2})(?:-[a-z]{2})?/`)
+	reCountry     = regexp.MustCompile(`"(?:countryCode|currentCountry|GL|region)":"([A-Z]{2})"`)
+	reNFRegion    = regexp.MustCompile(`netflix\.com/([a-z]{2})(?:-[a-z]{2})?/`)
+	reYTRegion    = regexp.MustCompile(`"INNERTUBE_CONTEXT_GL":"([A-Z]{2})"`)
+	reDisneyLoc   = regexp.MustCompile(`disneyplus\.com/([a-z]{2})-`)
+	reTikTokReg   = regexp.MustCompile(`"(?:region|countryCode)":"([A-Z]{2})"`)
+	tiktokBlocked = map[string]bool{"CN": true, "HK": true, "RU": true, "IN": true}
 )
 
 func Unlock(ctx context.Context, out func(string)) []UnlockItem {
+	defer sharedCheckTransport.CloseIdleConnections()
 	checks := []func(context.Context) UnlockItem{checkNetflix, checkYouTube, checkChatGPT, checkClaude, checkGemini, checkDisney, checkTikTok}
 	res := make([]UnlockItem, len(checks))
 	var wg sync.WaitGroup
@@ -75,57 +92,82 @@ func Unlock(ctx context.Context, out func(string)) []UnlockItem {
 	return res
 }
 
+func netflixVerdict(r1Code int, r1Loc, r1Body string, r2Code int) (status, region, detail string) {
+	okCode := func(code int) bool { return code == 200 || (code >= 300 && code < 400) }
+	switch {
+	case r1Code == 403:
+		return "no", "", "IP 被封锁"
+	case okCode(r1Code) && okCode(r2Code) && r2Code != 404:
+		status, detail = "yes", "完整解锁"
+	case okCode(r1Code):
+		status, detail = "partial", "仅自制剧"
+	default:
+		return "no", "", ""
+	}
+	if r1Loc != "" {
+		if m := reNFRegion.FindStringSubmatch(r1Loc); m != nil {
+			region = strings.ToUpper(m[1])
+		}
+	}
+	if region == "" && r1Body != "" {
+		if m := reCountry.FindStringSubmatch(r1Body); m != nil {
+			region = m[1]
+		}
+	}
+	return status, region, detail
+}
+
 func checkNetflix(ctx context.Context) UnlockItem {
 	it := UnlockItem{Name: "Netflix", Status: "unknown"}
-	r1, _, err1 := get(ctx, "https://www.netflix.com/title/81280792", false) // original
-	r2, _, err2 := get(ctx, "https://www.netflix.com/title/70143836", false) // licensed
+	r1, body1, err1 := get(ctx, "https://www.netflix.com/title/81280792", false) // original
+	r2, _, err2 := get(ctx, "https://www.netflix.com/title/70143836", false)     // licensed
 	if err1 != nil || err2 != nil {
 		it.Detail = "请求失败"
 		return it
 	}
-	okCode := func(r *http.Response) bool { return r.StatusCode == 200 || (r.StatusCode >= 300 && r.StatusCode < 400) }
-	switch {
-	case r1.StatusCode == 403:
-		it.Status, it.Detail = "no", "IP 被封锁"
-	case okCode(r1) && okCode(r2) && r2.StatusCode != 404:
-		it.Status, it.Detail = "yes", "完整解锁"
-	case okCode(r1):
-		it.Status, it.Detail = "partial", "仅自制剧"
-	default:
-		it.Status = "no"
-	}
-	if loc := r1.Header.Get("Location"); loc != "" {
-		if m := reNFRegion.FindStringSubmatch(loc); m != nil {
-			it.Region = strings.ToUpper(m[1])
-		}
-	}
-	if it.Region == "" && it.Status != "no" {
-		it.Region = "US"
-	}
+	it.Status, it.Region, it.Detail = netflixVerdict(r1.StatusCode, r1.Header.Get("Location"), body1, r2.StatusCode)
 	return it
+}
+
+func youtubeVerdict(status int, finalURL, body string) (statusStr, region, detail string) {
+	lowerURL := strings.ToLower(finalURL)
+	if strings.Contains(lowerURL, "consent.youtube.com") || strings.Contains(lowerURL, "consent.google.com") ||
+		strings.Contains(body, "Before you continue to YouTube") || strings.Contains(body, "consent.youtube.com") {
+		return "unknown", "", "被重定向到隐私同意页"
+	}
+	if status >= 400 {
+		return "unknown", "", fmt.Sprintf("HTTP %d", status)
+	}
+	if strings.Contains(body, "Premium is not available in your country") || strings.Contains(body, "YouTube Premium is not available") {
+		return "no", "", "地区不支持"
+	}
+	if m := reYTRegion.FindStringSubmatch(body); m != nil {
+		region = m[1]
+	} else if m := reCountry.FindStringSubmatch(body); m != nil {
+		region = m[1]
+	}
+	if region != "" || strings.Contains(body, "INNERTUBE_CONTEXT") || strings.Contains(body, "YouTube Premium") {
+		return "yes", region, ""
+	}
+	return "unknown", "", "无法确认页面内容"
 }
 
 func checkYouTube(ctx context.Context) UnlockItem {
 	it := UnlockItem{Name: "YouTube Premium", Status: "unknown"}
-	_, body, err := get(ctx, "https://www.youtube.com/premium", true)
+	resp, body, err := get(ctx, "https://www.youtube.com/premium", true)
 	if err != nil {
 		return it
 	}
-	if strings.Contains(body, "Premium is not available in your country") {
-		it.Status = "no"
-		return it
+	finalURL := ""
+	if resp.Request != nil && resp.Request.URL != nil {
+		finalURL = resp.Request.URL.String()
 	}
-	it.Status = "yes"
-	if m := regexp.MustCompile(`"INNERTUBE_CONTEXT_GL":"([A-Z]{2})"`).FindStringSubmatch(body); m != nil {
-		it.Region = m[1]
-	} else if m := reCountry.FindStringSubmatch(body); m != nil {
-		it.Region = m[1]
-	}
+	it.Status, it.Region, it.Detail = youtubeVerdict(resp.StatusCode, finalURL, body)
 	return it
 }
 
-func cfTraceLoc(ctx context.Context, url string) string {
-	_, body, err := get(ctx, url, true)
+func cfTraceLoc(ctx context.Context, rawURL string) string {
+	_, body, err := get(ctx, rawURL, true)
 	if err != nil {
 		return ""
 	}
@@ -156,18 +198,31 @@ func checkChatGPT(ctx context.Context) UnlockItem {
 	return it
 }
 
+func claudeVerdict(status int, loc string, hdr http.Header, body string) (statusStr, detail string) {
+	if strings.Contains(strings.ToLower(loc), "unavailable") {
+		return "no", "地区不支持"
+	}
+	if status == http.StatusForbidden || status == http.StatusServiceUnavailable ||
+		strings.EqualFold(hdr.Get("cf-mitigated"), "challenge") ||
+		strings.Contains(body, "Just a moment") || strings.Contains(body, "cf-browser-verification") {
+		return "unknown", fmt.Sprintf("被 Cloudflare 拦截 (HTTP %d)", status)
+	}
+	if status >= 400 {
+		return "unknown", fmt.Sprintf("HTTP %d", status)
+	}
+	if status == http.StatusOK || (status >= 300 && status < 400) {
+		return "yes", ""
+	}
+	return "unknown", ""
+}
+
 func checkClaude(ctx context.Context) UnlockItem {
 	it := UnlockItem{Name: "Claude", Status: "unknown"}
-	resp, _, err := get(ctx, "https://claude.ai/", false)
+	resp, body, err := get(ctx, "https://claude.ai/", false)
 	if err != nil {
 		return it
 	}
-	loc := resp.Header.Get("Location")
-	if strings.Contains(loc, "unavailable") {
-		it.Status, it.Detail = "no", "地区不支持"
-	} else {
-		it.Status = "yes"
-	}
+	it.Status, it.Detail = claudeVerdict(resp.StatusCode, resp.Header.Get("Location"), resp.Header, body)
 	it.Region = cfTraceLoc(ctx, "https://claude.ai/cdn-cgi/trace")
 	return it
 }
@@ -222,36 +277,76 @@ func geminiVerdict(body string) (status, region, detail string) {
 	}
 }
 
+func disneyVerdict(status int, loc, body string) (statusStr, region, detail string) {
+	lowerLoc := strings.ToLower(loc)
+	if status == http.StatusForbidden || strings.Contains(lowerLoc, "unavailable") || strings.Contains(lowerLoc, "preview") ||
+		strings.Contains(body, "Disney+ is not available") || strings.Contains(body, "not available in your region") {
+		return "no", "", "地区不支持"
+	}
+	if status >= 400 {
+		return "unknown", "", fmt.Sprintf("HTTP %d", status)
+	}
+	if status >= 300 && status < 400 {
+		if m := reDisneyLoc.FindStringSubmatch(lowerLoc); m != nil {
+			return "yes", strings.ToUpper(m[1]), ""
+		}
+		if loc != "" {
+			return "yes", "", ""
+		}
+		return "unknown", "", "未检测到地区跳转"
+	}
+	if status == http.StatusOK {
+		if m := reDisneyLoc.FindStringSubmatch(strings.ToLower(body)); m != nil {
+			return "yes", strings.ToUpper(m[1]), ""
+		}
+		if m := reCountry.FindStringSubmatch(body); m != nil {
+			return "yes", m[1], ""
+		}
+		return "unknown", "", "页面为 SPA 占位，无法确认"
+	}
+	return "unknown", "", ""
+}
+
 func checkDisney(ctx context.Context) UnlockItem {
 	it := UnlockItem{Name: "Disney+", Status: "unknown"}
-	resp, _, err := get(ctx, "https://www.disneyplus.com/", false)
+	resp, body, err := get(ctx, "https://www.disneyplus.com/", false)
 	if err != nil {
 		return it
 	}
-	loc := resp.Header.Get("Location")
-	switch {
-	case resp.StatusCode == 403 || strings.Contains(loc, "unavailable") || strings.Contains(loc, "preview"):
-		it.Status = "no"
-	default:
-		it.Status = "yes"
-		if m := regexp.MustCompile(`disneyplus\.com/([a-z]{2})-`).FindStringSubmatch(loc); m != nil {
-			it.Region = strings.ToUpper(m[1])
-		}
-	}
+	it.Status, it.Region, it.Detail = disneyVerdict(resp.StatusCode, resp.Header.Get("Location"), body)
 	return it
+}
+
+func tiktokVerdict(status int, body string) (statusStr, region, detail string) {
+	if status == http.StatusForbidden || status == http.StatusUnavailableForLegalReasons {
+		return "no", "", fmt.Sprintf("HTTP %d", status)
+	}
+	if status >= 400 {
+		return "unknown", "", fmt.Sprintf("HTTP %d", status)
+	}
+	if m := reTikTokReg.FindStringSubmatch(body); m != nil {
+		if tiktokBlocked[m[1]] {
+			return "no", m[1], "地区不支持"
+		}
+		return "yes", m[1], ""
+	}
+	lower := strings.ToLower(body)
+	if strings.Contains(lower, "captcha") || strings.Contains(lower, "verifycenter") || strings.Contains(lower, "access denied") {
+		return "unknown", "", "触发人机验证或页面受限"
+	}
+	if strings.Contains(lower, "not available in your country") || strings.Contains(lower, "service is not available") {
+		return "no", "", "地区不支持"
+	}
+	return "unknown", "", "未检测到地区信息"
 }
 
 func checkTikTok(ctx context.Context) UnlockItem {
 	it := UnlockItem{Name: "TikTok", Status: "unknown"}
-	_, body, err := get(ctx, "https://www.tiktok.com/", true)
+	resp, body, err := get(ctx, "https://www.tiktok.com/", true)
 	if err != nil {
 		return it
 	}
-	if m := regexp.MustCompile(`"region":"([A-Z]{2})"`).FindStringSubmatch(body); m != nil {
-		it.Status, it.Region = "yes", m[1]
-	} else {
-		it.Status = "no"
-	}
+	it.Status, it.Region, it.Detail = tiktokVerdict(resp.StatusCode, body)
 	return it
 }
 
@@ -361,6 +456,7 @@ var dnsbls = []string{
 }
 
 func IPQuality(ctx context.Context, keys proto.IPQualityKeys, out func(string)) (*IPQualityResult, error) {
+	defer sharedCheckTransport.CloseIdleConnections()
 	r := &IPQualityResult{}
 	_, body, err := get(ctx, "https://ipinfo.io/json", true)
 	if err != nil {
@@ -552,6 +648,7 @@ type RealityCandidate struct {
 	TLS13     bool    `json:"tls13"`
 	H2        bool    `json:"h2"`
 	X25519    bool    `json:"x25519"`
+	MLKEM768  bool    `json:"mlkem768,omitempty"`
 	Redirect  string  `json:"redirect,omitempty"`
 	Handshake float64 `json:"handshake_ms"`
 	Error     string  `json:"error,omitempty"`
@@ -601,7 +698,11 @@ func RealityScan(ctx context.Context, candidates string, out func(string)) []Rea
 		if r.CDN != "" {
 			cdn = " CDN:" + r.CDN + "（" + r.CDNBy + "）"
 		}
-		out(fmt.Sprintf("%-26s ok=%-5v tls13=%-5v h2=%-5v x25519=%-5v %6.1fms %s%s%s\n", r.Domain, r.OK, r.TLS13, r.H2, r.X25519, r.Handshake, r.Redirect, r.Error, cdn))
+		pq := ""
+		if r.MLKEM768 {
+			pq = " mlkem768=true"
+		}
+		out(fmt.Sprintf("%-26s ok=%-5v tls13=%-5v h2=%-5v x25519=%-5v%s %6.1fms %s%s%s\n", r.Domain, r.OK, r.TLS13, r.H2, r.X25519, pq, r.Handshake, r.Redirect, r.Error, cdn))
 	}
 	return res
 }
@@ -671,7 +772,12 @@ func scanOne(ctx context.Context, domain string) RealityCandidate {
 		return r
 	}
 	d := &net.Dialer{Timeout: 5 * time.Second}
-	cfg := &tls.Config{ServerName: domain, MinVersion: tls.VersionTLS13, NextProtos: []string{"h2", "http/1.1"}, CurvePreferences: []tls.CurveID{tls.X25519}}
+	cfg := &tls.Config{
+		ServerName:       domain,
+		MinVersion:       tls.VersionTLS13,
+		NextProtos:       []string{"h2", "http/1.1"},
+		CurvePreferences: []tls.CurveID{tls.X25519MLKEM768, tls.X25519},
+	}
 	start := time.Now()
 	raw, err := d.DialContext(ctx, "tcp", net.JoinHostPort(targetIP, "443"))
 	if err != nil {
@@ -689,24 +795,27 @@ func scanOne(ctx context.Context, domain string) RealityCandidate {
 	st := conn.ConnectionState()
 	r.TLS13 = st.Version == tls.VersionTLS13
 	r.H2 = st.NegotiatedProtocol == "h2"
-	r.X25519 = true // the handshake only offered X25519
+	r.X25519 = true // handshake only offered X25519 / X25519MLKEM768
+	r.MLKEM768 = st.CurveID == tls.X25519MLKEM768
 	conn.Close()
 
 	// Pin the validated public IP for the HTTP check too so DNS rebinding cannot
 	// redirect it to an internal address.
-	pinnedClient := &http.Client{
-		Timeout: 15 * time.Second,
-		Transport: &http.Transport{
-			DisableKeepAlives: true,
-			ForceAttemptHTTP2: true,
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				_, port, perr := net.SplitHostPort(addr)
-				if perr != nil {
-					port = "443"
-				}
-				return d.DialContext(ctx, network, net.JoinHostPort(targetIP, port))
-			},
+	pinnedTr := &http.Transport{
+		DisableKeepAlives: true,
+		ForceAttemptHTTP2: true,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			_, port, perr := net.SplitHostPort(addr)
+			if perr != nil {
+				port = "443"
+			}
+			return d.DialContext(ctx, network, net.JoinHostPort(targetIP, port))
 		},
+	}
+	defer pinnedTr.CloseIdleConnections()
+	pinnedClient := &http.Client{
+		Timeout:       15 * time.Second,
+		Transport:     pinnedTr,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	var resp *http.Response
@@ -715,7 +824,6 @@ func scanOne(ctx context.Context, domain string) RealityCandidate {
 		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 		resp, err = pinnedClient.Do(req)
 		if err == nil {
-			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 2<<20))
 			resp.Body.Close()
 		}
 	} else {

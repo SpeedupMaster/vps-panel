@@ -99,7 +99,9 @@ func (m *Manager) Version() string {
 	if m.version != "" && fi.ModTime().Equal(m.verTime) {
 		return m.version
 	}
-	out, err := exec.Command(Bin, "version").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, Bin, "version").Output()
 	if err != nil {
 		return ""
 	}

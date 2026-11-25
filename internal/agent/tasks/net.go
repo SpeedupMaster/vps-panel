@@ -113,6 +113,53 @@ func bufferSize(profile string, bwMbps, rttMs float64) int {
 	return max(lo, min(hi, size))
 }
 
+const lowRAMThreshold = 512 << 20
+
+// bufferParamsForMem scales TCP socket buffers proportionally when total RAM
+// is under 512 MiB so 256 MiB VPSes do not OOM under load.
+func bufferParamsForMem(profile string, bwMbps, rttMs float64, memBytes uint64) (maxBuf, rmemDef, wmemDef int) {
+	maxBuf = bufferSize(profile, bwMbps, rttMs)
+	rmemDef, wmemDef = 131072, 65536
+	if memBytes == 0 || memBytes >= lowRAMThreshold {
+		return maxBuf, rmemDef, wmemDef
+	}
+	scale := float64(memBytes) / float64(lowRAMThreshold)
+	scaled := int(float64(maxBuf) * scale)
+	memCap := int(memBytes / 64)
+	if memCap < 1<<20 {
+		memCap = 1 << 20
+	}
+	maxBuf = max(1<<20, min(scaled, memCap))
+	rmemDef = min(131072, max(16384, int(float64(rmemDef)*scale)))
+	wmemDef = min(65536, max(16384, int(float64(wmemDef)*scale)))
+	return maxBuf, rmemDef, wmemDef
+}
+
+func memTotalBytes() uint64 {
+	b, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(line, "MemTotal:"); ok {
+			f := strings.Fields(v)
+			if len(f) > 0 {
+				n, _ := strconv.ParseUint(f[0], 10, 64)
+				return n * 1024
+			}
+		}
+	}
+	return 0
+}
+
+func nonInteractiveCmd(ctx context.Context, name string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, name, args...)
+	if name == "apt-get" {
+		cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
+	}
+	return cmd
+}
+
 type TuneResult struct {
 	Diff    []string `json:"diff"`
 	Applied bool     `json:"applied"`
@@ -146,11 +193,11 @@ func ensureBBR(ctx context.Context, out func(string)) error {
 		}
 		for _, c := range cmds {
 			if c[1] != "install" {
-				_ = exec.CommandContext(ctx, c[0], c[1:]...).Run()
+				_ = nonInteractiveCmd(ctx, c[0], c[1:]...).Run()
 				continue
 			}
 			out("内核里没有 tcp_bbr，安装 " + c[len(c)-1] + "\n")
-			if exec.CommandContext(ctx, c[0], c[1:]...).Run() == nil && load() {
+			if nonInteractiveCmd(ctx, c[0], c[1:]...).Run() == nil && load() {
 				break
 			}
 		}
@@ -172,20 +219,21 @@ func TuneNet(ctx context.Context, profile, bw, rtt string, dryRun bool, out func
 	}
 	bwF, _ := strconv.ParseFloat(bw, 64)
 	rttF, _ := strconv.ParseFloat(rtt, 64)
-	buf := bufferSize(profile, bwF, rttF)
+	buf, rmemDef, wmemDef := bufferParamsForMem(profile, bwF, rttF, memTotalBytes())
 	want := map[string]string{
 		"net.core.default_qdisc":             "fq",
 		"net.ipv4.tcp_congestion_control":    "bbr",
 		"net.core.rmem_max":                  strconv.Itoa(buf),
 		"net.core.wmem_max":                  strconv.Itoa(buf),
-		"net.ipv4.tcp_rmem":                  fmt.Sprintf("4096 131072 %d", buf),
-		"net.ipv4.tcp_wmem":                  fmt.Sprintf("4096 65536 %d", buf),
+		"net.ipv4.tcp_rmem":                  fmt.Sprintf("4096 %d %d", rmemDef, buf),
+		"net.ipv4.tcp_wmem":                  fmt.Sprintf("4096 %d %d", wmemDef, buf),
 		"net.ipv4.tcp_fastopen":              "3",
 		"net.ipv4.tcp_mtu_probing":           "1",
 		"net.ipv4.tcp_slow_start_after_idle": "0",
 		"net.ipv4.tcp_notsent_lowat":         "16384",
 		"net.core.somaxconn":                 "4096",
-		"net.ipv4.ip_local_port_range":       "1024 65535",
+		// Start above Xray API port 10085 to avoid ephemeral port collisions.
+		"net.ipv4.ip_local_port_range": "16384 65535",
 	}
 	keys := make([]string, 0, len(want))
 	for k := range want {
