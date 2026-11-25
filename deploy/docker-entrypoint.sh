@@ -17,7 +17,8 @@ fi
 
 if [ "$(id -u)" = "0" ]; then
   mkdir -p "$DATA_DIR"
-  chown -R vpspanel:vpspanel "$DATA_DIR"
+  # Avoid dereferencing symlinks inside DATA_DIR while fixing ownership as root.
+  find "$DATA_DIR" -xdev -exec chown -h vpspanel:vpspanel {} +
   exec su-exec vpspanel /opt/vps-panel/vps-panel "$@"
 fi
 

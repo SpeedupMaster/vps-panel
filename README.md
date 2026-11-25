@@ -127,7 +127,7 @@ docker compose logs panel
 mkdir -p vps-panel && cd vps-panel
 curl -fsSL https://raw.githubusercontent.com/SpeedupMaster/vps-panel/main/deploy/docker-compose.panel.yml -o docker-compose.yml
 curl -fsSL https://raw.githubusercontent.com/SpeedupMaster/vps-panel/main/deploy/.env.example -o .env
-# 若仅允许本机反代访问，可在 .env 中设置：VPSPANEL_PORT=127.0.0.1:8080
+# 默认仅监听 127.0.0.1:8080 供本机反代访问；若反代经 Docker 网桥或外部节点转发，请在 .env 中按实际源 IP/CIDR 配置 VPSPANEL_TRUSTED_PROXIES
 docker compose up -d
 docker compose logs panel
 ```
@@ -156,7 +156,8 @@ docker run -d --name vps-panel \
    ```bash
    sudo useradd -r -s /sbin/nologin vpspanel
    sudo mkdir -p /opt/vps-panel/agent /var/lib/vps-panel
-   sudo chown -R vpspanel:vpspanel /opt/vps-panel /var/lib/vps-panel
+   sudo chown -R root:root /opt/vps-panel
+   sudo chown -R vpspanel:vpspanel /var/lib/vps-panel
    sudo cp deploy/vps-panel.service /etc/systemd/system/
    sudo systemctl daemon-reload && sudo systemctl enable --now vps-panel
    ```

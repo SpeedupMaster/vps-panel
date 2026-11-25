@@ -10,11 +10,11 @@ Group=vpspanel
 WorkingDirectory=/opt/vps-panel
 EnvironmentFile=-/etc/vps-panel.env
 ExecStart=/opt/vps-panel/vps-panel -data /var/lib/vps-panel -listen 127.0.0.1:8080
-# Self-update and restore exit the process; systemd starts the new binary.
+# Restore exits the process; systemd restarts it.
 Restart=always
 RestartSec=2
-# The panel replaces its own binary on self-update.
-ReadWritePaths=/var/lib/vps-panel /opt/vps-panel
+# Keep /opt/vps-panel read-only under ProtectSystem=strict so the service cannot overwrite its own binary.
+ReadWritePaths=/var/lib/vps-panel
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
