@@ -40,6 +40,9 @@ export async function refreshAlertCount() {
 const listeners = new Map()
 let es = null
 let retry = null
+let dropped = false
+let backoffMs = 1000
+let connGen = 0
 
 export function on(type, fn) {
   if (!listeners.has(type)) listeners.set(type, new Set())
@@ -53,28 +56,64 @@ function emit(type, data) {
 
 export function connectEvents() {
   if (es) return
-  es = new EventSource('/api/events')
-  es.onopen = () => { state.live = true }
+  clearTimeout(retry)
+  retry = null
+  const gen = connGen
+  const sock = new EventSource('/api/events')
+  es = sock
+  sock.onopen = () => {
+    if (es !== sock || gen !== connGen) { sock.close(); return }
+    state.live = true
+    backoffMs = 1000
+    if (dropped) {
+      dropped = false
+      loadServers().catch(() => {})
+      refreshAlertCount()
+    }
+  }
   for (const t of ['metrics', 'server', 'alert', 'probe', 'task', 'tool', 'route', 'xray']) {
-    es.addEventListener(t, (e) => {
+    sock.addEventListener(t, (e) => {
+      if (es !== sock) return
       let d = null
       try { d = JSON.parse(e.data) } catch { return }
       applyEvent(t, d)
       emit(t, d)
     })
   }
-  es.onerror = () => {
+  sock.onerror = () => {
+    if (es !== sock) return
     state.live = false
-    es.close(); es = null
+    sock.close()
+    es = null
+    dropped = true
     clearTimeout(retry)
-    retry = setTimeout(connectEvents, 5000)
+    const delay = backoffMs
+    backoffMs = Math.min(backoffMs * 2, 30000)
+    retry = setTimeout(async () => {
+      retry = null
+      if (gen !== connGen) return
+      try {
+        await api.get('/auth/me')
+      } catch (e) {
+        if (gen !== connGen || e?.status === 401) return
+        const nextDelay = backoffMs
+        backoffMs = Math.min(backoffMs * 2, 30000)
+        retry = setTimeout(() => { if (gen === connGen) connectEvents() }, nextDelay)
+        return
+      }
+      if (gen === connGen) connectEvents()
+    }, delay)
   }
 }
 
 export function disconnectEvents() {
+  connGen++
   clearTimeout(retry)
+  retry = null
   if (es) { es.close(); es = null }
   state.live = false
+  dropped = false
+  backoffMs = 1000
 }
 
 function applyEvent(t, d) {

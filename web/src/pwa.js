@@ -44,8 +44,15 @@ export async function installApp() {
 export function setupPWA() {
   if (!('serviceWorker' in navigator) || import.meta.env.DEV) return
   let notice = null
+  let reloading = false
+  const reloadOnce = () => {
+    if (reloading) return
+    reloading = true
+    location.reload()
+  }
   const update = registerSW({
     immediate: true,
+    onNeedReload: reloadOnce,
     onNeedRefresh() {
       // The waiting worker can be reported more than once (initial
       // registration plus the hourly check): keep a single notice.
@@ -56,10 +63,10 @@ export function setupPWA() {
         content: '刷新后使用新版本。',
         action: () => h(NButton, { size: 'small', type: 'primary', onClick: () => {
           n?.destroy()
+          navigator.serviceWorker.addEventListener('controllerchange', reloadOnce, { once: true })
           update(true)
-          // update() reloads once the new worker takes control; make sure we
-          // land on the new build even if that event never arrives.
-          setTimeout(() => location.reload(), 2000)
+          // Fallback in case controllerchange never fires.
+          setTimeout(reloadOnce, 4000)
         } }, { default: () => '刷新' }),
       })
     },

@@ -13,7 +13,8 @@ const routes = ref([])
 const routesLoaded = ref(false)
 const settings = ref({})
 const settingsOrig = ref('{}')
-const subDirty = (k) => settings.value[k] !== JSON.parse(settingsOrig.value)[k]
+const settingsOrigObj = computed(() => { try { return JSON.parse(settingsOrig.value) } catch { return {} } })
+const subDirty = (k) => settings.value[k] !== settingsOrigObj.value[k]
 const subDirtyAny = computed(() => JSON.stringify(settings.value) !== settingsOrig.value)
 const preview = ref({ target: 'mihomo', tokenId: 0, content: '', nodes: 0 })
 const logs = ref([])
@@ -70,7 +71,7 @@ watch(logToken, loadLogs)
 const parseIds = (v) => String(v || '').split(',').map(Number).filter((x) => x > 0)
 const pickedIds = computed(() => parseIds(settings.value.sub_routes))
 const savedPick = computed(() => {
-  const ids = parseIds(JSON.parse(settingsOrig.value).sub_routes)
+  const ids = parseIds(settingsOrigObj.value.sub_routes)
   return ids.length ? new Set(ids) : null
 })
 const inSub = computed(() => routes.value.filter((r) => r.enabled && r.in_sub && (!savedPick.value || savedPick.value.has(r.id))))
@@ -343,7 +344,7 @@ async function activate(t, v) {
         <div class="f-actions">
           <span class="f-hint">新 IP 拉取订阅时，按告警规则「订阅陌生 IP」通知（与该设备最近 30 天的来源都不同）。</span>
           <span class="spacer" />
-          <n-button :disabled="!subDirtyAny" @click="settings = JSON.parse(settingsOrig)">撤销</n-button>
+          <n-button :disabled="!subDirtyAny" @click="settings = { ...settingsOrigObj }">撤销</n-button>
           <n-button type="primary" :loading="saving" :disabled="!subDirtyAny || saving" @click="saveSettings">保存</n-button>
         </div>
       </div>

@@ -17,18 +17,24 @@ const batch = ref('')
 const batchTasks = ref([])
 const busy = ref(false)
 
+let loadAbort = null
 async function load() {
-  const c = comp.value === 'geo' ? 'xray' : comp.value
-  const r = await run(() => api.get(`/releases/${c}`))
+  loadAbort?.abort()
+  const ac = new AbortController()
+  loadAbort = ac
+  const curComp = comp.value
+  const c = curComp === 'geo' ? 'xray' : curComp
+  const r = await run(() => api.get(`/releases/${c}`, { signal: ac.signal }))
+  if (ac.signal.aborted || comp.value !== curComp) return
   if (r) data.value = { ...r, items: r.items || [], servers: r.servers || [] }
-  version.value = comp.value === 'xray' ? (r?.latest_xray || '') : comp.value === 'agent' ? (r?.agent_published || '') : ''
+  version.value = curComp === 'xray' ? (r?.latest_xray || '') : curComp === 'agent' ? (r?.agent_published || '') : ''
   picked.value = new Set()
 }
 async function loadHistory() { history.value = (await run(() => api.get('/updates/history'))) || [] }
 onMounted(() => { load(); loadHistory() })
 watch(comp, load)
 const off = on('task', (d) => { if (batch.value) loadBatch(); if (['update_agent', 'update_xray', 'update_geo'].includes(d.type)) loadHistory() })
-onBeforeUnmount(off)
+onBeforeUnmount(() => { off(); loadAbort?.abort() })
 
 const comps = [{ label: 'Xray', value: 'xray' }, { label: 'Agent', value: 'agent' }, { label: '规则文件（geoip / geosite）', value: 'geo' }]
 const candidates = computed(() => {

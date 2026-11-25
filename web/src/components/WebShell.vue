@@ -15,6 +15,8 @@ let term = null
 let fit = null
 let ws = null
 let ro = null
+let dataDisp = null
+let unmounted = false
 
 function send(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)) }
 function resize() {
@@ -29,17 +31,42 @@ async function connect() {
   try {
     ticket = (await api.post(`/servers/${props.serverId}/shell-ticket`, {}, { confirm: '打开终端需要确认身份' })).ticket
   } catch (e) {
+    if (unmounted) return
     status.value = 'idle'
     term?.writeln('\r\n\x1b[31m' + e.message + '\x1b[0m')
     return
   }
+  if (unmounted) return
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  ws = new WebSocket(`${proto}//${location.host}/api/servers/${props.serverId}/shell?ticket=${encodeURIComponent(ticket)}`)
-  ws.onopen = () => { status.value = 'open'; term.focus(); resize() }
-  ws.onmessage = (e) => term.write(typeof e.data === 'string' ? e.data : new Uint8Array(e.data))
-  ws.onclose = () => { status.value = 'closed'; term?.writeln('\r\n\x1b[90m[连接已关闭]\x1b[0m') }
+  const sock = new WebSocket(`${proto}//${location.host}/api/servers/${props.serverId}/shell?ticket=${encodeURIComponent(ticket)}`)
+  sock.binaryType = 'arraybuffer'
+  ws = sock
+  sock.onopen = () => {
+    if (unmounted || ws !== sock) { sock.close(); return }
+    status.value = 'open'; term?.focus(); resize()
+  }
+  sock.onmessage = (e) => {
+    if (unmounted || ws !== sock) return
+    term?.write(typeof e.data === 'string' ? e.data : new Uint8Array(e.data))
+  }
+  sock.onerror = () => {
+    if (unmounted || ws !== sock) return
+    term?.writeln('\r\n\x1b[31m[连接错误]\x1b[0m')
+  }
+  sock.onclose = () => {
+    if (ws === sock) ws = null
+    if (unmounted) return
+    status.value = 'closed'
+    term?.writeln('\r\n\x1b[90m[连接已关闭]\x1b[0m')
+  }
 }
-function disconnect() { if (ws) { ws.onclose = null; ws.close(); ws = null } status.value = 'idle' }
+function disconnect() {
+  if (ws) {
+    ws.onopen = null; ws.onmessage = null; ws.onerror = null; ws.onclose = null
+    ws.close(); ws = null
+  }
+  status.value = 'idle'
+}
 function key(seq) { send({ t: 'i', d: seq }); term?.focus() }
 
 onMounted(async () => {
@@ -51,13 +78,21 @@ onMounted(async () => {
   term.loadAddon(fit)
   term.open(el.value)
   await nextTick()
+  if (unmounted) return
   resize()
-  term.onData((d) => send({ t: 'i', d }))
+  dataDisp = term.onData((d) => send({ t: 'i', d }))
   ro = new ResizeObserver(() => resize())
   ro.observe(el.value)
   term.writeln('\x1b[90m点击「连接」打开终端。会话会写入审计日志，终端内容不记录。\x1b[0m')
 })
-onBeforeUnmount(() => { disconnect(); ro?.disconnect(); term?.dispose() })
+onBeforeUnmount(() => {
+  unmounted = true
+  disconnect()
+  ro?.disconnect(); ro = null
+  dataDisp?.dispose(); dataDisp = null
+  term?.dispose(); term = null
+  fit = null
+})
 const keys = [['Esc', '\x1b'], ['Tab', '\t'], ['Ctrl+C', '\x03'], ['Ctrl+D', '\x04'], ['↑', '\x1b[A'], ['↓', '\x1b[B'], ['←', '\x1b[D'], ['→', '\x1b[C'], ['|', '|'], ['/', '/'], ['-', '-']]
 defineExpose({ connect, disconnect })
 </script>

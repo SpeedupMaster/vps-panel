@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { ref, shallowRef, triggerRef, computed, watch, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { NButton, NTabs, NTabPane, NSelect, NInput, NInputNumber, NDatePicker, NDropdown, NModal, NSwitch, NProgress } from 'naive-ui'
 import { api } from '../api'
@@ -15,7 +15,7 @@ const router = useRouter()
 const id = computed(() => Number(route.params.id))
 const sv = ref(null)
 const tab = ref('overview')
-const metrics = ref([])
+const metrics = shallowRef([])
 const range = ref(3600)
 const xray = ref(null)
 const myRoutes = ref([])
@@ -24,26 +24,75 @@ const configs = ref([])
 const releases = ref({ agent: '', xray: '' })
 const task = ref({ show: false, id: null, title: '' })
 
+let svAbort = null
+let metricsAbort = null
+let bhAbort = null
+let tabAbort = null
+let rollbackTimer = null
+
 async function load() {
-  const r = await run(() => api.get(`/servers/${id.value}`))
+  svAbort?.abort()
+  const ac = new AbortController()
+  svAbort = ac
+  const sid = id.value
+  const r = await run(() => api.get(`/servers/${sid}`, { signal: ac.signal }))
+  if (ac.signal.aborted || id.value !== sid) return
   if (r) sv.value = r
 }
-async function loadMetrics() { metrics.value = (await run(() => api.get(`/servers/${id.value}/metrics?range=${range.value}`))) || [] }
+async function loadMetrics() {
+  metricsAbort?.abort()
+  const ac = new AbortController()
+  metricsAbort = ac
+  const sid = id.value
+  const r = await run(() => api.get(`/servers/${sid}/metrics?range=${range.value}`, { signal: ac.signal }))
+  if (ac.signal.aborted || id.value !== sid) return
+  metrics.value = r || []
+}
 async function loadXray() {
   if (sv.value?.mode !== 'node') return
-  const [x, rs] = await Promise.all([run(() => api.get(`/servers/${id.value}/xray`)), run(() => api.get('/routes'))])
+  tabAbort?.abort()
+  const ac = new AbortController()
+  tabAbort = ac
+  const sid = id.value
+  const [x, rs] = await Promise.all([
+    run(() => api.get(`/servers/${sid}/xray`, { signal: ac.signal })),
+    run(() => api.get('/routes', { signal: ac.signal })),
+  ])
+  if (ac.signal.aborted || id.value !== sid) return
   if (x) { xray.value = x; fillXrayForms(x) }
-  myRoutes.value = (rs || []).filter((r) => r.entry_server_id === id.value || r.landing_server_id === id.value)
+  myRoutes.value = (rs || []).filter((r) => r.entry_server_id === sid || r.landing_server_id === sid)
 }
-async function loadTraffic() { traffic.value = await run(() => api.get(`/servers/${id.value}/traffic?days=30`)) }
-async function loadConfigs() { configs.value = (await run(() => api.get(`/servers/${id.value}/configs`))) || [] }
+async function loadTraffic() {
+  tabAbort?.abort()
+  const ac = new AbortController()
+  tabAbort = ac
+  const sid = id.value
+  const r = await run(() => api.get(`/servers/${sid}/traffic?days=30`, { signal: ac.signal }))
+  if (ac.signal.aborted || id.value !== sid) return
+  traffic.value = r
+}
+async function loadConfigs() {
+  tabAbort?.abort()
+  const ac = new AbortController()
+  tabAbort = ac
+  const sid = id.value
+  const r = await run(() => api.get(`/servers/${sid}/configs`, { signal: ac.signal }))
+  if (ac.signal.aborted || id.value !== sid) return
+  configs.value = r || []
+}
 
 // ---------- backhaul latency (last 24h, median per carrier) ----------
 const backhaul = ref({ targets: [], series: {} })
 async function loadBackhaul() {
-  const t = (await api.get('/probes/targets').catch(() => null))?.items || []
+  bhAbort?.abort()
+  const ac = new AbortController()
+  bhAbort = ac
+  const sid = id.value
+  const t = (await api.get('/probes/targets', { signal: ac.signal }).catch(() => null))?.items || []
+  if (ac.signal.aborted || id.value !== sid) return
   const ids = t.filter((x) => x.enabled && ['telecom', 'unicom', 'mobile'].includes(x.carrier)).map((x) => x.id)
-  const s = ids.length ? await api.get(`/probes/series?server_id=${id.value}&range=86400&targets=${ids.join(',')}`).catch(() => ({})) : {}
+  const s = ids.length ? await api.get(`/probes/series?server_id=${sid}&range=86400&targets=${ids.join(',')}`, { signal: ac.signal }).catch(() => ({})) : {}
+  if (ac.signal.aborted || id.value !== sid) return
   backhaul.value = { targets: t, series: s || {} }
 }
 const mbps = (v) => (!v ? '未设置' : v >= 1000 && v % 1000 === 0 ? `${v / 1000} Gbps` : `${v} Mbps`)
@@ -101,12 +150,12 @@ const bhOpt = computed(() => {
   }
 })
 
-watch(id, async () => {
+watch(id, () => {
   if (!id.value) return
-  sv.value = null; xray.value = null; traffic.value = null; configs.value = []; tab.value = 'overview'
-  await load()
-  loadMetrics()
+  sv.value = null; xray.value = null; traffic.value = null; configs.value = []; metrics.value = []; tab.value = 'overview'
   backhaul.value = { targets: [], series: {} }
+  load()
+  loadMetrics()
   loadBackhaul()
   api.get('/releases/xray').then((r) => { releases.value.xray = r.latest_xray; releases.value.agent = r.agent_published }).catch(() => {})
 }, { immediate: true })
@@ -124,11 +173,16 @@ const offM = on('metrics', (d) => {
     const m = d.m
     metrics.value.push({ TS: m.ts, CPU: m.cpu, Steal: m.steal, Load1: m.load1, MemUsed: m.mem_used, DiskUsed: m.disk_used, NetIn: m.net_in, NetOut: m.net_out, TCP: m.tcp, UDP: m.udp })
     if (metrics.value.length > 2000) metrics.value.shift()
+    triggerRef(metrics)
   }
 })
 const offS = on('server', (d) => { if (d.id === id.value) load() })
 const offX = on('xray', (d) => { if (d.server_id === id.value) { load(); if (xray.value) loadXray() } })
-onBeforeUnmount(() => { offM(); offS(); offX() })
+onBeforeUnmount(() => {
+  offM(); offS(); offX()
+  svAbort?.abort(); metricsAbort?.abort(); bhAbort?.abort(); tabAbort?.abort()
+  clearTimeout(rollbackTimer)
+})
 
 // ---------- header ----------
 const sys = computed(() => sv.value?.system || {})
@@ -163,7 +217,14 @@ async function runTool(tool, title, args) {
 const upgrade = ref({ show: false, cap_reality: true, cap_landing: false })
 const install = ref({ show: false, command: '', expires_at: '' })
 const now = ref(Date.now())
-const installTimer = setInterval(() => { if (install.value.show) now.value = Date.now() }, 1000)
+let installTimer = null
+watch(() => install.value.show, (active) => {
+  if (installTimer) { clearInterval(installTimer); installTimer = null }
+  if (active) {
+    now.value = Date.now()
+    installTimer = setInterval(() => { now.value = Date.now() }, 1000)
+  }
+})
 onBeforeUnmount(() => clearInterval(installTimer))
 const installLeft = computed(() => countdown(install.value.expires_at, now.value))
 const moreBusy = ref(false)
@@ -351,7 +412,7 @@ async function rollback(v) {
   try {
     if (!(await ask(`回滚到 v${v.version}`, '会把这个版本重新下发到服务器。若新配置启动失败，Agent 会自动恢复上一份。'))) return
     const r = await run(() => api.post(`/servers/${id.value}/configs/${v.id}/rollback`, {}, { confirm: '回滚配置需要确认身份' }))
-    if (r) { task.value = { show: true, id: r.task_id, title: `回滚到 v${v.version}` }; setTimeout(loadConfigs, 3000) }
+    if (r) { task.value = { show: true, id: r.task_id, title: `回滚到 v${v.version}` }; clearTimeout(rollbackTimer); rollbackTimer = setTimeout(loadConfigs, 3000) }
   } finally { rollingBack.value = 0 }
 }
 function diffClass(line) {

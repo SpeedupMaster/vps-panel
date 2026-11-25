@@ -2,7 +2,7 @@
 export default { name: 'Overview' }
 </script>
 <script setup>
-import { ref, computed, onMounted, onActivated, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onActivated, onDeactivated, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { NButton, NInput, NSelect, NProgress } from 'naive-ui'
 import { api } from '../api'
@@ -31,11 +31,22 @@ async function load() {
   if (r) ov.value = r
   loadServers().catch(() => {})
 }
-onMounted(load)
-onActivated(() => { if (ov.value) load() })
-const timer = setInterval(() => { if (!document.hidden) load() }, 60000)
-const off = on('alert', () => setTimeout(load, 500))
-onBeforeUnmount(() => { clearInterval(timer); off() })
+let timer = null
+let off = null
+let alertTimer = null
+function startLive() {
+  if (!timer) timer = setInterval(() => { if (!document.hidden) load() }, 60000)
+  if (!off) off = on('alert', () => { clearTimeout(alertTimer); alertTimer = setTimeout(load, 500) })
+}
+function stopLive() {
+  if (timer) { clearInterval(timer); timer = null }
+  if (off) { off(); off = null }
+  if (alertTimer) { clearTimeout(alertTimer); alertTimer = null }
+}
+onMounted(() => { load(); startLive() })
+onActivated(() => { startLive(); if (ov.value) load() })
+onDeactivated(stopLive)
+onBeforeUnmount(stopLive)
 
 const groups = computed(() => [{ label: '全部分组', value: '' }, ...[...new Set(state.servers.map((s) => s.group).filter(Boolean))].map((g) => ({ label: g, value: g }))])
 const sorts = [{ label: '状态优先', value: 'status' }, { label: '名称', value: 'name' }, { label: '本月流量', value: 'traffic' }, { label: '到期时间', value: 'expire' }]
