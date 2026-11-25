@@ -1,11 +1,23 @@
 # Panel (keep it private: restrict by IP or put it behind your own proxy)
 {$PANEL_DOMAIN:panel.example.com} {
-	encode zstd gzip
 	# Agents use gRPC over HTTP/2 on the same port; h2c keeps it end-to-end HTTP/2.
-	reverse_proxy h2c://panel:8080 {
-		flush_interval -1
-		transport http {
-			read_timeout 0
+	# Scope unbuffered streaming & infinite read timeout strictly to gRPC, SSE, and WebSocket endpoints.
+	@stream path /vpspanel.AgentHub/* /api/events /api/tasks/*/stream /api/servers/*/shell
+	handle @stream {
+		reverse_proxy h2c://panel:8080 {
+			flush_interval -1
+			transport http {
+				read_timeout 0
+			}
+		}
+	}
+	handle {
+		encode zstd gzip
+		reverse_proxy h2c://panel:8080 {
+			transport http {
+				read_timeout 120s
+				write_timeout 120s
+			}
 		}
 	}
 }
