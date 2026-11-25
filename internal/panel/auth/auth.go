@@ -200,7 +200,7 @@ func (a *Auth) verifyAndConsumeTOTP(ad *store.Admin, sec, code string) bool {
 		return false
 	}
 	res := a.st.DB.Model(&store.Admin{}).
-		Where("id = ? AND last_totp_step < ?", ad.ID, step).
+		Where("id = ? AND (last_totp_step IS NULL OR last_totp_step < ?)", ad.ID, step).
 		Update("last_totp_step", step)
 	return res.Error == nil && res.RowsAffected == 1
 }

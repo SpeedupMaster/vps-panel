@@ -62,7 +62,7 @@ func (a *API) createServer(c *gin.Context) {
 		return
 	}
 	a.P.Audit("server", "create", sv.Name, sv.Mode, c.ClientIP())
-	ok(c, gin.H{"server": sv, "token": token, "command": a.P.InstallCommand(token, sv.Mode), "expires_at": sv.InstallTokenExp})
+	ok(c, gin.H{"server": sv, "token": token, "command": a.P.InstallCommand(token, sv.Mode), "expires_at": sv.InstallTokenExp, "install_token_exp": sv.InstallTokenExp})
 }
 
 func (a *API) updateServer(c *gin.Context) {
@@ -104,8 +104,9 @@ func (a *API) newToken(c *gin.Context) {
 		bad(c, err)
 		return
 	}
+	a.P.St.DB.Select("install_token_exp").First(&sv, sv.ID)
 	a.P.Audit("server", "new_install_token", sv.Name, "", c.ClientIP())
-	ok(c, gin.H{"token": token, "command": a.P.InstallCommand(token, sv.Mode)})
+	ok(c, gin.H{"token": token, "command": a.P.InstallCommand(token, sv.Mode), "expires_at": sv.InstallTokenExp, "install_token_exp": sv.InstallTokenExp})
 }
 
 func (a *API) serverMetrics(c *gin.Context) {

@@ -240,7 +240,7 @@ func (a *API) putSettings(c *gin.Context) {
 			}
 		}
 		if k == "panel_urls_backup" && strings.TrimSpace(s) != "" {
-			for _, line := range strings.FieldsFunc(s, func(r rune) bool { return r == '\n' || r == '\r' }) {
+			for _, line := range strings.FieldsFunc(s, func(r rune) bool { return r == '\n' || r == '\r' || r == ',' }) {
 				line = strings.TrimSpace(line)
 				if line == "" {
 					continue

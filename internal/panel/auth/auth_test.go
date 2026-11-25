@@ -153,3 +153,59 @@ func TestAuthTOTPReplayAndRateLimits(t *testing.T) {
 		t.Fatalf("unknown user failures = %d, want 1", a.Failures("5.5.5.5"))
 	}
 }
+
+func TestTOTPNulledColumnMigrationDoesNotLockOut(t *testing.T) {
+	a := newTestAuth(t)
+	sec, _, err := a.BeginTOTP()
+	if err != nil {
+		t.Fatal(err)
+	}
+	step := uint64(time.Now().Unix() / 30)
+	code, err := totpAt(sec, step)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.ConfirmTOTPFor(code, "9.9.9.1"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate a legacy DB table where last_totp_step was added as nullable NULL.
+	db := a.st.DB
+	if err := db.Exec(`CREATE TABLE admins_legacy (
+		id integer primary key autoincrement,
+		username text,
+		password_hash text,
+		password_at datetime,
+		totp_secret text,
+		totp_pending text,
+		recovery_hash text,
+		last_totp_step integer
+	)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`INSERT INTO admins_legacy (id, username, password_hash, password_at, totp_secret, totp_pending, recovery_hash, last_totp_step)
+		SELECT id, username, password_hash, password_at, totp_secret, totp_pending, recovery_hash, NULL FROM admins`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`DROP TABLE admins`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`ALTER TABLE admins_legacy RENAME TO admins`).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// Confirm the row genuinely holds SQL NULL in last_totp_step.
+	var nullCount int64
+	db.Raw(`SELECT COUNT(*) FROM admins WHERE last_totp_step IS NULL`).Scan(&nullCount)
+	if nullCount != 1 {
+		t.Fatalf("expected 1 admin row with NULL last_totp_step, got %d", nullCount)
+	}
+
+	// First verification with SQL NULL must succeed (no lockout), then replay must fail.
+	if err := a.VerifySensitiveIP(code, "9.9.9.2"); err != nil {
+		t.Fatalf("TOTP verification failed on NULL last_totp_step row: %v", err)
+	}
+	if err := a.VerifySensitiveIP(code, "9.9.9.2"); err == nil {
+		t.Fatal("replayed TOTP code after NULL migration was accepted")
+	}
+}

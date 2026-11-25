@@ -245,4 +245,11 @@ func TestProviderURLInstallCommandAndSSHHostKeyFP(t *testing.T) {
 	if err := verifyHostKeyFingerprint("SHA256:WRONG", "ssh-ed25519", "ABCDEF"); err == nil {
 		t.Fatal("mismatching fingerprint accepted")
 	}
+
+	// agentSettings splits panel_urls_backup on both commas and newlines.
+	_ = p.St.Set("panel_urls_backup", "https://b1.example.com/, https://b2.example.com\nhttps://b3.example.com/")
+	as := p.agentSettings()
+	if len(as.PanelURLs) != 4 || as.PanelURLs[1] != "https://b1.example.com" || as.PanelURLs[2] != "https://b2.example.com" || as.PanelURLs[3] != "https://b3.example.com" {
+		t.Fatalf("agentSettings PanelURLs = %v", as.PanelURLs)
+	}
 }

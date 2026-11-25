@@ -93,13 +93,30 @@ func TestSettingsValidationAdminPathCaseInsensitiveAndCSVAndAckInfo(t *testing.T
 			t.Errorf("PUT /api/settings %v = %d, want 400", payload, w.Code)
 		}
 	}
-	// Valid URLs accepted.
+	// Valid URLs accepted (including comma-separated panel_urls_backup).
 	if w := doReq(r, http.MethodPut, "/api/settings", "panel.example.com", sid, map[string]any{
 		"panel_url":         "https://panel.example.com",
 		"sub_url":           "https://sub.example.com:8443",
-		"panel_urls_backup": "https://b1.example.com\nhttps://b2.example.com",
+		"panel_urls_backup": "https://b1.example.com, https://b2.example.com\nhttps://b3.example.com",
 	}); w.Code != http.StatusOK {
 		t.Fatalf("PUT /api/settings valid URLs = %d %s", w.Code, w.Body.String())
+	}
+
+	// POST /api/servers/:id/token returns expires_at & install_token_exp.
+	wTok := doReq(r, http.MethodPost, "/api/servers/1/token", "panel.example.com", sid, nil)
+	if wTok.Code != http.StatusOK {
+		t.Fatalf("POST /api/servers/1/token = %d %s", wTok.Code, wTok.Body.String())
+	}
+	var tokResp struct {
+		Token           string    `json:"token"`
+		ExpiresAt       time.Time `json:"expires_at"`
+		InstallTokenExp time.Time `json:"install_token_exp"`
+	}
+	if err := json.Unmarshal(wTok.Body.Bytes(), &tokResp); err != nil {
+		t.Fatal(err)
+	}
+	if tokResp.Token == "" || tokResp.ExpiresAt.IsZero() || tokResp.InstallTokenExp.IsZero() {
+		t.Fatalf("token response missing expiry fields: %+v", tokResp)
 	}
 
 	// Case-insensitive admin_path vs mixed-case SubToken collision.

@@ -76,7 +76,7 @@ func (p *Panel) OnSettingsChanged(keys []string) {
 
 func (p *Panel) agentSettings() *proto.AgentSettings {
 	urls := []string{strings.TrimRight(p.St.Get("panel_url", ""), "/")}
-	for _, u := range strings.Split(p.St.Get("panel_urls_backup", ""), "\n") {
+	for _, u := range strings.FieldsFunc(p.St.Get("panel_urls_backup", ""), func(r rune) bool { return r == '\n' || r == '\r' || r == ',' }) {
 		if u = strings.TrimSpace(u); u != "" {
 			urls = append(urls, strings.TrimRight(u, "/"))
 		}
