@@ -43,6 +43,8 @@ func (s *Scheduler) Every(name string, d time.Duration, now bool, fn func()) {
 	}()
 }
 
+var dailyTick = 30 * time.Second
+
 // Daily runs fn once a day at the time returned by at() ("HH:MM", local).
 // at is re-read every minute so settings changes apply without restart.
 // Overlapping runs are prevented if a previous day's job is still executing.
@@ -52,7 +54,7 @@ func (s *Scheduler) Daily(name string, at func() string, fn func()) {
 		defer s.wg.Done()
 		last := ""
 		var running atomic.Bool
-		t := time.NewTicker(30 * time.Second)
+		t := time.NewTicker(dailyTick)
 		defer t.Stop()
 		for {
 			select {

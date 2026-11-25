@@ -312,3 +312,42 @@ func (p *Panel) ExpireTasks() {
 		}
 	}
 }
+
+func (p *Panel) ListTasks(serverID, typesCSV, batchID string, limit int) []store.Task {
+	if limit <= 0 {
+		limit = 200
+	}
+	q := p.St.R().Order("id desc").Limit(limit)
+	if serverID != "" {
+		q = q.Where("server_id = ?", serverID)
+	}
+	if typesCSV != "" {
+		q = q.Where("type IN ?", strings.Split(typesCSV, ","))
+	}
+	if batchID != "" {
+		q = q.Where("batch_id = ?", batchID)
+	}
+	var ts []store.Task
+	q.Omit("output").Find(&ts)
+	return ts
+}
+
+func (p *Panel) GetTask(id any) (*store.Task, error) {
+	var t store.Task
+	if err := p.St.R().First(&t, id).Error; err != nil {
+		return nil, ErrNotFound
+	}
+	t.Output = p.TaskOutput(t.ID, t.Output)
+	return &t, nil
+}
+
+func (p *Panel) UpdateHistory(limit int) []store.Task {
+	if limit <= 0 {
+		limit = 200
+	}
+	var ts []store.Task
+	p.St.R().Omit("output", "payload").
+		Where("type IN ?", []string{proto.TaskUpdateAgent, proto.TaskUpdateXray, proto.TaskUpdateGeo}).
+		Order("id desc").Limit(limit).Find(&ts)
+	return ts
+}

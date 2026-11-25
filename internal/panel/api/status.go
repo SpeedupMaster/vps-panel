@@ -5,13 +5,11 @@ import (
 	"math"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"vpspanel/internal/panel/service"
-	"vpspanel/internal/panel/store"
 	"vpspanel/internal/panel/sub"
 )
 
@@ -83,24 +81,12 @@ func (a *API) statusPage(c *gin.Context) {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	var svs []store.Server
-	q := a.P.St.R().Where("status <> ?", "pending").Order("sort, id")
-	if spec := strings.TrimSpace(a.P.St.Get("status_servers", "")); spec != "" && spec != "all" {
-		var ids []uint
-		for _, s := range strings.Split(spec, ",") {
-			if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil && n > 0 {
-				ids = append(ids, uint(n))
-			}
-		}
-		q = q.Where("id IN ?", ids)
-	}
-	q.Find(&svs)
+	svs := a.P.ListStatusServers(a.P.St.Get("status_servers", ""))
 
 	showLat := a.P.St.GetBool("status_show_latency", true)
 	lat := map[uint]map[string][]service.ProbeCell{}
 	if showLat {
-		var targets []store.ProbeTarget
-		a.P.St.R().Find(&targets)
+		targets := a.P.ListProbeTargets("")
 		carrier := map[string]string{}
 		for _, t := range targets {
 			carrier[t.ID] = t.Carrier

@@ -386,36 +386,6 @@ func SendTelegramDocumentFile(ctx context.Context, cfg map[string]string, name, 
 	return nil
 }
 
-// SendTelegramDocument uploads a file (used for backups).
-func SendTelegramDocument(ctx context.Context, cfg map[string]string, name string, data []byte, caption string) error {
-	var buf bytes.Buffer
-	w := newMultipart(&buf)
-	_ = w.WriteField("chat_id", cfg["chat_id"])
-	_ = w.WriteField("caption", caption)
-	fw, _ := w.CreateFormFile("document", name)
-	_, _ = fw.Write(data)
-	w.Close()
-	target := tgBase(cfg) + "/sendDocument"
-	if err := validateOutboundURL(target); err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, &buf)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", w.FormDataContentType())
-	resp, err := SafeHTTPClient(5 * time.Minute).Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, b)
-	}
-	return nil
-}
-
 // ---------- Email ----------
 
 func Email(cfg map[string]string, subject, body string) error {

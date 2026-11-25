@@ -18,7 +18,6 @@ import (
 
 	"vpspanel/internal/panel/auth"
 	"vpspanel/internal/panel/service"
-	"vpspanel/internal/panel/store"
 )
 
 func (a *API) installScript(c *gin.Context) {
@@ -28,40 +27,26 @@ func (a *API) installScript(c *gin.Context) {
 }
 
 func (a *API) listTasks(c *gin.Context) {
-	q := a.P.St.DB.Order("id desc").Limit(200)
-	if s := c.Query("server"); s != "" {
-		q = q.Where("server_id = ?", s)
-	}
-	if t := c.Query("type"); t != "" {
-		q = q.Where("type IN ?", strings.Split(t, ","))
-	}
-	if b := c.Query("batch"); b != "" {
-		q = q.Where("batch_id = ?", b)
-	}
-	var ts []store.Task
-	q.Omit("output").Find(&ts)
-	ok(c, ts)
+	ok(c, a.P.ListTasks(c.Query("server"), c.Query("type"), c.Query("batch"), 200))
 }
 
 func (a *API) getTask(c *gin.Context) {
-	var t store.Task
-	if err := a.P.St.R().First(&t, c.Param("id")).Error; err != nil {
+	t, err := a.P.GetTask(c.Param("id"))
+	if err != nil {
 		fail(c, http.StatusNotFound, "任务不存在")
 		return
 	}
-	t.Output = a.P.TaskOutput(t.ID, t.Output)
 	ok(c, t)
 }
 
 // streamTask sends task output chunks as server-sent events.
 func (a *API) streamTask(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	var t store.Task
-	if err := a.P.St.R().First(&t, id).Error; err != nil {
+	t, err := a.P.GetTask(id)
+	if err != nil {
 		fail(c, http.StatusNotFound, "任务不存在")
 		return
 	}
-	t.Output = a.P.TaskOutput(t.ID, t.Output)
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("X-Accel-Buffering", "no")
@@ -125,13 +110,9 @@ func (a *API) events(c *gin.Context) {
 }
 
 func (a *API) audit(c *gin.Context) {
-	q := a.P.St.R().Order("id desc")
-	if t := c.Query("type"); t != "" && t != "all" {
-		q = q.Where("type = ?", t)
-	}
+	typ := c.Query("type")
 	if c.Query("format") == "csv" {
-		var logs []store.AuditLog
-		q.Limit(20000).Find(&logs)
+		logs := a.P.AuditLogs(typ, 20000, 0)
 		c.Header("Content-Type", "text/csv; charset=utf-8")
 		c.Header("Content-Disposition", "attachment; filename=audit.csv")
 		c.Writer.Write([]byte("\xEF\xBB\xBF"))
@@ -160,9 +141,7 @@ func (a *API) audit(c *gin.Context) {
 	if err != nil || offset < 0 {
 		offset = 0
 	}
-	var logs []store.AuditLog
-	q.Limit(limit).Offset(offset).Find(&logs)
-	ok(c, logs)
+	ok(c, a.P.AuditLogs(typ, limit, offset))
 }
 
 // Settings the UI may read and write. Secrets never go through here.

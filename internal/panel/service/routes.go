@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"gorm.io/gorm"
+
 	"vpspanel/internal/common/proto"
 	"vpspanel/internal/common/xrayconf"
 	"vpspanel/internal/panel/store"
@@ -98,11 +100,15 @@ func (p *Panel) CreateRoute(in RouteInput) (*store.Route, error) {
 	if in.InSub != nil {
 		r.InSub = *in.InSub
 	}
-	if err := p.St.DB.Create(r).Error; err != nil {
+	if err := p.St.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(r).Error; err != nil {
+			return err
+		}
+		r.Email = fmt.Sprintf("r-%d", r.ID)
+		return tx.Model(r).Update("email", r.Email).Error
+	}); err != nil {
 		return nil, err
 	}
-	r.Email = fmt.Sprintf("r-%d", r.ID)
-	p.St.DB.Model(r).Update("email", r.Email)
 	return r, p.syncRoute(r, nil, "新增线路 "+r.Name)
 }
 
@@ -150,7 +156,9 @@ func (p *Panel) SetRouteEnabled(id uint, on bool) error {
 	}
 	old := r
 	r.Enabled = on
-	p.St.DB.Model(&r).Update("enabled", on)
+	if err := p.St.DB.Model(&r).Update("enabled", on).Error; err != nil {
+		return err
+	}
 	return p.syncRoute(&r, &old, map[bool]string{true: "启用", false: "停用"}[on]+"线路 "+r.Name)
 }
 
@@ -162,9 +170,18 @@ func (p *Panel) RegenRouteUUID(id uint) error {
 	}
 	old := r
 	r.UUID = NewUUID()
-	p.St.DB.Model(&r).Update("uuid", r.UUID)
+	if err := p.St.DB.Model(&r).Update("uuid", r.UUID).Error; err != nil {
+		return err
+	}
 	_, err := p.Deploy(r.EntryServerID, "重置线路 UUID "+old.Name, nil)
 	return err
+}
+
+// ServerRoutes returns all routes whose entry is serverID.
+func (p *Panel) ServerRoutes(serverID uint) []store.Route {
+	var routes []store.Route
+	p.St.R().Where("entry_server_id = ?", serverID).Order("sort, id").Find(&routes)
+	return routes
 }
 
 func landingsOf(r *store.Route) []uint {
@@ -443,76 +460,4 @@ func (p *Panel) lastDeployError(serverID uint) string {
 		return ""
 	}
 	return lastLine(t.Output)
-}
-
-// ---------- topology ----------
-
-type TopoNode struct {
-	ID          uint     `json:"id"`
-	Name        string   `json:"name"`
-	CountryCode string   `json:"country_code"`
-	Roles       []string `json:"roles"`
-	Status      string   `json:"status"`
-	Blocked     bool     `json:"blocked"`
-	BackhaulMs  float64  `json:"backhaul_ms"`
-}
-
-type TopoEdge struct {
-	From       uint     `json:"from"`
-	To         uint     `json:"to"` // 0 = internet (direct)
-	Routes     []uint   `json:"routes"`
-	Names      []string `json:"names"`
-	Backup     bool     `json:"backup"`
-	SegmentMs  float64  `json:"segment_ms"`
-	Down       bool     `json:"down"`
-	TodayBytes uint64   `json:"today_bytes"`
-}
-
-func (p *Panel) Topology() map[string]any {
-	var svs []store.Server
-	p.St.R().Where("mode = ?", "node").Order("sort, id").Find(&svs)
-	rolesBy := p.RolesMap(svs)
-	nodes := make([]TopoNode, 0, len(svs))
-	for i := range svs {
-		sv := &svs[i]
-		nodes = append(nodes, TopoNode{sv.ID, sv.Name, sv.CountryCode, rolesBy[sv.ID], sv.Status, sv.Blocked, p.backhaulAvg(sv.ID)})
-	}
-	edges := map[[2]uint]*TopoEdge{}
-	get := func(from, to uint, backup bool) *TopoEdge {
-		k := [2]uint{from, to}
-		if e := edges[k]; e != nil {
-			e.Backup = e.Backup && backup
-			return e
-		}
-		e := &TopoEdge{From: from, To: to, Backup: backup}
-		if to != 0 {
-			e.SegmentMs = p.segmentAvg(from, to)
-			e.Down = p.segmentDown(from, to)
-		}
-		edges[k] = e
-		return e
-	}
-	for _, v := range p.RouteViews() {
-		if !v.Enabled {
-			continue
-		}
-		if v.Type == "direct" {
-			e := get(v.EntryServerID, 0, false)
-			e.Routes, e.Names = append(e.Routes, v.ID), append(e.Names, v.Name)
-			e.TodayBytes += v.TodayBytes
-			continue
-		}
-		e := get(v.EntryServerID, v.LandingServerID, false)
-		e.Routes, e.Names = append(e.Routes, v.ID), append(e.Names, v.Name)
-		e.TodayBytes += v.TodayBytes
-		for _, b := range parseIDs(v.BackupIDs) {
-			be := get(v.EntryServerID, b, true)
-			be.Routes = append(be.Routes, v.ID)
-		}
-	}
-	list := make([]*TopoEdge, 0, len(edges))
-	for _, e := range edges {
-		list = append(list, e)
-	}
-	return map[string]any{"nodes": nodes, "edges": list}
 }

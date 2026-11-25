@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"strconv"
@@ -12,7 +11,6 @@ import (
 
 	"gorm.io/gorm"
 
-	"vpspanel/internal/common/proto"
 	"vpspanel/internal/panel/notify"
 	"vpspanel/internal/panel/scheduler"
 	"vpspanel/internal/panel/store"
@@ -129,6 +127,18 @@ func (e *AlertEngine) ForgetServer(serverID uint) {
 	e.mu.Lock()
 	for k := range e.since {
 		if strings.HasSuffix(k, suffix) {
+			delete(e.since, k)
+		}
+	}
+	e.mu.Unlock()
+}
+
+// ForgetRule drops in-memory duration trackers for a deleted alert rule.
+func (e *AlertEngine) ForgetRule(ruleID uint) {
+	prefix := strconv.FormatUint(uint64(ruleID), 10) + "|"
+	e.mu.Lock()
+	for k := range e.since {
+		if strings.HasPrefix(k, prefix) {
 			delete(e.since, k)
 		}
 	}
@@ -397,74 +407,6 @@ func (e *AlertEngine) send(m notify.Message, channelIDs string) {
 				log.Printf("notify %s: %v", name, err)
 			}
 		}(ch.Type, ch.Name, cfg)
-	}
-}
-
-// ChannelConfig decrypts a channel's settings.
-func (p *Panel) ChannelConfig(ch *store.NotifyChannel) (map[string]string, error) {
-	s, err := p.Box.Open(ch.ConfigEnc)
-	if err != nil {
-		return nil, err
-	}
-	cfg := map[string]string{}
-	return cfg, json.Unmarshal([]byte(s), &cfg)
-}
-
-func (p *Panel) SaveChannel(ch *store.NotifyChannel, cfg map[string]string) error {
-	if _, ok := notify.Fields[ch.Type]; !ok {
-		return fmt.Errorf("未知渠道类型 %s", ch.Type)
-	}
-	if ch.ID != 0 { // keep secrets the UI didn't resend
-		var old store.NotifyChannel
-		if p.St.DB.First(&old, ch.ID).Error == nil {
-			if prev, err := p.ChannelConfig(&old); err == nil {
-				for k, v := range prev {
-					if cfg[k] == "" || cfg[k] == "••••••" {
-						cfg[k] = v
-					}
-				}
-			}
-		}
-	}
-	b, _ := json.Marshal(cfg)
-	ch.ConfigEnc = p.Box.Seal(string(b))
-	if ch.MinLevel == "" {
-		ch.MinLevel = "info"
-	}
-	return p.St.DB.Save(ch).Error
-}
-
-// TestChannel sends a test message synchronously.
-func (p *Panel) TestChannel(id uint) error {
-	var ch store.NotifyChannel
-	if err := p.St.DB.First(&ch, id).Error; err != nil {
-		return err
-	}
-	cfg, err := p.ChannelConfig(&ch)
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	return notify.Send(ctx, ch.Type, cfg, notify.Message{Title: "测试通知", Text: "来自 vps-panel 的测试消息，收到说明渠道配置正确。", Severity: "info", Kind: "test", TS: time.Now().Unix()})
-}
-
-// checkResourceAlerts feeds metric frames into threshold rules.
-func (p *Panel) checkResourceAlerts(serverID uint, m *proto.Metrics) {
-	p.Alert.Observe("cpu", serverID, m.CPU)
-	p.Alert.Observe("steal", serverID, m.Steal)
-	var sys proto.SystemInfo
-	if c := p.Hub.Conn(serverID); c != nil && c.Hello() != nil {
-		sys = c.Hello().System
-	}
-	if sys.MemTotal > 0 {
-		p.Alert.Observe("mem", serverID, float64(m.MemUsed)/float64(sys.MemTotal)*100)
-	}
-	if sys.DiskTotal > 0 {
-		p.Alert.Observe("disk", serverID, float64(m.DiskUsed)/float64(sys.DiskTotal)*100)
-	}
-	if sys.CPUCores > 0 {
-		p.Alert.Observe("load", serverID, m.Load1/float64(sys.CPUCores))
 	}
 }
 
