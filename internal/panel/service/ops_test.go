@@ -49,7 +49,7 @@ func TestBackupRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { db, _ := st.DB.DB(); db.Close() }()
+	defer st.Close()
 	var n int64
 	st.DB.Model(&store.Server{}).Where("name = ?", "HK-01").Count(&n)
 	if n != 1 {

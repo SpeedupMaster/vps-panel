@@ -23,27 +23,34 @@ type serverView struct {
 	Monthly  float64       `json:"monthly_cost"`
 }
 
-func (a *API) view(sv *store.Server) serverView {
+func (a *API) viewWith(sv *store.Server, roles []string, usage service.Usage) serverView {
 	return serverView{
 		Server: sv, System: service.SystemInfo(sv), Switches: service.Switches(sv),
-		Latest: a.P.Latest(sv.ID), Online: a.P.Hub.Online(sv.ID), Roles: a.P.Roles(sv),
-		Usage: a.P.CycleUsage(sv), Monthly: service.MonthlyCost(sv),
+		Latest: a.P.Latest(sv.ID), Online: a.P.Hub.Online(sv.ID), Roles: roles,
+		Usage: usage, Monthly: service.MonthlyCost(sv),
 	}
+}
+
+func (a *API) view(sv *store.Server) serverView {
+	return a.viewWith(sv, a.P.Roles(sv), a.P.CycleUsage(sv))
 }
 
 func (a *API) listServers(c *gin.Context) {
 	var svs []store.Server
-	a.P.St.DB.Order("sort, id").Find(&svs)
+	a.P.St.R().Order("sort, id").Find(&svs)
+	rolesBy := a.P.RolesMap(svs)
+	usageBy := a.P.CycleUsageMap(svs)
 	out := make([]serverView, 0, len(svs))
 	for i := range svs {
-		out = append(out, a.view(&svs[i]))
+		sv := &svs[i]
+		out = append(out, a.viewWith(sv, rolesBy[sv.ID], usageBy[sv.ID]))
 	}
 	ok(c, out)
 }
 
 func (a *API) getServer(c *gin.Context) {
 	var sv store.Server
-	if err := a.P.St.DB.First(&sv, idParam(c)).Error; err != nil {
+	if err := a.P.St.R().First(&sv, idParam(c)).Error; err != nil {
 		fail(c, http.StatusNotFound, "服务器不存在")
 		return
 	}
@@ -118,8 +125,10 @@ func (a *API) serverMetrics(c *gin.Context) {
 }
 
 func (a *API) overview(c *gin.Context) {
+	db := a.P.St.R()
 	var svs []store.Server
-	a.P.St.DB.Order("sort, id").Find(&svs)
+	db.Order("sort, id").Find(&svs)
+	usageBy := a.P.CycleUsageMap(svs)
 	online, nodes, probes := 0, 0, 0
 	var monthly float64
 	var upMonth, downMonth uint64
@@ -148,7 +157,7 @@ func (a *API) overview(c *gin.Context) {
 			probes++
 		}
 		monthly += a.P.ToCurrency(service.MonthlyCost(sv), sv.Currency)
-		u := a.P.CycleUsage(sv)
+		u := usageBy[sv.ID]
 		upMonth += u.Up
 		downMonth += u.Down
 		shares = append(shares, share{sv.ID, sv.Name, u.Counted, sv.QuotaBytes})
@@ -162,9 +171,9 @@ func (a *API) overview(c *gin.Context) {
 	sort.Slice(shares, func(i, j int) bool { return shares[i].Used > shares[j].Used })
 	sort.Slice(exp, func(i, j int) bool { return exp[i].At.Before(exp[j].At) })
 	var firing int64
-	a.P.St.DB.Model(&store.AlertEvent{}).Where("status = ?", "firing").Count(&firing)
+	db.Model(&store.AlertEvent{}).Where("status = ?", "firing").Count(&firing)
 	var recent []store.AlertEvent
-	a.P.St.DB.Order("started_at desc").Limit(6).Find(&recent)
+	db.Order("started_at desc").Limit(6).Find(&recent)
 	ok(c, gin.H{
 		"total": len(svs), "online": online, "nodes": nodes, "probes": probes,
 		"monthly_cost": monthly, "currency": a.P.St.Get("currency", "USD"),
@@ -176,7 +185,7 @@ func (a *API) overview(c *gin.Context) {
 // serverTraffic: NIC daily series plus this cycle's per-route and landing-user totals.
 func (a *API) serverTraffic(c *gin.Context) {
 	var sv store.Server
-	if err := a.P.St.DB.First(&sv, idParam(c)).Error; err != nil {
+	if err := a.P.St.R().First(&sv, idParam(c)).Error; err != nil {
 		fail(c, http.StatusNotFound, "服务器不存在")
 		return
 	}
@@ -195,11 +204,16 @@ func (a *API) serverTraffic(c *gin.Context) {
 		Down uint64 `json:"down"`
 	}
 	var routes []store.Route
-	a.P.St.DB.Where("entry_server_id = ?", sv.ID).Order("sort, id").Find(&routes)
+	a.P.St.R().Where("entry_server_id = ?", sv.ID).Order("sort, id").Find(&routes)
+	rids := make([]string, len(routes))
+	for i, r := range routes {
+		rids[i] = strconv.FormatUint(uint64(r.ID), 10)
+	}
+	sums := a.P.SumMany("route", rids, usage.CycleStart)
 	rs := make([]item, 0, len(routes))
-	for _, r := range routes {
-		up, down := a.P.Sum("route", strconv.FormatUint(uint64(r.ID), 10), usage.CycleStart)
-		rs = append(rs, item{r.ID, r.Name, up, down})
+	for i, r := range routes {
+		t := sums[rids[i]]
+		rs = append(rs, item{r.ID, r.Name, t[0], t[1]})
 	}
 	ok(c, gin.H{
 		"daily":  a.P.TrafficSeries("server", sid, since, true),

@@ -30,6 +30,21 @@ func (nopAlerter) Resolve(string, uint, string)              {}
 func (nopAlerter) Info(string, uint, string)                 {}
 func (nopAlerter) Observe(string, uint, float64)             {}
 
+type serverSeenUpdate struct {
+	lastSeen    time.Time
+	hasXray     bool
+	xrayRunning bool
+	xrayVersion string
+}
+
+type taskOutBuf struct {
+	serverID  uint
+	status    string
+	buf       string
+	lastFlush time.Time
+	dirty     bool
+}
+
 type Panel struct {
 	St      *store.Store
 	Box     *secret.Box
@@ -43,9 +58,27 @@ type Panel struct {
 	latest          map[uint]*proto.Metrics
 	waiters         map[uint64][]chan *proto.TaskResult
 	bundledAgentDir string
+	serverNames     map[uint]string
 
 	deployMu    sync.Mutex
 	deployLocks map[uint]*sync.Mutex
+
+	teleMu        sync.Mutex
+	pendingMet    []store.MetricRaw
+	pendingSeen   map[uint]serverSeenUpdate
+	pendingProbes []store.ProbeResult
+
+	taskOutMu sync.Mutex
+	taskOut   map[uint64]*taskOutBuf
+
+	backupMu sync.Mutex
+
+	relayMu    sync.Mutex
+	relayLocks map[string]*sync.Mutex
+
+	iperfMu    sync.Mutex
+	iperfInUse map[int]time.Time
+	iperfNext  int
 }
 
 func New(st *store.Store, box *secret.Box, a *auth.Auth, h *hub.Hub, dataDir string) *Panel {
@@ -54,6 +87,10 @@ func New(st *store.Store, box *secret.Box, a *auth.Auth, h *hub.Hub, dataDir str
 		latest:      map[uint]*proto.Metrics{},
 		waiters:     map[uint64][]chan *proto.TaskResult{},
 		deployLocks: map[uint]*sync.Mutex{},
+		pendingSeen: map[uint]serverSeenUpdate{},
+		taskOut:     map[uint64]*taskOutBuf{},
+		relayLocks:  map[string]*sync.Mutex{},
+		iperfInUse:  map[int]time.Time{},
 	}
 	h.SetHandler(p)
 	return p
@@ -163,12 +200,38 @@ func (p *Panel) onEvent(serverID uint, e *proto.Event) {
 	p.Audit("system", "agent_event", name, e.Kind+": "+e.Detail, "")
 }
 
+// InvalidateServerNames clears the cached serverID -> name map.
+func (p *Panel) InvalidateServerNames() {
+	p.mu.Lock()
+	p.serverNames = nil
+	p.mu.Unlock()
+}
+
 func (p *Panel) ServerName(id uint) string {
-	var sv store.Server
-	if err := p.St.DB.Select("name").First(&sv, id).Error; err != nil {
+	if id == 0 {
 		return "#?"
 	}
-	return sv.Name
+	p.mu.RLock()
+	cache := p.serverNames
+	p.mu.RUnlock()
+	if cache == nil {
+		var svs []store.Server
+		p.St.R().Select("id, name").Find(&svs)
+		m := make(map[uint]string, len(svs))
+		for _, sv := range svs {
+			m[sv.ID] = sv.Name
+		}
+		p.mu.Lock()
+		if p.serverNames == nil {
+			p.serverNames = m
+		}
+		cache = p.serverNames
+		p.mu.Unlock()
+	}
+	if name, ok := cache[id]; ok {
+		return name
+	}
+	return "#?"
 }
 
 // Audit records an operation in the audit log.

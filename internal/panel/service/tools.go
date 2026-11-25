@@ -87,18 +87,66 @@ func (p *Panel) RunTool(serverID uint, tool string, args map[string]string) (uin
 	return t.ID, nil
 }
 
+const (
+	iperfPortMin = 45201
+	iperfPortMax = 45300
+	iperfPortTTL = 2 * time.Minute
+)
+
+func (p *Panel) allocIperfPort() (int, error) {
+	p.iperfMu.Lock()
+	defer p.iperfMu.Unlock()
+	if p.iperfInUse == nil {
+		p.iperfInUse = map[int]time.Time{}
+	}
+	now := time.Now()
+	for port, exp := range p.iperfInUse {
+		if now.After(exp) {
+			delete(p.iperfInUse, port)
+		}
+	}
+	span := iperfPortMax - iperfPortMin + 1
+	for i := 0; i < span; i++ {
+		port := iperfPortMin + (p.iperfNext+i)%span
+		if _, busy := p.iperfInUse[port]; !busy {
+			p.iperfInUse[port] = now.Add(iperfPortTTL)
+			p.iperfNext = (p.iperfNext + i + 1) % span
+			return port, nil
+		}
+	}
+	return 0, errors.New("当前测速任务过多，请稍后再试")
+}
+
+func (p *Panel) releaseIperfPort(port int) {
+	if port < iperfPortMin || port > iperfPortMax {
+		return
+	}
+	p.iperfMu.Lock()
+	delete(p.iperfInUse, port)
+	p.iperfMu.Unlock()
+}
+
 // RunIperf starts iperf3 on the target as server and on the source as client.
 func (p *Panel) RunIperf(from, to uint) (uint64, error) {
 	var dst store.Server
-	if err := p.St.DB.First(&dst, to).Error; err != nil || dst.IPv4 == "" {
+	if err := p.St.R().First(&dst, to).Error; err != nil || dst.IPv4 == "" {
 		return 0, errors.New("对端没有 IPv4")
 	}
-	port := strconv.Itoa(45201 + int(time.Now().Unix()%50))
-	if _, err := p.CreateTask(to, proto.TaskIperf, map[string]string{"role": "server", "port": port}, nil, 90, ""); err != nil {
+	portNum, err := p.allocIperfPort()
+	if err != nil {
 		return 0, err
+	}
+	port := strconv.Itoa(portNum)
+	if _, err := p.CreateTask(to, proto.TaskIperf, map[string]string{"role": "server", "port": port}, nil, 90, ""); err != nil {
+		p.releaseIperfPort(portNum)
+		return 0, err
+	}
+	if p.Hub.Online(to) {
+		time.Sleep(150 * time.Millisecond) // allow server task dispatch & iperf3 -s bind
 	}
 	t, err := p.CreateTask(from, proto.TaskIperf, map[string]string{"host": dst.IPv4, "port": port, "peer": strconv.Itoa(int(to))}, nil, 90, "")
 	if err != nil {
+		p.releaseIperfPort(portNum)
 		return 0, err
 	}
 	return t.ID, nil
@@ -152,6 +200,9 @@ func (p *Panel) afterToolTask(t *store.Task, r *proto.TaskResult) {
 		_ = json.Unmarshal([]byte(t.Args), &args)
 		if args["role"] == "server" {
 			return
+		}
+		if portNum, err := strconv.Atoi(args["port"]); err == nil {
+			p.releaseIperfPort(portNum)
 		}
 		tool = "iperf"
 	}

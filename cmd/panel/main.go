@@ -92,7 +92,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	a := &api.API{P: p, Web: webui.FS(), Script: scripts.Install, TrustedProxies: trusted}
+	a := &api.API{P: p, Web: webui.FS(), Script: scripts.Install, TrustedProxies: trusted, Shutdown: stop}
 	modules := setup(ctx, p, a)
 	sch := scheduler.New(ctx)
 	p.StartJobs(sch)
@@ -103,12 +103,18 @@ func main() {
 	grpcSrv := h.GRPCServer()
 	ginEngine := a.Router()
 	mux := newRootHandler(p, grpcSrv, ginEngine)
-	srv := &http.Server{Addr: *listen, ReadHeaderTimeout: 15 * time.Second, IdleTimeout: 120 * time.Second}
+	h2s := &http2.Server{ReadIdleTimeout: 45 * time.Second, PingTimeout: 15 * time.Second}
+	srv := &http.Server{
+		Addr:              *listen,
+		ReadHeaderTimeout: 15 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		BaseContext:       func(net.Listener) context.Context { return ctx },
+	}
 	if *tlsCert != "" {
 		srv.Handler = mux
-		_ = http2.ConfigureServer(srv, &http2.Server{})
+		_ = http2.ConfigureServer(srv, h2s)
 	} else {
-		srv.Handler = h2c.NewHandler(mux, &http2.Server{}) // Caddy: reverse_proxy h2c://127.0.0.1:8080
+		srv.Handler = h2c.NewHandler(mux, h2s) // Caddy: reverse_proxy h2c://127.0.0.1:8080
 	}
 
 	go func() {
@@ -129,6 +135,11 @@ func main() {
 	defer cancel()
 	grpcSrv.Stop()
 	_ = srv.Shutdown(sctx)
+	sch.Wait()
+	p.FlushTelemetry()
+	if eng, ok := p.Alert.(*service.AlertEngine); ok {
+		eng.Flush()
+	}
 	_ = st.Close()
 }
 

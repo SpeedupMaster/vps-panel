@@ -120,6 +120,9 @@ func (e *AlertEngine) Start(s *scheduler.Scheduler) {
 	s.Every("alert-flush", 10*time.Second, false, e.flush)
 }
 
+// Flush immediately drains queued alert notifications (used during graceful shutdown).
+func (e *AlertEngine) Flush() { e.flush() }
+
 // ForgetServer drops in-memory duration trackers for a deleted server.
 func (e *AlertEngine) ForgetServer(serverID uint) {
 	suffix := "|" + strconv.FormatUint(uint64(serverID), 10)

@@ -96,7 +96,7 @@ func (a *API) getXray(c *gin.Context) {
 	if a.P.St.DB.First(&li, "server_id = ?", id).Error == nil {
 		res["landing"] = li
 		var users []store.LandingUser
-		a.P.St.DB.Where("landing_server_id = ?", id).Find(&users)
+		a.P.St.R().Where("landing_server_id = ?", id).Find(&users)
 		type lu struct {
 			ID        uint   `json:"id"`
 			Email     string `json:"email"`
@@ -105,10 +105,16 @@ func (a *API) getXray(c *gin.Context) {
 			Up        uint64 `json:"month_up"`
 			Down      uint64 `json:"month_down"`
 		}
+		prefix := strconv.FormatUint(uint64(id), 10) + ":"
+		keys := make([]string, len(users))
+		for i, u := range users {
+			keys[i] = prefix + u.Email
+		}
+		sums := a.P.SumMany("landing_user", keys, monthStart())
 		var list []lu
-		for _, u := range users {
-			up, down := a.P.Sum("landing_user", strconv.FormatUint(uint64(id), 10)+":"+u.Email, monthStart())
-			list = append(list, lu{u.ID, u.Email, u.EntryServerID, a.P.ServerName(u.EntryServerID), up, down})
+		for i, u := range users {
+			t := sums[keys[i]]
+			list = append(list, lu{u.ID, u.Email, u.EntryServerID, a.P.ServerName(u.EntryServerID), t[0], t[1]})
 		}
 		res["landing_users"] = list
 		res["landing_firewall"] = a.P.St.GetBool("landing_firewall", true)

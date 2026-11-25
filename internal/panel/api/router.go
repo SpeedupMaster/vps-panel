@@ -27,6 +27,7 @@ type API struct {
 	Web            fs.FS // built SPA (may be empty during development)
 	Script         []byte
 	TrustedProxies []string
+	Shutdown       func()                                          // optional graceful shutdown trigger
 	Extra          []func(r *gin.Engine, authed *gin.RouterGroup) // feature modules
 }
 

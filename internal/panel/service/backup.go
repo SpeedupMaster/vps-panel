@@ -236,6 +236,9 @@ func decryptBackup(data []byte, pass string) ([]byte, error) {
 
 // BackupNow writes a backup, prunes old ones and uploads to remote targets.
 func (p *Panel) BackupNow(reason string) (string, error) {
+	p.backupMu.Lock()
+	defer p.backupMu.Unlock()
+
 	if err := os.MkdirAll(p.backupDir(), 0o700); err != nil {
 		return "", err
 	}

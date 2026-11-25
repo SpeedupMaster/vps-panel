@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"vpspanel/internal/common/proto"
 	"vpspanel/internal/panel/store"
@@ -14,24 +15,103 @@ func (p *Panel) ingestMetrics(serverID uint, m *proto.Metrics) {
 	p.mu.Lock()
 	p.latest[serverID] = m
 	p.mu.Unlock()
-	upd := map[string]any{"last_seen_at": time.Now(), "status": "online"}
+
+	row := store.MetricRaw{Metric: store.Metric{
+		ServerID: serverID, TS: m.TS, CPU: m.CPU, Steal: m.Steal, Load1: m.Load1,
+		MemUsed: m.MemUsed, SwapUsed: m.SwapUsed, DiskUsed: m.DiskUsed, DiskRead: m.DiskRead, DiskWrite: m.DiskWrite,
+		NetIn: m.NetIn, NetOut: m.NetOut, TCP: m.TCPConns, UDP: m.UDPConns,
+	}}
+	now := time.Now()
+	p.teleMu.Lock()
+	p.pendingMet = append(p.pendingMet, row)
+	if p.pendingSeen == nil {
+		p.pendingSeen = map[uint]serverSeenUpdate{}
+	}
+	u := p.pendingSeen[serverID]
+	u.lastSeen = now
 	if m.Xray != nil {
-		upd["xray_running"] = m.Xray.Running
+		u.hasXray = true
+		u.xrayRunning = m.Xray.Running
 		if m.Xray.Version != "" {
-			upd["xray_version"] = m.Xray.Version
+			u.xrayVersion = m.Xray.Version
 		}
 	}
-	_ = p.St.DB.Transaction(func(tx *gorm.DB) error {
-		tx.Create(&store.MetricRaw{Metric: store.Metric{
-			ServerID: serverID, TS: m.TS, CPU: m.CPU, Steal: m.Steal, Load1: m.Load1,
-			MemUsed: m.MemUsed, SwapUsed: m.SwapUsed, DiskUsed: m.DiskUsed, DiskRead: m.DiskRead, DiskWrite: m.DiskWrite,
-			NetIn: m.NetIn, NetOut: m.NetOut, TCP: m.TCPConns, UDP: m.UDPConns,
-		}})
-		tx.Model(&store.Server{}).Where("id = ?", serverID).Updates(upd)
-		return nil
-	})
+	p.pendingSeen[serverID] = u
+	shouldFlush := len(p.pendingMet) >= 500
+	p.teleMu.Unlock()
+	if shouldFlush {
+		p.FlushTelemetry()
+	}
+
 	p.Bus.Publish("metrics", map[string]any{"id": serverID, "m": m})
 	p.checkResourceAlerts(serverID, m)
+}
+
+// FlushTelemetry writes all buffered metrics, server heartbeat updates,
+// probe results, and dirty streaming task outputs to SQLite in batched
+// transactions.
+func (p *Panel) FlushTelemetry() {
+	p.teleMu.Lock()
+	mets := p.pendingMet
+	p.pendingMet = nil
+	seen := p.pendingSeen
+	p.pendingSeen = map[uint]serverSeenUpdate{}
+	prs := p.pendingProbes
+	p.pendingProbes = nil
+	p.teleMu.Unlock()
+
+	if len(mets) > 0 || len(seen) > 0 || len(prs) > 0 {
+		_ = p.St.DB.Transaction(func(tx *gorm.DB) error {
+			if len(mets) > 0 {
+				if err := tx.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(mets, 200).Error; err != nil {
+					return err
+				}
+			}
+			for sid, u := range seen {
+				upd := map[string]any{"last_seen_at": u.lastSeen, "status": "online"}
+				if u.hasXray {
+					upd["xray_running"] = u.xrayRunning
+					if u.xrayVersion != "" {
+						upd["xray_version"] = u.xrayVersion
+					}
+				}
+				if err := tx.Model(&store.Server{}).Where("id = ?", sid).Updates(upd).Error; err != nil {
+					return err
+				}
+			}
+			if len(prs) > 0 {
+				if err := tx.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(prs, 200).Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}
+	p.FlushTaskOutputs()
+}
+
+func (p *Panel) dropPendingTelemetry(serverID uint) {
+	p.teleMu.Lock()
+	delete(p.pendingSeen, serverID)
+	if len(p.pendingMet) > 0 {
+		kept := p.pendingMet[:0]
+		for _, m := range p.pendingMet {
+			if m.ServerID != serverID {
+				kept = append(kept, m)
+			}
+		}
+		p.pendingMet = kept
+	}
+	if len(p.pendingProbes) > 0 {
+		kept := p.pendingProbes[:0]
+		for _, r := range p.pendingProbes {
+			if r.ServerID != serverID {
+				kept = append(kept, r)
+			}
+		}
+		p.pendingProbes = kept
+	}
+	p.teleMu.Unlock()
 }
 
 const aggCols = `server_id, %s, avg(cpu), avg(steal), avg(load1), avg(mem_used), avg(swap_used), max(disk_used),
@@ -42,6 +122,7 @@ const insCols = `(server_id, ts, cpu, steal, load1, mem_used, swap_used, disk_us
 // Downsample rolls raw -> 1m -> 1h -> 1d and enforces retention:
 // raw 24h, 1m 7d, 1h 90d (configurable), 1d forever.
 func (p *Panel) Downsample() {
+	p.FlushTelemetry()
 	now := time.Now().Unix()
 	db := p.St.DB
 	roll := func(src, dst string, step int64, lookback int64) {
@@ -66,6 +147,7 @@ func (p *Panel) Downsample() {
 
 // MetricSeries picks a resolution that fits the range.
 func (p *Panel) MetricSeries(serverID uint, rangeSec int64) []store.Metric {
+	p.FlushTelemetry()
 	table := "metrics_raw"
 	switch {
 	case rangeSec > 30*86400:
@@ -76,14 +158,15 @@ func (p *Panel) MetricSeries(serverID uint, rangeSec int64) []store.Metric {
 		table = "metrics_1m"
 	}
 	var out []store.Metric
-	p.St.DB.Table(table).Where("server_id = ? AND ts >= ?", serverID, time.Now().Unix()-rangeSec).Order("ts").Find(&out)
+	p.St.R().Table(table).Where("server_id = ? AND ts >= ?", serverID, time.Now().Unix()-rangeSec).Order("ts").Find(&out)
 	return out
 }
 
 // CheckOnline updates suspect / offline status for silent agents.
 func (p *Panel) CheckOnline() {
+	p.FlushTelemetry()
 	var svs []store.Server
-	p.St.DB.Where("agent_id <> ''").Find(&svs)
+	p.St.R().Where("agent_id <> ''").Find(&svs)
 	offAfter := time.Duration(p.St.GetInt("offline_after_sec", 90)) * time.Second
 	for _, sv := range svs {
 		if p.Hub.Online(sv.ID) && time.Since(sv.LastSeenAt) < 30*time.Second {

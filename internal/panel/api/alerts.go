@@ -84,7 +84,7 @@ func (a *API) deleteRule(c *gin.Context) {
 // ---------- events ----------
 
 func (a *API) listEvents(c *gin.Context) {
-	q := a.P.St.DB.Order("id desc")
+	q := a.P.St.R().Order("id desc")
 	if s := c.Query("status"); s != "" && s != "all" {
 		q = q.Where("status = ?", s)
 	}
@@ -113,7 +113,7 @@ func (a *API) listEvents(c *gin.Context) {
 		out = append(out, view{e, a.P.ServerName(e.ServerID), service.KindLabels[e.Kind]})
 	}
 	var firing int64
-	a.P.St.DB.Model(&store.AlertEvent{}).Where("status = ? AND acked = ?", "firing", false).Count(&firing)
+	a.P.St.R().Model(&store.AlertEvent{}).Where("status = ? AND acked = ?", "firing", false).Count(&firing)
 	ok(c, gin.H{"items": out, "firing": firing})
 }
 
@@ -338,11 +338,21 @@ func (a *API) syncTargets(c *gin.Context) {
 func (a *API) probeSeries(c *gin.Context) {
 	sid, _ := strconv.ParseUint(c.Query("server_id"), 10, 64)
 	rng, _ := strconv.ParseInt(c.DefaultQuery("range", "86400"), 10, 64)
+	if rng <= 0 {
+		rng = 86400
+	} else if rng > 400*86400 {
+		rng = 400 * 86400
+	}
 	targets := strings.Split(c.Query("targets"), ",")
 	out := map[string]any{}
+	count := 0
 	for _, t := range targets {
 		if t = strings.TrimSpace(t); t != "" {
+			if count >= 60 {
+				break
+			}
 			out[t] = a.P.ProbeSeries(uint(sid), t, rng)
+			count++
 		}
 	}
 	ok(c, out)

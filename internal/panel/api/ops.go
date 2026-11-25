@@ -195,7 +195,7 @@ func (a *API) startUpdate(c *gin.Context) {
 
 func (a *API) updateHistory(c *gin.Context) {
 	var ts []store.Task
-	a.P.St.DB.Where("type IN ?", []string{proto.TaskUpdateAgent, proto.TaskUpdateXray, proto.TaskUpdateGeo}).
+	a.P.St.R().Omit("output", "payload").Where("type IN ?", []string{proto.TaskUpdateAgent, proto.TaskUpdateXray, proto.TaskUpdateGeo}).
 		Order("id desc").Limit(200).Find(&ts)
 	type view struct {
 		store.Task
@@ -203,7 +203,6 @@ func (a *API) updateHistory(c *gin.Context) {
 	}
 	out := make([]view, 0, len(ts))
 	for _, t := range ts {
-		t.Output = lastLines(t.Output, 3)
 		out = append(out, view{t, a.P.ServerName(t.ServerID)})
 	}
 	ok(c, out)
@@ -471,6 +470,10 @@ func (a *API) restoreBackup(c *gin.Context) {
 	ok(c, gin.H{"restarting": true})
 	go func() {
 		time.Sleep(time.Second)
+		if a.Shutdown != nil {
+			a.Shutdown()
+			return
+		}
 		os.Exit(0)
 	}()
 }

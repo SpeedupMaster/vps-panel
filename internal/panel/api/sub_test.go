@@ -26,9 +26,7 @@ func newTestAPI(t *testing.T, withWeb bool) (*API, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if db, err := st.DB.DB(); err == nil {
-			db.Close()
-		}
+		_ = st.Close()
 	})
 	box, err := secret.Load(dir)
 	if err != nil {

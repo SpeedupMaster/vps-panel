@@ -126,6 +126,7 @@ func (p *Panel) CreateServer(in ServerInput) (*store.Server, string, error) {
 			return nil, "", err
 		}
 	}
+	p.InvalidateServerNames()
 	return sv, token, nil
 }
 
@@ -142,7 +143,11 @@ func (p *Panel) UpdateServer(id uint, in ServerInput) error {
 		return err
 	}
 	in.apply(&sv)
-	return p.St.DB.Save(&sv).Error
+	if err := p.St.DB.Save(&sv).Error; err != nil {
+		return err
+	}
+	p.InvalidateServerNames()
+	return nil
 }
 
 // NewInstallToken issues a fresh token (e.g. to reinstall an agent).
@@ -189,6 +194,7 @@ func (p *Panel) DeleteServer(id uint) error {
 	}
 	// Disconnect live agent stream first so no new frames arrive during purge.
 	p.Hub.Disconnect(id)
+	p.dropPendingTelemetry(id)
 
 	sid := strconv.FormatUint(uint64(id), 10)
 	fwKey := fmt.Sprintf("fw_hash_%d", id)
@@ -236,6 +242,8 @@ func (p *Panel) DeleteServer(id uint) error {
 		return err
 	}
 	p.St.ForgetCache(fwKey)
+	p.InvalidateServerNames()
+	p.dropPendingTelemetry(id)
 	p.mu.Lock()
 	delete(p.latest, id)
 	p.mu.Unlock()

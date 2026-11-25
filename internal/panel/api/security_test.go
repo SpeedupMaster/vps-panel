@@ -195,4 +195,32 @@ func TestSettingsValidationAdminPathCaseInsensitiveAndCSVAndAckInfo(t *testing.T
 	if wBig.Code != http.StatusBadRequest {
 		t.Fatalf("oversized body status = %d, want 400", wBig.Code)
 	}
+
+	// Stage 2: /api/audit clamps limit (<=500) and offset (>=0); /api/probes/series caps targets (<=60).
+	wAud := doReq(r, http.MethodGet, "/api/audit?limit=99999&offset=-5", "panel.example.com", sid, nil)
+	if wAud.Code != http.StatusOK {
+		t.Fatalf("GET /api/audit clamped = %d %s", wAud.Code, wAud.Body.String())
+	}
+	var many []string
+	for i := 0; i < 80; i++ {
+		many = append(many, "t-"+strconv.Itoa(i))
+	}
+	wPS := doReq(r, http.MethodGet, "/api/probes/series?server_id=1&range=999999999&targets="+strings.Join(many, ","), "panel.example.com", sid, nil)
+	if wPS.Code != http.StatusOK {
+		t.Fatalf("GET /api/probes/series = %d %s", wPS.Code, wPS.Body.String())
+	}
+	var psMap map[string]any
+	if err := json.Unmarshal(wPS.Body.Bytes(), &psMap); err != nil {
+		t.Fatal(err)
+	}
+	if len(psMap) != 60 {
+		t.Fatalf("/api/probes/series returned %d targets, want cap 60", len(psMap))
+	}
+
+	// /api/updates/history omits Task.Output and populates server_name.
+	a.P.St.DB.Create(&store.Task{ID: 777777, ServerID: 1, Type: "update_xray", Status: "success", Output: "huge log output", CreatedAt: time.Now()})
+	wHist := doReq(r, http.MethodGet, "/api/updates/history", "panel.example.com", sid, nil)
+	if wHist.Code != http.StatusOK || strings.Contains(wHist.Body.String(), "huge log output") || !strings.Contains(wHist.Body.String(), "HK-1") {
+		t.Fatalf("GET /api/updates/history = %d %s", wHist.Code, wHist.Body.String())
+	}
 }
