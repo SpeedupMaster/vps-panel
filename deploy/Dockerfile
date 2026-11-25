@@ -1,5 +1,5 @@
 # Build from the repo root:  docker build -f deploy/Dockerfile -t vps-panel .
-FROM node:22-alpine AS web
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web
 WORKDIR /src/web
 ENV COREPACK_HOME=/root/.cache/node/corepack
 RUN corepack enable
@@ -11,7 +11,7 @@ COPY web/ ./
 RUN --mount=type=cache,target=/root/.cache/node/corepack \
     pnpm build
 
-FROM golang:1.27-alpine AS go
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS go
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -20,11 +20,13 @@ COPY cmd ./cmd
 COPY internal ./internal
 COPY scripts ./scripts
 COPY --from=web /src/internal/panel/webui/dist ./internal/panel/webui/dist
+ARG TARGETOS=linux
+ARG TARGETARCH
 ARG VERSION=docker
 ARG COMMIT=unknown
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -trimpath -tags nomsgpack -ldflags "-s -w -X vpspanel/internal/common/version.Version=${VERSION} -X vpspanel/internal/common/version.Commit=${COMMIT}" -o /out/vps-panel ./cmd/panel \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -tags nomsgpack -ldflags "-s -w -X vpspanel/internal/common/version.Version=${VERSION} -X vpspanel/internal/common/version.Commit=${COMMIT}" -o /out/vps-panel ./cmd/panel \
  && for arch in amd64 arm64; do \
       CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w -X vpspanel/internal/common/version.Version=${VERSION} -X vpspanel/internal/common/version.Commit=${COMMIT}" -o /out/agent/vpsagent-linux-$arch ./cmd/agent \
       && gzip -9 /out/agent/vpsagent-linux-$arch; \
