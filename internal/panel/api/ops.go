@@ -315,8 +315,7 @@ func (a *API) runScript(c *gin.Context) {
 		bad(c, err)
 		return
 	}
-	if !a.P.Auth.VerifySensitive(c.GetHeader("X-Confirm")) {
-		fail(c, http.StatusForbidden, "二次验证失败")
+	if !a.confirm(c) {
 		return
 	}
 	batch, ids, err := a.P.RunScript(in.ScriptID, in.Content, in.ServerIDs, in.Timeout)
@@ -398,6 +397,9 @@ func (a *API) createBackup(c *gin.Context) {
 }
 
 func (a *API) downloadBackup(c *gin.Context) {
+	if !a.confirm(c) {
+		return
+	}
 	path, okk := a.P.BackupPath(c.Param("name"))
 	if !okk {
 		fail(c, 404, "备份不存在")
@@ -417,8 +419,7 @@ func (a *API) deleteBackup(c *gin.Context) {
 
 // restoreBackup needs TOTP (or the password without 2FA); the panel restarts.
 func (a *API) restoreBackup(c *gin.Context) {
-	if !a.P.Auth.VerifySensitive(c.GetHeader("X-Confirm")) {
-		fail(c, http.StatusForbidden, "二次验证失败")
+	if !a.confirm(c) {
 		return
 	}
 	var srcPath string
@@ -489,8 +490,7 @@ var (
 // shellTicket checks the second factor once and returns a single-use ticket
 // for the websocket (browsers can't set headers on websocket requests).
 func (a *API) shellTicket(c *gin.Context) {
-	if !a.P.Auth.VerifySensitive(c.GetHeader("X-Confirm")) {
-		fail(c, http.StatusForbidden, "二次验证失败")
+	if !a.confirm(c) {
 		return
 	}
 	if !a.P.Hub.Online(idParam(c)) {
@@ -598,6 +598,9 @@ func (a *API) shell(c *gin.Context) {
 }
 
 func (a *API) sshInstall(c *gin.Context) {
+	if !a.confirm(c) {
+		return
+	}
 	var in service.SSHInstallInput
 	if err := c.ShouldBindJSON(&in); err != nil {
 		bad(c, err)

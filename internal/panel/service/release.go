@@ -22,6 +22,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"gorm.io/gorm/clause"
 
@@ -79,8 +80,8 @@ func (p *Panel) SyncXrayReleases() error {
 			ch = "pre"
 		}
 		notes := r.Body
-		if len(notes) > 8000 {
-			notes = notes[:8000] + "…"
+		if utf8.RuneCountInString(notes) > 8000 {
+			notes = truncate(notes, 8000) + "…"
 		}
 		var cur store.Release
 		if p.St.DB.Where("component = ? AND version = ?", "xray", ver).First(&cur).Error == nil {

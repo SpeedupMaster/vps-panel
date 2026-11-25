@@ -76,7 +76,7 @@ func (p *Panel) OnSettingsChanged(keys []string) {
 
 func (p *Panel) agentSettings() *proto.AgentSettings {
 	urls := []string{strings.TrimRight(p.St.Get("panel_url", ""), "/")}
-	for _, u := range strings.Split(p.St.Get("panel_urls_backup", ""), "\n") {
+	for _, u := range strings.FieldsFunc(p.St.Get("panel_urls_backup", ""), func(r rune) bool { return r == '\n' || r == '\r' || r == ',' }) {
 		if u = strings.TrimSpace(u); u != "" {
 			urls = append(urls, strings.TrimRight(u, "/"))
 		}
@@ -84,11 +84,35 @@ func (p *Panel) agentSettings() *proto.AgentSettings {
 	return &proto.AgentSettings{ReportInterval: p.St.GetInt("agent_report_interval", 10), PanelURLs: urls}
 }
 
-// CheckExpiry fires reminders 7 days and 1 day before a VPS expires.
+// CheckExpiry fires reminders 7 days and 1 day before a VPS expires, and
+// auto-resolves firing expiry alerts once a server is renewed or cleared.
 func (p *Panel) CheckExpiry() {
 	var svs []store.Server
-	p.St.DB.Where("expire_at IS NOT NULL").Find(&svs)
+	p.St.DB.Find(&svs)
+	byID := make(map[uint]*store.Server, len(svs))
+	for i := range svs {
+		byID[svs[i].ID] = &svs[i]
+	}
+
+	var active []store.AlertEvent
+	p.St.DB.Where("kind = ? AND status = ?", "expire", "firing").Find(&active)
+	for _, ev := range active {
+		sv := byID[ev.ServerID]
+		if sv == nil || sv.ExpireAt == nil {
+			p.Alert.Resolve("expire", ev.ServerID, ev.Key)
+			continue
+		}
+		days := int(time.Until(*sv.ExpireAt).Hours()/24 + 0.999)
+		dateSuffix := "-" + sv.ExpireAt.Format("20060102")
+		if days > 7 || !strings.HasSuffix(ev.Key, dateSuffix) {
+			p.Alert.Resolve("expire", ev.ServerID, ev.Key)
+		}
+	}
+
 	for _, sv := range svs {
+		if sv.ExpireAt == nil {
+			continue
+		}
 		days := int(time.Until(*sv.ExpireAt).Hours()/24 + 0.999)
 		for _, d := range []int{1, 7} {
 			if days <= d && days >= 0 {

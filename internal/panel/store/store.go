@@ -93,4 +93,20 @@ func (s *Store) Set(key, value string) error {
 	return nil
 }
 
+// Delete removes a setting from both SQLite and the in-memory cache.
+func (s *Store) Delete(key string) error {
+	if err := s.DB.Delete(&Setting{}, "key = ?", key).Error; err != nil {
+		return err
+	}
+	s.ForgetCache(key)
+	return nil
+}
+
+// ForgetCache removes key from the in-memory settings cache (e.g. after a tx delete).
+func (s *Store) ForgetCache(key string) {
+	s.mu.Lock()
+	delete(s.cache, key)
+	s.mu.Unlock()
+}
+
 func IsNotFound(err error) bool { return errors.Is(err, gorm.ErrRecordNotFound) }

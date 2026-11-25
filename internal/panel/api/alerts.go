@@ -124,7 +124,7 @@ func (a *API) ackEvent(c *gin.Context) {
 }
 
 func (a *API) ackAll(c *gin.Context) {
-	a.P.St.DB.Model(&store.AlertEvent{}).Where("status = ?", "firing").Update("acked", true)
+	a.P.St.DB.Model(&store.AlertEvent{}).Where("status IN ? AND acked = ?", []string{"firing", "info"}, false).Update("acked", true)
 	ok(c, gin.H{})
 }
 
@@ -216,6 +216,8 @@ func (a *API) listTargets(c *gin.Context) {
 }
 
 func validTarget(t *store.ProbeTarget) error {
+	t.Name = strings.TrimSpace(t.Name)
+	t.Host = strings.TrimSpace(t.Host)
 	if t.Name == "" || t.Host == "" {
 		return errors.New("名称和地址必填")
 	}
@@ -228,7 +230,20 @@ func validTarget(t *store.ProbeTarget) error {
 	if t.Type == "tcp" && (t.Port <= 0 || t.Port > 65535) {
 		return errors.New("TCP 端口无效")
 	}
-	if strings.ContainsAny(t.Host, " /\\") || (net.ParseIP(t.Host) == nil && !strings.Contains(t.Host, ".")) {
+	if strings.ContainsAny(t.Host, " \t\r\n/\\") {
+		return errors.New("地址无效")
+	}
+	lower := strings.ToLower(t.Host)
+	if lower == "localhost" || strings.HasSuffix(lower, ".localhost") {
+		return errors.New("不能探测本地或内网地址")
+	}
+	if ip := net.ParseIP(t.Host); ip != nil {
+		if notify.IsBlockedIP(ip) {
+			return errors.New("不能探测本地或内网地址")
+		}
+		return nil
+	}
+	if !strings.Contains(t.Host, ".") {
 		return errors.New("地址无效")
 	}
 	return nil

@@ -141,6 +141,74 @@ func regionGroupName(cc string) string {
 	return Flag(cc) + " " + name
 }
 
+// RegionGroupName returns the generated proxy-group name for an ISO country code.
+func RegionGroupName(cc string) string { return regionGroupName(cc) }
+
+// ReservedNames returns all built-in and default-template proxy-group names
+// (including all country region groups) that node names must not collide with.
+func ReservedNames() map[string]bool {
+	res := map[string]bool{
+		GroupSelect:   true,
+		GroupAuto:     true,
+		GroupFallback: true,
+		"DIRECT":      true,
+		"REJECT":      true,
+		"direct":      true,
+		"reject":      true,
+		"Apple 推送":    true,
+		"AI":          true,
+		"Claude":      true,
+		"流媒体":         true,
+		"🤖 AI 服务":     true,
+		"🧠 Claude":    true,
+		"📺 YouTube":   true,
+		"🎬 国际流媒体":     true,
+		"💬 社交通讯":      true,
+		"🔍 Google":    true,
+		"💻 开发与学术":     true,
+		"🪟 微软服务":      true,
+		"🔔 苹果推送":      true,
+		"🍎 Apple 服务":  true,
+		"🎮 游戏平台":      true,
+		"💰 金融与加密":     true,
+		"📺 国内媒体":      true,
+		"🛡️ 广告拦截":     true,
+		"🌐 漏网之鱼":      true,
+	}
+	for cc := range countryNames {
+		res[regionGroupName(cc)] = true
+	}
+	return res
+}
+
+// DisambiguateNodes returns a copy of nodes whose names are unique and do not
+// collide with any name in reserved.
+func DisambiguateNodes(nodes []Node, reserved map[string]bool) []Node {
+	seen := make(map[string]int, len(nodes)+len(reserved))
+	for name := range reserved {
+		seen[name] = 1
+	}
+	for _, n := range nodes {
+		seen[regionGroupName(n.RegionCode)] = 1
+	}
+	out := make([]Node, len(nodes))
+	for i, n := range nodes {
+		base := strings.TrimSpace(n.Name)
+		if base == "" {
+			base = "node"
+		}
+		cand := base
+		for k := 1; seen[cand] > 0; {
+			k++
+			cand = fmt.Sprintf("%s %d", base, k)
+		}
+		n.Name = cand
+		seen[cand]++
+		out[i] = n
+	}
+	return out
+}
+
 // expand replaces the {{all}} / {{regions}} / {{regions_ai}} / {{groups}}
 // tokens in a proxy list, deduplicating while preserving order.
 func expand(list []string, all, regionNames, aiRegionNames []string) []string {
@@ -204,6 +272,21 @@ func Mihomo(nodes []Node, tpl string) ([]byte, error) {
 	}
 	root := doc.Content[0]
 
+	// Template groups: decode first so their names are reserved before node names are emitted.
+	var tplGroups []map[string]any
+	if g := mapGet(root, "proxy-groups"); g != nil {
+		if err := g.Decode(&tplGroups); err != nil {
+			return nil, fmt.Errorf("模板 proxy-groups 格式错误：%w", err)
+		}
+	}
+	reserved := ReservedNames()
+	for _, g := range tplGroups {
+		if name, ok := g["name"].(string); ok && name != "" {
+			reserved[name] = true
+		}
+	}
+	nodes = DisambiguateNodes(nodes, reserved)
+
 	all := make([]string, len(nodes))
 	proxies := make([]any, len(nodes))
 	for i, n := range nodes {
@@ -231,13 +314,6 @@ func Mihomo(nodes []Node, tpl string) ([]byte, error) {
 		gen = append(gen, map[string]any{"name": regionGroupName(c), "type": "url-test", "url": TestURL, "interval": 300, "tolerance": 50, "lazy": true, "proxies": byRegion[c]})
 	}
 
-	// Template groups: decode, expand tokens, append after the generated ones.
-	var tplGroups []map[string]any
-	if g := mapGet(root, "proxy-groups"); g != nil {
-		if err := g.Decode(&tplGroups); err != nil {
-			return nil, fmt.Errorf("模板 proxy-groups 格式错误：%w", err)
-		}
-	}
 	for _, g := range tplGroups {
 		var list []string
 		if raw, ok := g["proxies"].([]any); ok {
@@ -314,6 +390,18 @@ func SingBox(nodes []Node, tpl string) ([]byte, error) {
 	if err := json.Unmarshal([]byte(tpl), &cfg); err != nil {
 		return nil, fmt.Errorf("模板不是合法 JSON：%w", err)
 	}
+	reserved := ReservedNames()
+	if tplOuts, ok := cfg["outbounds"].([]any); ok {
+		for _, o := range tplOuts {
+			if m, ok := o.(map[string]any); ok {
+				if tag, ok := m["tag"].(string); ok && tag != "" {
+					reserved[tag] = true
+				}
+			}
+		}
+	}
+	nodes = DisambiguateNodes(nodes, reserved)
+
 	all := make([]string, len(nodes))
 	for i, n := range nodes {
 		all[i] = n.Name

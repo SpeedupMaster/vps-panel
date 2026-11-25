@@ -719,8 +719,16 @@ func assertValidMihomo(t *testing.T, rendered []byte, nodes []Node) {
 		t.Fatalf("invalid rendered mihomo yaml: %v", err)
 	}
 	valid := map[string]bool{"DIRECT": true, "REJECT": true}
-	for _, n := range nodes {
-		valid[n.Name] = true
+	proxiesRaw, _ := cfg["proxies"].([]any)
+	seenProxy := map[string]bool{}
+	for _, pr := range proxiesRaw {
+		pm := pr.(map[string]any)
+		name := fmt.Sprint(pm["name"])
+		if seenProxy[name] {
+			t.Fatalf("duplicate proxy name: %s", name)
+		}
+		seenProxy[name] = true
+		valid[name] = true
 	}
 	groupsRaw, _ := cfg["proxy-groups"].([]any)
 	seenGroup := map[string]bool{}
@@ -729,6 +737,9 @@ func assertValidMihomo(t *testing.T, rendered []byte, nodes []Node) {
 		name := fmt.Sprint(gm["name"])
 		if seenGroup[name] {
 			t.Fatalf("duplicate proxy-group: %s", name)
+		}
+		if seenProxy[name] {
+			t.Fatalf("proxy-group %q collides with proxy name", name)
 		}
 		seenGroup[name] = true
 		valid[name] = true
@@ -906,4 +917,47 @@ func indexOf(list []string, target string) int {
 		}
 	}
 	return -1
+}
+
+func TestNodeNameCollisionsAndTripleDuplicates(t *testing.T) {
+	nodes := []Node{
+		{Name: "🇭🇰 香港", Server: "1.1.1.1", Port: 443, UUID: "u1", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "HK"},
+		{Name: "🇭🇰 香港", Server: "1.1.1.2", Port: 443, UUID: "u2", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "HK"},
+		{Name: "节点选择", Server: "1.1.1.3", Port: 443, UUID: "u3", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "US"},
+		{Name: "AI", Server: "1.1.1.4", Port: 443, UUID: "u4", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "US"},
+		{Name: "Claude", Server: "1.1.1.5", Port: 443, UUID: "u5", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "US"},
+		{Name: "Apple 推送", Server: "1.1.1.6", Port: 443, UUID: "u6", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "US"},
+		{Name: "流媒体", Server: "1.1.1.7", Port: 443, UUID: "u7", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "US"},
+		{Name: "重复线路", Server: "1.1.1.8", Port: 443, UUID: "u8", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "JP"},
+		{Name: "重复线路", Server: "1.1.1.9", Port: 443, UUID: "u9", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "JP"},
+		{Name: "重复线路", Server: "1.1.1.10", Port: 443, UUID: "u10", SNI: "example.com", PublicKey: "pk", ShortID: "sid", FP: "chrome", RegionCode: "JP"},
+	}
+
+	mOut, err := Mihomo(nodes, "")
+	if err != nil {
+		t.Fatalf("Mihomo: %v", err)
+	}
+	assertValidMihomo(t, mOut, nodes)
+
+	var mCfg map[string]any
+	if err := yaml.Unmarshal(mOut, &mCfg); err != nil {
+		t.Fatal(err)
+	}
+	var gotNames []string
+	for _, p := range mCfg["proxies"].([]any) {
+		gotNames = append(gotNames, fmt.Sprint(p.(map[string]any)["name"]))
+	}
+	wantNames := []string{
+		"🇭🇰 香港 2", "🇭🇰 香港 3", "节点选择 2", "AI 2", "Claude 2",
+		"Apple 推送 2", "流媒体 2", "重复线路", "重复线路 2", "重复线路 3",
+	}
+	if strings.Join(gotNames, "|") != strings.Join(wantNames, "|") {
+		t.Fatalf("disambiguated proxy names = %v, want %v", gotNames, wantNames)
+	}
+
+	sOut, err := SingBox(nodes, "")
+	if err != nil {
+		t.Fatalf("SingBox: %v", err)
+	}
+	assertValidSingBox(t, sOut, nodes)
 }

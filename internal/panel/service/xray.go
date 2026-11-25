@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"gorm.io/gorm"
+
 	"vpspanel/internal/common/proto"
 	"vpspanel/internal/common/xrayconf"
 	"vpspanel/internal/panel/store"
@@ -214,16 +216,22 @@ func (p *Panel) UpdateLanding(serverID uint, in LandingInput) error {
 	}
 	methodChanged := in.Method != l.Method
 	l.Port, l.Method, l.Address = in.Port, in.Method, in.Address
-	if methodChanged { // key lengths differ: regenerate server and user keys
-		l.ServerKeyEnc = p.Box.Seal(SSKey(l.Method))
-		var users []store.LandingUser
-		p.St.DB.Where("landing_server_id = ?", serverID).Find(&users)
-		for i := range users {
-			users[i].UserKeyEnc = p.Box.Seal(SSKey(l.Method))
-			p.St.DB.Save(&users[i])
+	if err := p.St.DB.Transaction(func(tx *gorm.DB) error {
+		if methodChanged { // key lengths differ: regenerate server and user keys
+			l.ServerKeyEnc = p.Box.Seal(SSKey(l.Method))
+			var users []store.LandingUser
+			if err := tx.Where("landing_server_id = ?", serverID).Find(&users).Error; err != nil {
+				return err
+			}
+			for i := range users {
+				users[i].UserKeyEnc = p.Box.Seal(SSKey(l.Method))
+				if err := tx.Save(&users[i]).Error; err != nil {
+					return err
+				}
+			}
 		}
-	}
-	if err := p.St.DB.Save(l).Error; err != nil {
+		return tx.Save(l).Error
+	}); err != nil {
 		return err
 	}
 	return p.redeployLandingAndEntries(serverID, "修改落地入站")
@@ -242,6 +250,17 @@ func (p *Panel) landingUser(landingID, entryID uint) (*store.LandingUser, bool, 
 	enc := p.Box.Seal(SSKey(l.Method))
 	u = store.LandingUser{LandingServerID: landingID, EntryServerID: entryID, UserKeyEnc: enc, Email: fmt.Sprintf("from-%d", entryID), CreatedAt: time.Now()}
 	return &u, true, p.St.DB.Create(&u).Error
+}
+
+// pruneOrphanLandingUsers removes LandingUser rows for entries that no longer
+// have any enabled chain route targeting landingID.
+func (p *Panel) pruneOrphanLandingUsers(landingID uint) {
+	active := p.entriesOfLanding(landingID)
+	if len(active) == 0 {
+		p.St.DB.Delete(&store.LandingUser{}, "landing_server_id = ?", landingID)
+		return
+	}
+	p.St.DB.Where("landing_server_id = ? AND entry_server_id NOT IN ?", landingID, active).Delete(&store.LandingUser{})
 }
 
 // ---------- config generation ----------
@@ -483,11 +502,41 @@ func slug(s string) string {
 
 // ---------- deploy / versions ----------
 
+const sealedConfigPrefix = "enc:v1:"
+
+func (p *Panel) sealConfigText(plain string) string {
+	if plain == "" {
+		return ""
+	}
+	return sealedConfigPrefix + p.Box.Seal(plain)
+}
+
+// OpenConfigText decrypts ConfigVersion.Config / Diff stored at rest,
+// transparently returning legacy plaintext rows as-is.
+func (p *Panel) OpenConfigText(stored string) string {
+	if stored == "" {
+		return ""
+	}
+	if strings.HasPrefix(stored, sealedConfigPrefix) {
+		if s, err := p.Box.Open(strings.TrimPrefix(stored, sealedConfigPrefix)); err == nil {
+			return s
+		}
+	}
+	if !strings.HasPrefix(stored, "{") && !strings.HasPrefix(stored, " ") && !strings.HasPrefix(stored, "+") && !strings.HasPrefix(stored, "-") {
+		if s, err := p.Box.Open(stored); err == nil {
+			return s
+		}
+	}
+	return stored
+}
+
 func (p *Panel) latestVersion(serverID uint) *store.ConfigVersion {
 	var v store.ConfigVersion
 	if err := p.St.DB.Where("server_id = ?", serverID).Order("version DESC").First(&v).Error; err != nil {
 		return nil
 	}
+	v.Config = p.OpenConfigText(v.Config)
+	v.Diff = p.OpenConfigText(v.Diff)
 	return &v
 }
 
@@ -522,6 +571,10 @@ func (p *Panel) RedeployLandings(reason string) {
 }
 
 func (p *Panel) Deploy(serverID uint, reason string, op *proto.XrayOp) (uint64, error) {
+	lock := p.serverDeployLock(serverID)
+	lock.Lock()
+	defer lock.Unlock()
+
 	raw, fw, err := p.BuildConfig(serverID)
 	if err != nil {
 		return 0, err
@@ -537,7 +590,14 @@ func (p *Panel) Deploy(serverID uint, reason string, op *proto.XrayOp) (uint64, 
 		if last != nil {
 			prev = last.Config
 		}
-		cv := &store.ConfigVersion{ServerID: serverID, Version: ver, Config: pretty, Diff: LineDiff(prev, pretty), Reason: reason, CreatedAt: time.Now()}
+		cv := &store.ConfigVersion{
+			ServerID:  serverID,
+			Version:   ver,
+			Config:    p.sealConfigText(pretty),
+			Diff:      p.sealConfigText(LineDiff(prev, pretty)),
+			Reason:    reason,
+			CreatedAt: time.Now(),
+		}
 		if err := p.St.DB.Create(cv).Error; err != nil {
 			return 0, err
 		}
@@ -605,7 +665,7 @@ func (p *Panel) pushApply(serverID uint, ver int, raw []byte, fw *proto.Firewall
 func (p *Panel) newInternalTask(serverID uint, typ string, ver int) (*store.Task, error) {
 	exp := time.Now().Add(10 * time.Minute)
 	t := &store.Task{
-		ID: uint64(time.Now().UnixNano()), ServerID: serverID, Type: typ, Args: fmt.Sprintf(`{"version":"%d"}`, ver),
+		ID: nextTaskID(), ServerID: serverID, Type: typ, Args: fmt.Sprintf(`{"version":"%d"}`, ver),
 		Status: "sent", Timeout: 120, ExpireAt: &exp, CreatedAt: time.Now(),
 	}
 	return t, p.St.DB.Create(t).Error
@@ -619,13 +679,30 @@ func (p *Panel) pruneVersions(serverID uint) {
 
 // Rollback re-applies an older version as a new version.
 func (p *Panel) Rollback(serverID uint, versionID uint) (uint64, error) {
+	lock := p.serverDeployLock(serverID)
+	lock.Lock()
+	defer lock.Unlock()
+
 	var old store.ConfigVersion
 	if err := p.St.DB.First(&old, "id = ? AND server_id = ?", versionID, serverID).Error; err != nil {
 		return 0, errors.New("版本不存在")
 	}
+	oldCfg := p.OpenConfigText(old.Config)
 	last := p.latestVersion(serverID)
-	cv := &store.ConfigVersion{ServerID: serverID, Version: last.Version + 1, Config: old.Config, Diff: LineDiff(last.Config, old.Config),
-		Reason: fmt.Sprintf("回滚到 v%d", old.Version), CreatedAt: time.Now()}
+	nextVer := 1
+	prevCfg := ""
+	if last != nil {
+		nextVer = last.Version + 1
+		prevCfg = last.Config
+	}
+	cv := &store.ConfigVersion{
+		ServerID:  serverID,
+		Version:   nextVer,
+		Config:    p.sealConfigText(oldCfg),
+		Diff:      p.sealConfigText(LineDiff(prevCfg, oldCfg)),
+		Reason:    fmt.Sprintf("回滚到 v%d", old.Version),
+		CreatedAt: time.Now(),
+	}
 	if err := p.St.DB.Create(cv).Error; err != nil {
 		return 0, err
 	}
@@ -633,7 +710,7 @@ func (p *Panel) Rollback(serverID uint, versionID uint) (uint64, error) {
 		return 0, errors.New("Agent 不在线，上线后会自动同步")
 	}
 	_, fw, _ := p.BuildConfig(serverID)
-	return p.pushApply(serverID, cv.Version, compact(old.Config), fw, true)
+	return p.pushApply(serverID, cv.Version, compact(oldCfg), fw, true)
 }
 
 // redeployLandingAndEntries pushes a landing and every entry chained to it.
@@ -863,29 +940,50 @@ func (p *Panel) DowngradeToProbe(serverID uint) error {
 // RotateAll regenerates every secret clients depend on: route UUIDs,
 // Reality keys and shortIds, SS keys. Then redeploys every node.
 func (p *Panel) RotateAll() error {
-	var rs []store.Route
-	p.St.DB.Find(&rs)
-	for i := range rs {
-		p.St.DB.Model(&rs[i]).Update("uuid", NewUUID())
-	}
-	var ris []store.RealityInbound
-	p.St.DB.Find(&ris)
-	for i := range ris {
-		priv, pub := NewX25519()
-		enc := p.Box.Seal(priv)
-		p.St.DB.Model(&ris[i]).Updates(map[string]any{"private_key_enc": enc, "public_key": pub, "short_ids": NewShortID()})
-	}
-	var lis []store.LandingInbound
-	p.St.DB.Find(&lis)
-	for i := range lis {
-		enc := p.Box.Seal(SSKey(lis[i].Method))
-		p.St.DB.Model(&lis[i]).Update("server_key_enc", enc)
-		var us []store.LandingUser
-		p.St.DB.Where("landing_server_id = ?", lis[i].ServerID).Find(&us)
-		for j := range us {
-			e := p.Box.Seal(SSKey(lis[i].Method))
-			p.St.DB.Model(&us[j]).Update("user_key_enc", e)
+	if err := p.St.DB.Transaction(func(tx *gorm.DB) error {
+		var rs []store.Route
+		if err := tx.Find(&rs).Error; err != nil {
+			return err
 		}
+		for i := range rs {
+			if err := tx.Model(&rs[i]).Update("uuid", NewUUID()).Error; err != nil {
+				return err
+			}
+		}
+		var ris []store.RealityInbound
+		if err := tx.Find(&ris).Error; err != nil {
+			return err
+		}
+		for i := range ris {
+			priv, pub := NewX25519()
+			enc := p.Box.Seal(priv)
+			if err := tx.Model(&ris[i]).Updates(map[string]any{"private_key_enc": enc, "public_key": pub, "short_ids": NewShortID()}).Error; err != nil {
+				return err
+			}
+		}
+		var lis []store.LandingInbound
+		if err := tx.Find(&lis).Error; err != nil {
+			return err
+		}
+		for i := range lis {
+			enc := p.Box.Seal(SSKey(lis[i].Method))
+			if err := tx.Model(&lis[i]).Update("server_key_enc", enc).Error; err != nil {
+				return err
+			}
+			var us []store.LandingUser
+			if err := tx.Where("landing_server_id = ?", lis[i].ServerID).Find(&us).Error; err != nil {
+				return err
+			}
+			for j := range us {
+				e := p.Box.Seal(SSKey(lis[i].Method))
+				if err := tx.Model(&us[j]).Update("user_key_enc", e).Error; err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
 	var nodes []store.Server
 	p.St.DB.Where("mode = ?", "node").Find(&nodes)

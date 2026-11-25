@@ -4,8 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 
 	"vpspanel/internal/common/proto"
 	"vpspanel/internal/panel/secret"
@@ -69,6 +73,13 @@ func (in *ServerInput) validate() error {
 	}
 	if in.PayCycle == "" {
 		in.PayCycle = "month"
+	}
+	in.ProviderURL = strings.TrimSpace(in.ProviderURL)
+	if in.ProviderURL != "" {
+		u, err := url.Parse(in.ProviderURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || strings.ContainsAny(in.ProviderURL, " \t\r\n") {
+			return errors.New("服务商链接必须以 http:// 或 https:// 开头")
+		}
 	}
 	in.CountryCode = strings.ToUpper(in.CountryCode)
 	return nil
@@ -145,29 +156,90 @@ func (p *Panel) NewInstallToken(id uint) (string, error) {
 
 func (p *Panel) InstallCommand(token, mode string) string {
 	base := strings.TrimRight(p.St.Get("panel_url", "https://panel.example.com"), "/")
-	return fmt.Sprintf("bash <(curl -fsSL %s/install.sh) --panel %s --token %s --mode %s", base, base, token, mode)
+	return fmt.Sprintf("bash <(curl -fsSL %s) --panel %s --token %s --mode %s",
+		shellQuote(base+"/install.sh"), shellQuote(base), shellQuote(token), shellQuote(mode))
+}
+
+func (p *Panel) serverReferencedByRoutes(id uint) bool {
+	var n int64
+	p.St.DB.Model(&store.Route{}).Where("entry_server_id = ? OR landing_server_id = ?", id, id).Count(&n)
+	if n > 0 || len(p.entriesOfLanding(id)) > 0 {
+		return true
+	}
+	// Also check disabled chain routes whose BackupIDs reference this server.
+	var chains []store.Route
+	p.St.DB.Select("backup_ids").Where("type = ? AND backup_ids <> ''", "chain").Find(&chains)
+	for _, r := range chains {
+		for _, bid := range parseIDs(r.BackupIDs) {
+			if bid == id {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (p *Panel) DeleteServer(id uint) error {
-	var n int64
-	p.St.DB.Model(&store.Route{}).Where("entry_server_id = ? OR landing_server_id = ?", id, id).Count(&n)
-	if n > 0 {
+	if p.serverReferencedByRoutes(id) {
 		return errors.New("还有线路使用这台服务器，请先删除相关线路")
 	}
-	db := p.St.DB
-	for _, t := range []string{"metrics_raw", "metrics_1m", "metrics_1h", "metrics_1d", "probe_results", "probe_results_1h"} {
-		db.Exec("DELETE FROM "+t+" WHERE server_id = ?", id)
-	}
-	db.Delete(&store.RealityInbound{}, "server_id = ?", id)
-	db.Delete(&store.LandingInbound{}, "server_id = ?", id)
-	db.Delete(&store.LandingUser{}, "landing_server_id = ? OR entry_server_id = ?", id, id)
-	db.Delete(&store.ConfigVersion{}, "server_id = ?", id)
-	if err := db.Delete(&store.Server{}, id).Error; err != nil {
+	var sv store.Server
+	if err := p.St.DB.First(&sv, id).Error; err != nil {
 		return err
 	}
+	// Disconnect live agent stream first so no new frames arrive during purge.
+	p.Hub.Disconnect(id)
+
+	sid := strconv.FormatUint(uint64(id), 10)
+	fwKey := fmt.Sprintf("fw_hash_%d", id)
+	if err := p.St.DB.Transaction(func(tx *gorm.DB) error {
+		for _, t := range []string{"metrics_raw", "metrics_1m", "metrics_1h", "metrics_1d", "probe_results", "probe_results_1h"} {
+			if err := tx.Exec("DELETE FROM "+t+" WHERE server_id = ?", id).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Delete(&store.TrafficHourly{}, "(scope = ? AND scope_id = ?) OR (scope IN ? AND scope_id LIKE ?)",
+			"server", sid, []string{"landing_user", "outbound", "inbound"}, sid+":%").Error; err != nil {
+			return err
+		}
+		if sv.AgentID != "" {
+			if err := tx.Delete(&store.TrafficSeq{}, "agent_id = ?", sv.AgentID).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Delete(&store.Task{}, "server_id = ?", id).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&store.AlertEvent{}, "server_id = ?", id).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&store.ToolResult{}, "server_id = ?", id).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&store.Setting{}, "key = ?", fwKey).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&store.RealityInbound{}, "server_id = ?", id).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&store.LandingInbound{}, "server_id = ?", id).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&store.LandingUser{}, "landing_server_id = ? OR entry_server_id = ?", id, id).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&store.ConfigVersion{}, "server_id = ?", id).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&store.Server{}, id).Error
+	}); err != nil {
+		return err
+	}
+	p.St.ForgetCache(fwKey)
 	p.mu.Lock()
 	delete(p.latest, id)
 	p.mu.Unlock()
+	p.deleteDeployLock(id)
 	p.clearProbeState(id)
 	if eng, ok := p.Alert.(*AlertEngine); ok {
 		eng.ForgetServer(id)

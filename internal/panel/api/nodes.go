@@ -197,15 +197,14 @@ func (a *API) getConfig(c *gin.Context) {
 	}
 	// The stored config and diff carry the Reality private key and SS
 	// passwords: only the redacted text leaves the panel.
-	cfg := redactConfig(v.Config)
+	cfg := redactConfig(a.P.OpenConfigText(v.Config))
 	v.Config, v.Diff = "", ""
 	ok(c, gin.H{"version": v, "config": cfg})
 }
 
 func (a *API) rollbackConfig(c *gin.Context) {
 	vid, _ := strconv.ParseUint(c.Param("vid"), 10, 64)
-	if !a.P.Auth.VerifySensitive(c.GetHeader("X-Confirm")) {
-		fail(c, http.StatusForbidden, "需要二次验证（2FA 验证码，未开启 2FA 时为登录密码）")
+	if !a.confirm(c) {
 		return
 	}
 	tid, err := a.P.Rollback(idParam(c), uint(vid))
@@ -417,8 +416,7 @@ func (a *API) deleteTemplate(c *gin.Context) {
 }
 
 func (a *API) rotateAll(c *gin.Context) {
-	if !a.P.Auth.VerifySensitive(c.GetHeader("X-Confirm")) {
-		fail(c, http.StatusForbidden, "需要二次验证（2FA 验证码，未开启 2FA 时为登录密码）")
+	if !a.confirm(c) {
 		return
 	}
 	if err := a.P.RotateAll(); err != nil {
@@ -470,7 +468,7 @@ func (a *API) diffConfig(c *gin.Context) {
 	var prev store.ConfigVersion
 	base := ""
 	if a.P.St.DB.Where("server_id = ? AND version < ?", v.ServerID, v.Version).Order("version DESC").First(&prev).Error == nil {
-		base = redactConfig(prev.Config)
+		base = redactConfig(a.P.OpenConfigText(prev.Config))
 	}
-	ok(c, gin.H{"from": prev.Version, "to": v.Version, "diff": service.LineDiff(base, redactConfig(v.Config))})
+	ok(c, gin.H{"from": prev.Version, "to": v.Version, "diff": service.LineDiff(base, redactConfig(a.P.OpenConfigText(v.Config)))})
 }

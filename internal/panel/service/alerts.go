@@ -79,6 +79,16 @@ func NewAlertEngine(p *Panel) *AlertEngine {
 			p.St.DB.Create(&r)
 		}
 	}
+	// Hydrate in-memory duration trackers from active firing threshold rules
+	// so metrics that recover after a panel restart resolve cleanly.
+	var firing []store.AlertEvent
+	p.St.DB.Where("status = ? AND key LIKE ?", "firing", "rule-%").Find(&firing)
+	for _, ev := range firing {
+		ridStr := strings.TrimPrefix(ev.Key, "rule-")
+		if rid, err := strconv.ParseUint(ridStr, 10, 64); err == nil && rid > 0 {
+			e.since[fmt.Sprintf("%d|%d", rid, ev.ServerID)] = ev.StartedAt
+		}
+	}
 	invalidate := func(db *gorm.DB) {
 		if db.Statement == nil {
 			return

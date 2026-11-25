@@ -5,9 +5,13 @@ package hub
 import (
 	"context"
 	"crypto/hmac"
+	"encoding/json"
 	"errors"
 	"log"
+	"net"
+	"net/netip"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -53,6 +57,8 @@ func (c *Conn) SetHello(h *proto.Hello) {
 	c.mu.Unlock()
 }
 
+const maxHandshakeNonces = 16384
+
 type Hub struct {
 	st  *store.Store
 	box *secret.Box
@@ -60,10 +66,137 @@ type Hub struct {
 
 	mu    sync.RWMutex
 	conns map[uint]*Conn
+
+	nonceMu sync.Mutex
+	nonces  map[string]time.Time // "agentID\x00nonce" -> expiresAt
+
+	trustedMu   sync.RWMutex
+	trustedIPs  []net.IP
+	trustedNets []*net.IPNet
 }
 
 func New(st *store.Store, box *secret.Box) *Hub {
-	return &Hub{st: st, box: box, conns: map[uint]*Conn{}}
+	h := &Hub{
+		st:     st,
+		box:    box,
+		conns:  map[uint]*Conn{},
+		nonces: map[string]time.Time{},
+	}
+	h.SetTrustedProxies([]string{"127.0.0.1", "::1"})
+	return h
+}
+
+// SetTrustedProxies configures reverse proxy IPs/CIDRs allowed to supply
+// X-Forwarded-For / X-Real-IP headers on incoming gRPC connections.
+func (h *Hub) SetTrustedProxies(proxies []string) {
+	var ips []net.IP
+	var nets []*net.IPNet
+	for _, raw := range proxies {
+		s := strings.TrimSpace(raw)
+		if s == "" {
+			continue
+		}
+		if strings.Contains(s, "/") {
+			if _, ipnet, err := net.ParseCIDR(s); err == nil {
+				nets = append(nets, ipnet)
+			}
+			continue
+		}
+		if ip := net.ParseIP(s); ip != nil {
+			ips = append(ips, ip)
+		}
+	}
+	h.trustedMu.Lock()
+	h.trustedIPs = ips
+	h.trustedNets = nets
+	h.trustedMu.Unlock()
+}
+
+func (h *Hub) isTrustedProxy(ipStr string) bool {
+	ip := net.ParseIP(strings.TrimSpace(ipStr))
+	if ip == nil {
+		return false
+	}
+	h.trustedMu.RLock()
+	defer h.trustedMu.RUnlock()
+	for _, tip := range h.trustedIPs {
+		if tip.Equal(ip) {
+			return true
+		}
+	}
+	for _, n := range h.trustedNets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *Hub) remoteIP(ctx context.Context) string {
+	var peerIP string
+	if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {
+		peerIP = hostOnly(p.Addr.String())
+	}
+	if peerIP == "" || !h.isTrustedProxy(peerIP) {
+		return peerIP
+	}
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return peerIP
+	}
+	if vals := md.Get("x-forwarded-for"); len(vals) > 0 {
+		parts := strings.Split(strings.Join(vals, ","), ",")
+		var fallback string
+		for i := len(parts) - 1; i >= 0; i-- {
+			cand := strings.TrimSpace(parts[i])
+			if net.ParseIP(cand) == nil {
+				continue
+			}
+			fallback = cand
+			if !h.isTrustedProxy(cand) {
+				return cand
+			}
+		}
+		if fallback != "" {
+			return fallback
+		}
+	}
+	if vals := md.Get("x-real-ip"); len(vals) > 0 {
+		if cand := strings.TrimSpace(vals[0]); net.ParseIP(cand) != nil {
+			return cand
+		}
+	}
+	return peerIP
+}
+
+var cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
+
+func isPublicIPv4(s string) bool {
+	addr, err := netip.ParseAddr(strings.TrimSpace(s))
+	if err != nil {
+		return false
+	}
+	addr = addr.Unmap()
+	if !addr.Is4() {
+		return false
+	}
+	return !addr.IsLoopback() && !addr.IsPrivate() && !addr.IsLinkLocalUnicast() &&
+		!addr.IsLinkLocalMulticast() && !addr.IsUnspecified() && !addr.IsMulticast() &&
+		!cgnatPrefix.Contains(addr)
+}
+
+// Disconnect closes and removes any live stream for serverID without firing
+// OnDisconnect (used when deleting or re-registering a server).
+func (h *Hub) Disconnect(serverID uint) {
+	h.mu.Lock()
+	c := h.conns[serverID]
+	if c != nil {
+		delete(h.conns, serverID)
+	}
+	h.mu.Unlock()
+	if c != nil {
+		c.cancel()
+	}
 }
 
 func (h *Hub) SetHandler(handler Handler) { h.h = handler }
@@ -121,13 +254,15 @@ func (h *Hub) Register(ctx context.Context, req *proto.RegisterRequest) (*proto.
 	if req.Token == "" {
 		return nil, status.Error(codes.InvalidArgument, "token required")
 	}
+	hash := secret.Hash(req.Token)
 	var sv store.Server
-	if err := h.st.DB.First(&sv, "install_token_hash = ?", secret.Hash(req.Token)).Error; err != nil {
+	if err := h.st.DB.First(&sv, "install_token_hash = ?", hash).Error; err != nil {
 		return nil, status.Error(codes.PermissionDenied, "invalid token")
 	}
 	if time.Now().After(sv.InstallTokenExp) {
 		return nil, status.Error(codes.PermissionDenied, "token expired")
 	}
+	oldAgentID := sv.AgentID
 	agentID := "a-" + secret.RandomToken(9)
 	agentSecret := secret.RandomToken(32)
 	upd := map[string]any{
@@ -139,12 +274,32 @@ func (h *Hub) Register(ctx context.Context, req *proto.RegisterRequest) (*proto.
 	if req.Mode == "probe" || req.Mode == "node" {
 		upd["mode"] = req.Mode
 	}
-	if p, ok := peer.FromContext(ctx); ok {
-		upd["ipv4"] = hostOnly(p.Addr.String())
+	if ip := strings.TrimSpace(req.System.IPv4); ip != "" {
+		upd["ipv4"] = ip
+	} else if rip := h.remoteIP(ctx); isPublicIPv4(rip) {
+		upd["ipv4"] = rip
 	}
-	if err := h.st.DB.Model(&sv).Updates(upd).Error; err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+	if ip := strings.TrimSpace(req.System.IPv6); ip != "" {
+		upd["ipv6"] = ip
 	}
+	if req.System != (proto.SystemInfo{}) {
+		if sysJSON, err := json.Marshal(req.System); err == nil {
+			upd["system_json"] = string(sysJSON)
+		}
+	}
+	res := h.st.DB.Model(&store.Server{}).
+		Where("id = ? AND install_token_hash = ?", sv.ID, hash).
+		Updates(upd)
+	if res.Error != nil {
+		return nil, status.Error(codes.Internal, res.Error.Error())
+	}
+	if res.RowsAffected != 1 {
+		return nil, status.Error(codes.PermissionDenied, "invalid token")
+	}
+	if oldAgentID != "" {
+		h.st.DB.Delete(&store.TrafficSeq{}, "agent_id = ?", oldAgentID)
+	}
+	h.Disconnect(sv.ID)
 	log.Printf("hub: server %s registered as %s", sv.Name, agentID)
 	return &proto.RegisterResponse{AgentID: agentID, AgentSecret: agentSecret, ServerName: sv.Name}, nil
 }
@@ -156,9 +311,13 @@ func (h *Hub) Connect(stream grpc.ServerStream) error {
 		return err
 	}
 	ctx, cancel := context.WithCancel(stream.Context())
-	c := &Conn{ServerID: sv.ID, AgentID: sv.AgentID, Since: time.Now(), send: make(chan *proto.PanelMessage, 64), cancel: cancel}
-	if p, ok := peer.FromContext(stream.Context()); ok {
-		c.RemoteIP = hostOnly(p.Addr.String())
+	c := &Conn{
+		ServerID: sv.ID,
+		AgentID:  sv.AgentID,
+		RemoteIP: h.remoteIP(stream.Context()),
+		Since:    time.Now(),
+		send:     make(chan *proto.PanelMessage, 64),
+		cancel:   cancel,
 	}
 
 	h.mu.Lock()
@@ -171,11 +330,12 @@ func (h *Hub) Connect(stream grpc.ServerStream) error {
 	defer func() {
 		cancel()
 		h.mu.Lock()
-		if h.conns[sv.ID] == c {
+		wasActive := h.conns[sv.ID] == c
+		if wasActive {
 			delete(h.conns, sv.ID)
 		}
 		h.mu.Unlock()
-		if h.h != nil {
+		if wasActive && h.h != nil {
 			h.h.OnDisconnect(c)
 		}
 	}()
@@ -243,7 +403,49 @@ func (h *Hub) authenticate(ctx context.Context) (*store.Server, error) {
 	if err != nil || !hmac.Equal([]byte(proto.Sign(sec, id, ts, nonce)), []byte(sig)) {
 		return nil, status.Error(codes.Unauthenticated, "bad signature")
 	}
+	if !h.checkAndRememberNonce(id, nonce, ts) {
+		return nil, status.Error(codes.Unauthenticated, "replayed handshake")
+	}
 	return &sv, nil
+}
+
+func (h *Hub) checkAndRememberNonce(agentID, nonce string, ts int64) bool {
+	now := time.Now()
+	key := agentID + "\x00" + nonce
+	exp := time.Unix(ts+305, 0)
+	if exp.Before(now.Add(5 * time.Second)) {
+		exp = now.Add(5 * time.Second)
+	}
+	h.nonceMu.Lock()
+	defer h.nonceMu.Unlock()
+	if h.nonces == nil {
+		h.nonces = map[string]time.Time{}
+	}
+	if prevExp, exists := h.nonces[key]; exists && now.Before(prevExp) {
+		return false
+	}
+	if len(h.nonces) >= 1024 {
+		for k, e := range h.nonces {
+			if !now.Before(e) {
+				delete(h.nonces, k)
+			}
+		}
+	}
+	for len(h.nonces) >= maxHandshakeNonces {
+		var oldestKey string
+		var oldestExp time.Time
+		for k, e := range h.nonces {
+			if oldestKey == "" || e.Before(oldestExp) {
+				oldestKey, oldestExp = k, e
+			}
+		}
+		if oldestKey == "" {
+			break
+		}
+		delete(h.nonces, oldestKey)
+	}
+	h.nonces[key] = exp
+	return true
 }
 
 func abs(x int64) int64 {

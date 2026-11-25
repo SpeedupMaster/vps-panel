@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -133,7 +136,14 @@ func (a *API) audit(c *gin.Context) {
 		w := csv.NewWriter(c.Writer)
 		_ = w.Write([]string{"time", "type", "action", "target", "detail", "ip"})
 		for _, l := range logs {
-			_ = w.Write([]string{l.TS.Format(time.RFC3339), l.Type, l.Action, l.Target, l.Detail, l.IP})
+			_ = w.Write([]string{
+				csvSafeCell(l.TS.Format(time.RFC3339)),
+				csvSafeCell(l.Type),
+				csvSafeCell(l.Action),
+				csvSafeCell(l.Target),
+				csvSafeCell(l.Detail),
+				csvSafeCell(l.IP),
+			})
 		}
 		w.Flush()
 		return
@@ -194,21 +204,13 @@ func (a *API) putSettings(c *gin.Context) {
 		allowed[k] = true
 	}
 	var changed []string
-	for _, k := range service.SecretSettings {
-		if v, has := in[k]; has {
-			if err := a.P.SetSecretSetting(k, fmt.Sprint(v)); err != nil {
-				bad(c, err)
-				return
-			}
-			changed = append(changed, k)
-		}
-	}
 	if v, has := in["sign_pubkey"]; has && fmt.Sprint(v) != "" {
 		if _, err := service.ParseEd25519Public(fmt.Sprint(v)); err != nil {
 			bad(c, errors.New("签名公钥无效："+err.Error()))
 			return
 		}
 	}
+	toSet := map[string]string{}
 	for k, v := range in {
 		if !allowed[k] {
 			continue
@@ -226,11 +228,41 @@ func (a *API) putSettings(c *gin.Context) {
 		}
 		if k == "admin_path" && strings.Trim(strings.TrimSpace(s), "/") != "" {
 			seg, _, _ := strings.Cut(strings.Trim(strings.TrimSpace(s), "/"), "/")
-			if a.P.HasSubToken(seg) || a.P.HasSubToken(strings.ToLower(seg)) {
+			if a.P.HasSubTokenFold(seg) {
 				bad(c, errors.New("后台路径与现有订阅后缀冲突，请更换后台路径或先修改对应设备的订阅后缀"))
 				return
 			}
 		}
+		if k == "panel_url" || k == "sub_url" {
+			if err := validateSettingURL(s); err != nil {
+				bad(c, fmt.Errorf("%s 无效：%w", k, err))
+				return
+			}
+		}
+		if k == "panel_urls_backup" && strings.TrimSpace(s) != "" {
+			for _, line := range strings.FieldsFunc(s, func(r rune) bool { return r == '\n' || r == '\r' || r == ',' }) {
+				line = strings.TrimSpace(line)
+				if line == "" {
+					continue
+				}
+				if err := validateSettingURL(line); err != nil {
+					bad(c, fmt.Errorf("panel_urls_backup 无效：%w", err))
+					return
+				}
+			}
+		}
+		toSet[k] = s
+	}
+	for _, k := range service.SecretSettings {
+		if v, has := in[k]; has {
+			if err := a.P.SetSecretSetting(k, fmt.Sprint(v)); err != nil {
+				bad(c, err)
+				return
+			}
+			changed = append(changed, k)
+		}
+	}
+	for k, s := range toSet {
 		_ = a.P.St.Set(k, s)
 		changed = append(changed, k)
 	}
@@ -240,3 +272,56 @@ func (a *API) putSettings(c *gin.Context) {
 }
 
 func ipListed(list, ip string) bool { return auth.IPAllowed(list, ip) }
+
+func csvSafeCell(s string) string {
+	if s == "" {
+		return s
+	}
+	switch s[0] {
+	case '=', '+', '-', '@', '\t', '\r':
+		return "'" + s
+	}
+	return s
+}
+
+var urlHostRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$`)
+
+func validateSettingURL(raw string) error {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return nil
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x20 || s[i] == 0x7f {
+			return errors.New("包含非法控制字符")
+		}
+	}
+	if strings.ContainsAny(s, " \t\r\n'\"`$;|&<>()\\{}*?#") {
+		return errors.New("包含非法字符或空白")
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return errors.New("URL 格式错误")
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return errors.New("必须以 http:// 或 https:// 开头")
+	}
+	if u.User != nil {
+		return errors.New("不允许包含用户名或密码")
+	}
+	host := u.Hostname()
+	if host == "" {
+		return errors.New("缺少主机名")
+	}
+	if net.ParseIP(host) == nil && !urlHostRe.MatchString(host) {
+		return errors.New("主机名无效")
+	}
+	if port := u.Port(); port != "" {
+		p, err := strconv.Atoi(port)
+		if err != nil || p < 1 || p > 65535 {
+			return errors.New("端口无效")
+		}
+	}
+	return nil
+}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -82,14 +83,16 @@ func main() {
 
 	agentSrc := bundledAgentDir(env("VPSPANEL_AGENT_DIR", ""))
 
+	trusted := splitCSV(*trustedProxies)
 	h := hub.New(st, box)
+	h.SetTrustedProxies(trusted)
 	p := service.New(st, box, au, h, *dataDir)
 	p.RegisterBundledAgent(agentSrc)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	a := &api.API{P: p, Web: webui.FS(), Script: scripts.Install, TrustedProxies: splitCSV(*trustedProxies)}
+	a := &api.API{P: p, Web: webui.FS(), Script: scripts.Install, TrustedProxies: trusted}
 	modules := setup(ctx, p, a)
 	sch := scheduler.New(ctx)
 	p.StartJobs(sch)
@@ -99,14 +102,8 @@ func main() {
 
 	grpcSrv := h.GRPCServer()
 	ginEngine := a.Router()
-	mux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
-			grpcSrv.ServeHTTP(w, r)
-			return
-		}
-		ginEngine.ServeHTTP(w, r)
-	})
-	srv := &http.Server{Addr: *listen, ReadHeaderTimeout: 15 * time.Second}
+	mux := newRootHandler(p, grpcSrv, ginEngine)
+	srv := &http.Server{Addr: *listen, ReadHeaderTimeout: 15 * time.Second, IdleTimeout: 120 * time.Second}
 	if *tlsCert != "" {
 		srv.Handler = mux
 		_ = http2.ConfigureServer(srv, &http2.Server{})
@@ -133,6 +130,28 @@ func main() {
 	grpcSrv.Stop()
 	_ = srv.Shutdown(sctx)
 	_ = st.Close()
+}
+
+func newRootHandler(p *service.Panel, grpcSrv, ginEngine http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
+			if subHost := p.SubOnlyHost(); subHost != "" && hostOnly(r.Host) == subHost {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			grpcSrv.ServeHTTP(w, r)
+			return
+		}
+		ginEngine.ServeHTTP(w, r)
+	})
+}
+
+func hostOnly(hostport string) string {
+	h := strings.TrimSpace(hostport)
+	if host, _, err := net.SplitHostPort(h); err == nil {
+		return strings.ToLower(host)
+	}
+	return strings.ToLower(strings.Trim(h, "[]"))
 }
 
 func splitCSV(s string) []string {

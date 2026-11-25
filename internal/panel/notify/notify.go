@@ -16,11 +16,14 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/smtp"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type Message struct {
@@ -42,7 +45,122 @@ var Fields = map[string][]string{
 	"webhook":  {"url", "secret"},
 }
 
-var client = &http.Client{Timeout: 15 * time.Second}
+// AllowPrivateIPsForTest relaxes outbound SSRF IP filtering for local httptest servers.
+var AllowPrivateIPsForTest bool
+
+var cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
+
+// IsBlockedIP reports whether ip is loopback, private, link-local, CGNAT,
+// unspecified, or multicast and therefore disallowed for outbound panel requests.
+func IsBlockedIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	addr, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return true
+	}
+	addr = addr.Unmap()
+	return addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast() ||
+		addr.IsLinkLocalMulticast() || addr.IsUnspecified() || addr.IsMulticast() ||
+		cgnatPrefix.Contains(addr)
+}
+
+// SafeHTTPClient returns an HTTP client that blocks SSRF to internal/private
+// IP ranges (resolved at dial time to prevent DNS rebinding) and rejects
+// cross-host redirects.
+func SafeHTTPClient(timeout time.Duration) *http.Client {
+	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+	tr := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          32,
+		IdleConnTimeout:       60 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: time.Second,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+			if AllowPrivateIPsForTest {
+				return dialer.DialContext(ctx, network, addr)
+			}
+			if ip := net.ParseIP(host); ip != nil {
+				if IsBlockedIP(ip) {
+					return nil, fmt.Errorf("禁止访问内网或本地地址：%s", host)
+				}
+				return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+			}
+			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, err
+			}
+			if len(ips) == 0 {
+				return nil, fmt.Errorf("无法解析主机：%s", host)
+			}
+			var allowed []net.IP
+			for _, ipAddr := range ips {
+				if IsBlockedIP(ipAddr.IP) {
+					return nil, fmt.Errorf("禁止访问内网或本地地址：%s (%s)", host, ipAddr.IP.String())
+				}
+				allowed = append(allowed, ipAddr.IP)
+			}
+			var lastErr error
+			for _, ip := range allowed {
+				conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+				if err == nil {
+					return conn, nil
+				}
+				lastErr = err
+			}
+			return nil, lastErr
+		},
+	}
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: tr,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return errors.New("重定向次数过多")
+			}
+			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+				return errors.New("不支持的重定向协议")
+			}
+			if len(via) > 0 && !strings.EqualFold(req.URL.Host, via[0].URL.Host) {
+				return errors.New("已拦截跨主机重定向")
+			}
+			return nil
+		},
+	}
+}
+
+func validateOutboundURL(raw string) error {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return errors.New("目标地址必须是有效的 http/https URL")
+	}
+	return nil
+}
+
+func truncateRunes(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	count := 0
+	for i := range s {
+		if count == n {
+			return s[:i]
+		}
+		count++
+	}
+	return s
+}
+
+var client = SafeHTTPClient(15 * time.Second)
 
 func icon(sev string) string {
 	switch sev {
@@ -103,11 +221,14 @@ func postJSON(ctx context.Context, url string, v any, hdr map[string]string) err
 	return postRaw(ctx, url, b, hdr)
 }
 
-func postRaw(ctx context.Context, url string, body []byte, hdr map[string]string) error {
-	if url == "" {
+func postRaw(ctx context.Context, rawURL string, body []byte, hdr map[string]string) error {
+	if rawURL == "" {
 		return errors.New("缺少地址")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err := validateOutboundURL(rawURL); err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -160,8 +281,8 @@ func TelegramTo(ctx context.Context, cfg map[string]string, chatID, text string)
 	if cfg["bot_token"] == "" || chatID == "" {
 		return errors.New("缺少 bot_token 或 chat_id")
 	}
-	if len(text) > 4000 {
-		text = text[:4000] + "…"
+	if utf8.RuneCountInString(text) > 4000 {
+		text = truncateRunes(text, 4000) + "…"
 	}
 	return postJSON(ctx, tgBase(cfg)+"/sendMessage", map[string]any{"chat_id": chatID, "text": text, "disable_web_page_preview": true}, nil)
 }
@@ -178,9 +299,15 @@ type TGUpdate struct {
 
 // TelegramUpdates long-polls getUpdates.
 func TelegramUpdates(ctx context.Context, cfg map[string]string, offset int64) ([]TGUpdate, error) {
-	url := fmt.Sprintf("%s/getUpdates?timeout=50&offset=%d&allowed_updates=%%5B%%22message%%22%%5D", tgBase(cfg), offset)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	resp, err := (&http.Client{Timeout: 70 * time.Second}).Do(req)
+	u := fmt.Sprintf("%s/getUpdates?timeout=50&offset=%d&allowed_updates=%%5B%%22message%%22%%5D", tgBase(cfg), offset)
+	if err := validateOutboundURL(u); err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := SafeHTTPClient(70 * time.Second).Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -235,13 +362,18 @@ func SendTelegramDocumentFile(ctx context.Context, cfg map[string]string, name, 
 		}
 		_ = pw.CloseWithError(w.Close())
 	}()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tgBase(cfg)+"/sendDocument", pr)
+	target := tgBase(cfg) + "/sendDocument"
+	if err := validateOutboundURL(target); err != nil {
+		_ = pr.Close()
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, pr)
 	if err != nil {
 		_ = pr.Close()
 		return err
 	}
 	req.Header.Set("Content-Type", w.FormDataContentType())
-	resp, err := (&http.Client{Timeout: 5 * time.Minute}).Do(req)
+	resp, err := SafeHTTPClient(5 * time.Minute).Do(req)
 	if err != nil {
 		_ = pr.Close()
 		return err
@@ -263,12 +395,16 @@ func SendTelegramDocument(ctx context.Context, cfg map[string]string, name strin
 	fw, _ := w.CreateFormFile("document", name)
 	_, _ = fw.Write(data)
 	w.Close()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tgBase(cfg)+"/sendDocument", &buf)
+	target := tgBase(cfg) + "/sendDocument"
+	if err := validateOutboundURL(target); err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, &buf)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", w.FormDataContentType())
-	resp, err := (&http.Client{Timeout: 5 * time.Minute}).Do(req)
+	resp, err := SafeHTTPClient(5 * time.Minute).Do(req)
 	if err != nil {
 		return err
 	}
@@ -291,14 +427,23 @@ func Email(cfg map[string]string, subject, body string) error {
 	if host == "" || cfg["to"] == "" {
 		return errors.New("缺少 SMTP 服务器或收件人")
 	}
-	from := cfg["from"]
+	stripCRLF := func(s string) string {
+		return strings.NewReplacer("\r", "", "\n", "").Replace(s)
+	}
+	from := strings.TrimSpace(stripCRLF(cfg["from"]))
 	if from == "" {
-		from = cfg["username"]
+		from = strings.TrimSpace(stripCRLF(cfg["username"]))
 	}
-	to := strings.Split(cfg["to"], ",")
-	for i := range to {
-		to[i] = strings.TrimSpace(to[i])
+	var to []string
+	for _, rcpt := range strings.Split(cfg["to"], ",") {
+		if rcpt = strings.TrimSpace(stripCRLF(rcpt)); rcpt != "" {
+			to = append(to, rcpt)
+		}
 	}
+	if from == "" || len(to) == 0 {
+		return errors.New("缺少发件人或收件人")
+	}
+	subject = stripCRLF(subject)
 	msg := "From: " + from + "\r\nTo: " + strings.Join(to, ", ") + "\r\nSubject: =?UTF-8?B?" +
 		base64.StdEncoding.EncodeToString([]byte(subject)) + "?=\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n" +
 		base64.StdEncoding.EncodeToString([]byte(body))

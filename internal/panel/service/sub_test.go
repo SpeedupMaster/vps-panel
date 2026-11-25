@@ -456,3 +456,63 @@ func TestSubProfileNameHeaders(t *testing.T) {
 		t.Fatalf("chinese Content-Disposition = %q, want %q", got, wantCD)
 	}
 }
+
+func TestSubNodesNameCollisionsAndTripleDuplicates(t *testing.T) {
+	p := newTestPanel(t)
+	hk := addNode(t, p, "HK-01", "HK", "1.1.1.1", true, false)
+
+	// Route named "香港" with default "{flag} {name}" would produce "🇭🇰 香港",
+	// colliding with regionGroupName("HK").
+	if _, err := p.CreateRoute(RouteInput{Type: "direct", EntryServerID: hk.ID, Name: "香港"}); err != nil {
+		t.Fatal(err)
+	}
+	// Three routes with identical name should become "🇭🇰 同名", "🇭🇰 同名 2", "🇭🇰 同名 3".
+	for i := 0; i < 3; i++ {
+		if _, err := p.CreateRoute(RouteInput{Type: "direct", EntryServerID: hk.ID, Name: "同名"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	nodes := p.SubNodes()
+	if len(nodes) != 4 {
+		t.Fatalf("len(nodes) = %d, want 4", len(nodes))
+	}
+	want := []string{"🇭🇰 香港 2", "🇭🇰 同名", "🇭🇰 同名 2", "🇭🇰 同名 3"}
+	for i, w := range want {
+		if nodes[i].Name != w {
+			t.Errorf("nodes[%d].Name = %q, want %q", i, nodes[i].Name, w)
+		}
+	}
+	if _, err := p.PreviewSub("mihomo"); err != nil {
+		t.Fatalf("PreviewSub(mihomo): %v", err)
+	}
+	if _, err := p.PreviewSub("singbox"); err != nil {
+		t.Fatalf("PreviewSub(singbox): %v", err)
+	}
+}
+
+func TestSubTokenCaseInsensitiveAndIPRateLimit(t *testing.T) {
+	p := newTestPanel(t)
+	if _, err := p.CreateSubToken("A", "", "MySubToken", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.CreateSubToken("B", "", "mysubtoken", ""); err == nil {
+		t.Fatal("case-insensitive duplicate sub token should fail")
+	}
+	if !p.HasSubTokenFold("MYSUBTOKEN") {
+		t.Fatal("HasSubTokenFold should detect case-insensitive match")
+	}
+	// UTF-8 rune-safe truncation.
+	if got := truncate("你好世界测试", 3); got != "你好世" {
+		t.Fatalf("truncate chinese = %q, want 你好世", got)
+	}
+	// Per-IP rate limit fires even before token exists in DB.
+	ip := "198.51.100.77"
+	for i := 0; i < subPerIPPerMin; i++ {
+		if _, err := p.ServeSub("no-such-token", "base64", "ua", ip); err != ErrSubNotFound {
+			t.Fatalf("attempt %d: got %v, want ErrSubNotFound", i, err)
+		}
+	}
+	if _, err := p.ServeSub("no-such-token", "base64", "ua", ip); err != ErrSubRateLimited {
+		t.Fatalf("expected ErrSubRateLimited after %d hits, got %v", subPerIPPerMin, err)
+	}
+}

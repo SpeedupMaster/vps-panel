@@ -79,7 +79,11 @@ func (a *API) changePassword(c *gin.Context) {
 		bad(c, err)
 		return
 	}
-	if err := a.P.Auth.ChangePassword(in.Old, in.New); err != nil {
+	if err := a.P.Auth.ChangePasswordFor(in.Old, in.New, c.ClientIP()); err != nil {
+		if errors.Is(err, auth.ErrLocked) {
+			fail(c, http.StatusTooManyRequests, err.Error())
+			return
+		}
 		bad(c, err)
 		return
 	}
@@ -100,8 +104,12 @@ func (a *API) totpBegin(c *gin.Context) {
 func (a *API) totpConfirm(c *gin.Context) {
 	var in struct{ Code string }
 	_ = c.ShouldBindJSON(&in)
-	codes, err := a.P.Auth.ConfirmTOTP(in.Code)
+	codes, err := a.P.Auth.ConfirmTOTPFor(in.Code, c.ClientIP())
 	if err != nil {
+		if errors.Is(err, auth.ErrLocked) {
+			fail(c, http.StatusTooManyRequests, err.Error())
+			return
+		}
 		bad(c, err)
 		return
 	}
@@ -112,7 +120,11 @@ func (a *API) totpConfirm(c *gin.Context) {
 func (a *API) totpDisable(c *gin.Context) {
 	var in struct{ Code string }
 	_ = c.ShouldBindJSON(&in)
-	if err := a.P.Auth.DisableTOTP(in.Code); err != nil {
+	if err := a.P.Auth.DisableTOTPFor(in.Code, c.ClientIP()); err != nil {
+		if errors.Is(err, auth.ErrLocked) {
+			fail(c, http.StatusTooManyRequests, err.Error())
+			return
+		}
 		bad(c, err)
 		return
 	}

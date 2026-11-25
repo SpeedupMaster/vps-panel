@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"vpspanel/internal/common/proto"
@@ -16,43 +17,61 @@ import (
 // ingestTraffic stores byte deltas into hourly buckets. Frames are deduped by
 // (agent, seq) so replays after a reconnect are harmless.
 func (p *Panel) ingestTraffic(c *hub.Conn, t *proto.TrafficDelta) {
-	var seq store.TrafficSeq
-	p.St.DB.FirstOrCreate(&seq, store.TrafficSeq{AgentID: c.AgentID})
-	if t.Seq <= seq.LastSeq && seq.LastSeq-t.Seq < 1<<40 { // allow agent seq reset after reinstall
-		_ = p.Hub.Send(c.ServerID, &proto.PanelMessage{Ack: &proto.Ack{Seq: t.Seq}})
+	ingested := false
+	err := p.St.DB.Transaction(func(tx *gorm.DB) error {
+		var seq store.TrafficSeq
+		if err := tx.FirstOrCreate(&seq, store.TrafficSeq{AgentID: c.AgentID}).Error; err != nil {
+			return err
+		}
+		// Allow fresh buffer epoch reset when agent restarts its seq counter at 1
+		// after having previously progressed beyond 1.
+		freshEpoch := t.Seq == 1 && seq.LastSeq > 1
+		if !freshEpoch && t.Seq <= seq.LastSeq && seq.LastSeq-t.Seq < 1<<40 {
+			return nil
+		}
+		hour := t.TS / 3600 * 3600
+		sid := strconv.FormatUint(uint64(c.ServerID), 10)
+		for _, it := range t.Items {
+			scope, id := "", ""
+			switch it.Scope {
+			case "server":
+				scope, id = "server", sid
+			case "user":
+				if strings.HasPrefix(it.Name, "r-") {
+					scope, id = "route", strings.TrimPrefix(it.Name, "r-")
+				} else {
+					scope, id = "landing_user", sid+":"+it.Name
+				}
+			case "outbound":
+				scope, id = "outbound", sid+":"+it.Name
+			case "inbound":
+				scope, id = "inbound", sid+":"+it.Name
+			default:
+				continue
+			}
+			if it.Up == 0 && it.Down == 0 {
+				continue
+			}
+			if err := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "scope"}, {Name: "scope_id"}, {Name: "hour"}},
+				DoUpdates: clause.Assignments(map[string]any{"up": clause.Expr{SQL: "up + ?", Vars: []any{it.Up}}, "down": clause.Expr{SQL: "down + ?", Vars: []any{it.Down}}}),
+			}).Create(&store.TrafficHourly{Scope: scope, ScopeID: id, Hour: hour, Up: it.Up, Down: it.Down}).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Model(&store.TrafficSeq{}).Where("agent_id = ?", c.AgentID).Update("last_seq", t.Seq).Error; err != nil {
+			return err
+		}
+		ingested = true
+		return nil
+	})
+	if err != nil {
 		return
 	}
-	hour := t.TS / 3600 * 3600
-	sid := strconv.FormatUint(uint64(c.ServerID), 10)
-	for _, it := range t.Items {
-		scope, id := "", ""
-		switch it.Scope {
-		case "server":
-			scope, id = "server", sid
-		case "user":
-			if strings.HasPrefix(it.Name, "r-") {
-				scope, id = "route", strings.TrimPrefix(it.Name, "r-")
-			} else {
-				scope, id = "landing_user", sid+":"+it.Name
-			}
-		case "outbound":
-			scope, id = "outbound", sid+":"+it.Name
-		case "inbound":
-			scope, id = "inbound", sid+":"+it.Name
-		default:
-			continue
-		}
-		if it.Up == 0 && it.Down == 0 {
-			continue
-		}
-		p.St.DB.Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "scope"}, {Name: "scope_id"}, {Name: "hour"}},
-			DoUpdates: clause.Assignments(map[string]any{"up": clause.Expr{SQL: "up + ?", Vars: []any{it.Up}}, "down": clause.Expr{SQL: "down + ?", Vars: []any{it.Down}}}),
-		}).Create(&store.TrafficHourly{Scope: scope, ScopeID: id, Hour: hour, Up: it.Up, Down: it.Down})
-	}
-	p.St.DB.Model(&seq).Update("last_seq", t.Seq)
 	_ = p.Hub.Send(c.ServerID, &proto.PanelMessage{Ack: &proto.Ack{Seq: t.Seq}})
-	p.checkTrafficQuota(c.ServerID)
+	if ingested {
+		p.checkTrafficQuota(c.ServerID)
+	}
 }
 
 type Usage struct {
@@ -113,11 +132,22 @@ func (p *Panel) CycleUsage(sv *store.Server) Usage {
 // optionally stops Xray when the quota is exceeded.
 func (p *Panel) checkTrafficQuota(serverID uint) {
 	var sv store.Server
-	if err := p.St.DB.First(&sv, serverID).Error; err != nil || sv.QuotaBytes <= 0 {
+	if err := p.St.DB.First(&sv, serverID).Error; err != nil {
 		return
 	}
 	u := p.CycleUsage(&sv)
 	cycle := u.CycleStart.Format("20060102")
+	// Auto-resolve firing traffic alerts from prior billing cycles (or when quota removed).
+	var active []store.AlertEvent
+	p.St.DB.Where("kind = ? AND server_id = ? AND status = ?", "traffic", sv.ID, "firing").Find(&active)
+	for _, ev := range active {
+		if sv.QuotaBytes <= 0 || !strings.HasSuffix(ev.Key, "-"+cycle) {
+			p.Alert.Resolve("traffic", sv.ID, ev.Key)
+		}
+	}
+	if sv.QuotaBytes <= 0 {
+		return
+	}
 	for _, lvl := range []int{100, 90, 80} {
 		if u.Percent < float64(lvl) {
 			continue
