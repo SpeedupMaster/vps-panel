@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -29,9 +30,39 @@ type TraceResult struct {
 }
 
 var (
-	ipRe  = regexp.MustCompile(`\b(\d{1,3}\.){3}\d{1,3}\b`)
-	hopRe = regexp.MustCompile(`^\s*\d+\s`)
+	ipRe        = regexp.MustCompile(`\b(\d{1,3}\.){3}\d{1,3}\b`)
+	hopRe       = regexp.MustCompile(`^\s*\d+\s`)
+	traceHostRe = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$`)
 )
+
+// parseTraceHost extracts and validates a traceroute target host, safely
+// handling host:port, bracketed IPv6 [addr]:port, and bare IPv6 addresses
+// while rejecting option injection (leading '-') or shell/control characters.
+func parseTraceHost(raw string) (string, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" || strings.Contains(s, "://") {
+		return "", fmt.Errorf("非法目标主机：%q", raw)
+	}
+	if h, p, err := net.SplitHostPort(s); err == nil {
+		if pn, perr := strconv.Atoi(p); perr != nil || pn < 1 || pn > 65535 {
+			return "", fmt.Errorf("非法目标主机：%q", raw)
+		}
+		s = h
+	} else if strings.HasPrefix(s, "[") && strings.HasSuffix(s, "]") {
+		s = s[1 : len(s)-1]
+	}
+	if s == "" || strings.HasPrefix(s, "-") || len(s) > 253 {
+		return "", fmt.Errorf("非法目标主机：%q", raw)
+	}
+	if ip := net.ParseIP(s); ip != nil {
+		return ip.String(), nil
+	}
+	trimmed := strings.TrimSuffix(s, ".")
+	if trimmed == "" || !traceHostRe.MatchString(trimmed) || strings.Contains(trimmed, "..") {
+		return "", fmt.Errorf("非法目标主机：%q", raw)
+	}
+	return s, nil
+}
 
 // parseHops returns the responding IP of each hop. Only numbered hop lines
 // count: the "traceroute to host (ip)" header names the target, not a hop.
@@ -112,18 +143,22 @@ func Trace(ctx context.Context, args map[string]string, out func(string)) ([]Tra
 	}
 	var res []TraceResult
 	for _, pair := range strings.Split(args["targets"], ",") {
-		carrier, host, ok := strings.Cut(strings.TrimSpace(pair), "=")
+		carrier, rawHost, ok := strings.Cut(strings.TrimSpace(pair), "=")
 		if !ok {
 			continue
 		}
-		host, _, _ = strings.Cut(host, ":")
+		host, herr := parseTraceHost(rawHost)
+		if herr != nil {
+			out("跳过非法目标：" + herr.Error() + "\n")
+			continue
+		}
 		out(fmt.Sprintf("== %s → %s\n", carrier, host))
 		var text string
 		var err error
 		if tool == "nexttrace" {
-			text, err = Output(ctx, "nexttrace", "-q", "1", "--no-color", "-g", "en", host)
+			text, err = Output(ctx, "nexttrace", "-q", "1", "--no-color", "-g", "en", "--", host)
 		} else {
-			text, err = Output(ctx, "traceroute", "-n", "-q", "1", "-w", "2", "-m", "25", host)
+			text, err = Output(ctx, "traceroute", "-n", "-q", "1", "-w", "2", "-m", "25", "--", host)
 		}
 		if err != nil && text == "" {
 			out("失败：" + err.Error() + "\n")

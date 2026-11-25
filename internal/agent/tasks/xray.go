@@ -27,11 +27,22 @@ func registerXray(a *agent.Agent) {
 		mgr = xraymgr.New(config.DataDir) // probe mode: only used by install
 	}
 	src := func(t *proto.Task) xraymgr.Source {
-		return xraymgr.Source{Version: t.Args["version"], BaseURL: t.Args["base_url"]}
+		var panelURLs []string
+		if a.Creds != nil {
+			panelURLs = append([]string(nil), a.Creds.PanelURLs...)
+		}
+		return xraymgr.Source{
+			Version:          t.Args["version"],
+			BaseURL:          t.Args["base_url"],
+			AllowedPanelURLs: panelURLs,
+		}
 	}
 
 	// install_xray also upgrades a probe-only machine to a node.
 	a.Tasks[proto.TaskInstallXray] = func(ctx context.Context, t *proto.Task, out func(string)) (any, error) {
+		if a.Local.Mode == "probe" && !a.Local.Switches.AllowSelfUpdate && !a.Local.Switches.AllowRemoteExec {
+			return nil, errors.New("仅探针模式下未开启 allow_self_update 或 allow_remote_exec，拒绝安装 Xray")
+		}
 		if err := mgr.Install(ctx, src(t), out); err != nil {
 			return nil, err
 		}

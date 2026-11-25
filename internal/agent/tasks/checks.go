@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"sort"
@@ -605,12 +606,74 @@ func RealityScan(ctx context.Context, candidates string, out func(string)) []Rea
 	return res
 }
 
+var (
+	cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
+	net0Prefix  = netip.MustParsePrefix("0.0.0.0/8")
+
+	// Overridable in tests.
+	lookupScanIPs = func(ctx context.Context, host string) ([]net.IPAddr, error) {
+		return net.DefaultResolver.LookupIPAddr(ctx, host)
+	}
+)
+
+// isBlockedScanIP reports whether ip falls into loopback, RFC1918, link-local,
+// CGNAT, IPv6 ULA/link-local, multicast, or unspecified space.
+func isBlockedScanIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	addr, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return true
+	}
+	addr = addr.Unmap()
+	if addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast() ||
+		addr.IsLinkLocalMulticast() || addr.IsMulticast() || addr.IsUnspecified() {
+		return true
+	}
+	if addr.Is4() && (cgnatPrefix.Contains(addr) || net0Prefix.Contains(addr)) {
+		return true
+	}
+	return false
+}
+
+func resolvePublicScanIP(ctx context.Context, domain string) (string, error) {
+	domain = strings.TrimSpace(domain)
+	if domain == "" || strings.ContainsAny(domain, `/\@?#: `) {
+		return "", fmt.Errorf("非法域名：%q", domain)
+	}
+	if ip := net.ParseIP(domain); ip != nil {
+		if isBlockedScanIP(ip) {
+			return "", errors.New("拒绝扫描内网或保留地址")
+		}
+		return ip.String(), nil
+	}
+	addrs, err := lookupScanIPs(ctx, domain)
+	if err != nil {
+		return "", err
+	}
+	if len(addrs) == 0 {
+		return "", errors.New("域名解析无结果")
+	}
+	for _, a := range addrs {
+		if isBlockedScanIP(a.IP) {
+			return "", errors.New("拒绝扫描解析到内网或保留地址的域名")
+		}
+	}
+	return addrs[0].IP.String(), nil
+}
+
 func scanOne(ctx context.Context, domain string) RealityCandidate {
 	r := RealityCandidate{Domain: domain}
+	targetIP, err := resolvePublicScanIP(ctx, domain)
+	if err != nil {
+		r.Error = err.Error()
+		return r
+	}
 	d := &net.Dialer{Timeout: 5 * time.Second}
 	cfg := &tls.Config{ServerName: domain, MinVersion: tls.VersionTLS13, NextProtos: []string{"h2", "http/1.1"}, CurvePreferences: []tls.CurveID{tls.X25519}}
 	start := time.Now()
-	raw, err := d.DialContext(ctx, "tcp", net.JoinHostPort(domain, "443"))
+	raw, err := d.DialContext(ctx, "tcp", net.JoinHostPort(targetIP, "443"))
 	if err != nil {
 		r.Error = err.Error()
 		return r
@@ -629,7 +692,35 @@ func scanOne(ctx context.Context, domain string) RealityCandidate {
 	r.X25519 = true // the handshake only offered X25519
 	conn.Close()
 
-	resp, _, err := get(ctx, "https://"+domain+"/", false)
+	// Pin the validated public IP for the HTTP check too so DNS rebinding cannot
+	// redirect it to an internal address.
+	pinnedClient := &http.Client{
+		Timeout: 15 * time.Second,
+		Transport: &http.Transport{
+			DisableKeepAlives: true,
+			ForceAttemptHTTP2: true,
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				_, port, perr := net.SplitHostPort(addr)
+				if perr != nil {
+					port = "443"
+				}
+				return d.DialContext(ctx, network, net.JoinHostPort(targetIP, port))
+			},
+		},
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	var resp *http.Response
+	if req, rerr := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+domain+"/", nil); rerr == nil {
+		req.Header.Set("User-Agent", ua)
+		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+		resp, err = pinnedClient.Do(req)
+		if err == nil {
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 2<<20))
+			resp.Body.Close()
+		}
+	} else {
+		err = rerr
+	}
 	if err == nil && resp.StatusCode >= 300 && resp.StatusCode < 400 {
 		loc := resp.Header.Get("Location")
 		if u, perr := http.NewRequest("GET", loc, nil); perr == nil && u.URL.Host != "" && u.URL.Host != domain {

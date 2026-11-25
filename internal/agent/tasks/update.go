@@ -31,15 +31,15 @@ type pendingUpdate struct {
 
 func pendingPath() string { return filepath.Join(config.DataDir, "update-pending.json") }
 
-// loadSignKey returns the pinned release key (written by install.sh), or nil.
-func loadSignKey() (ed25519.PublicKey, error) {
-	b, err := os.ReadFile(filepath.Join(config.Dir, "sign.pub"))
-	if err != nil {
-		return nil, nil
-	}
-	der, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(b)))
+// parseSignKey parses either a raw 32-byte base64 Ed25519 public key or a
+// 44-byte PKIX SPKI DER base64 Ed25519 public key.
+func parseSignKey(s string) (ed25519.PublicKey, error) {
+	der, err := base64.StdEncoding.DecodeString(strings.TrimSpace(s))
 	if err != nil {
 		return nil, fmt.Errorf("sign.pub 格式错误：%w", err)
+	}
+	if len(der) == ed25519.PublicKeySize {
+		return ed25519.PublicKey(der), nil
 	}
 	k, err := x509.ParsePKIXPublicKey(der)
 	if err != nil {
@@ -50,6 +50,15 @@ func loadSignKey() (ed25519.PublicKey, error) {
 		return nil, errors.New("sign.pub 不是 ed25519 公钥")
 	}
 	return pk, nil
+}
+
+// loadSignKey returns the pinned release key (written by install.sh), or nil.
+func loadSignKey() (ed25519.PublicKey, error) {
+	b, err := os.ReadFile(filepath.Join(config.Dir, "sign.pub"))
+	if err != nil {
+		return nil, nil
+	}
+	return parseSignKey(string(b))
 }
 
 func downloadToFile(ctx context.Context, url, dst string, max int64) (string, error) {
@@ -88,7 +97,7 @@ func downloadToFile(ctx context.Context, url, dst string, max int64) (string, er
 }
 
 func verifyFileSig(pk ed25519.PublicKey, path, sigB64 string) error {
-	sig, err := base64.StdEncoding.DecodeString(sigB64)
+	sig, err := base64.StdEncoding.DecodeString(strings.TrimSpace(sigB64))
 	if err != nil {
 		return errors.New("ed25519 签名校验失败，拒绝更新")
 	}
@@ -177,17 +186,51 @@ func UpdateAgent(ctx context.Context, args map[string]string, out func(string)) 
 	return nil
 }
 
+const rollbackWaitSec = 60
+
+func shQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// rollbackScript builds the detached shell guard. It stages the backup to a
+// sibling file and atomically renames it over p.Binary so a running or
+// crash-looping new binary never fails rollback with ETXTBSY.
+func rollbackScript(p pendingUpdate, pendingFile string) string {
+	staged := p.Binary + ".rollback"
+	return fmt.Sprintf(
+		`trap '' HUP; sleep %d; if [ -f %s ]; then cp -f %s %s && chmod 0755 %s && mv -f %s %s && rm -f %s; (systemctl restart vpsagent || rc-service vpsagent restart) >/dev/null 2>&1; fi`,
+		rollbackWaitSec,
+		shQuote(pendingFile),
+		shQuote(p.Backup), shQuote(staged),
+		shQuote(staged),
+		shQuote(staged), shQuote(p.Binary),
+		shQuote(pendingFile),
+	)
+}
+
 // armGuard schedules a rollback outside of this process (the service restart
 // kills our process group, so it must not be a child).
 func armGuard(p pendingUpdate) {
-	script := fmt.Sprintf(`sleep 75; if [ -f %q ]; then cp -f %q %q && rm -f %q; (systemctl restart vpsagent || rc-service vpsagent restart) >/dev/null 2>&1; fi`,
-		pendingPath(), p.Backup, p.Binary, pendingPath())
+	script := rollbackScript(p, pendingPath())
 	if _, err := exec.LookPath("systemd-run"); err == nil {
 		if err := exec.Command("systemd-run", "--unit=vpsagent-rollback-"+fmt.Sprint(p.At), "--collect", "/bin/sh", "-c", script).Run(); err == nil {
 			return
 		}
 	}
-	cmd := exec.Command("setsid", "/bin/sh", "-c", script)
+	// Non-systemd fallback: detach into a new session and ignore SIGHUP with
+	// stdio closed so OpenRC / sysvinit service stops do not kill the guard.
+	var cmd *exec.Cmd
+	switch {
+	case have("setsid") && have("nohup"):
+		cmd = exec.Command("setsid", "nohup", "/bin/sh", "-c", script)
+	case have("setsid"):
+		cmd = exec.Command("setsid", "/bin/sh", "-c", script)
+	case have("nohup"):
+		cmd = exec.Command("nohup", "/bin/sh", "-c", script)
+	default:
+		cmd = exec.Command("/bin/sh", "-c", script)
+	}
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
 	_ = cmd.Start()
 }
 

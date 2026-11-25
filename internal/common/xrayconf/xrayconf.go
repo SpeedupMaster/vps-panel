@@ -120,6 +120,7 @@ func Build(n Node) ([]byte, error) {
 		inbounds = append(inbounds, obj{
 			"tag": "ss-in", "port": l.Port, "protocol": "shadowsocks",
 			"settings": obj{"method": l.Method, "password": l.ServerKey, "clients": clients, "network": "tcp,udp"},
+			"sniffing": obj{"enabled": true, "destOverride": []string{"http", "tls", "quic"}, "routeOnly": true},
 		})
 	}
 	cfg["inbounds"] = inbounds
@@ -134,7 +135,10 @@ func Build(n Node) ([]byte, error) {
 	outbounds = append(outbounds, obj{"tag": "block", "protocol": "blackhole"})
 	cfg["outbounds"] = outbounds
 
-	rules = append(rules, obj{"ip": []string{"geoip:private"}, "outboundTag": "block"})
+	rules = append(rules,
+		obj{"domain": []string{"localhost", "domain:localhost", "full:metadata.google.internal"}, "outboundTag": "block"},
+		obj{"ip": []string{"geoip:private"}, "outboundTag": "block"},
+	)
 	if n.BlockBT {
 		rules = append(rules, obj{"protocol": []string{"bittorrent"}, "outboundTag": "block"})
 	}
@@ -143,7 +147,7 @@ func Build(n Node) ([]byte, error) {
 	for _, u := range n.Users {
 		rules = append(rules, UserRule(u))
 	}
-	routing := obj{"domainStrategy": "AsIs", "rules": rules}
+	routing := obj{"domainStrategy": "IPIfNonMatch", "rules": rules}
 	if len(n.Balancers) > 0 {
 		var bs []any
 		var subjects []string

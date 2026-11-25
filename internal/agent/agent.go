@@ -4,7 +4,9 @@ package agent
 
 import (
 	"context"
+	crand "crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -53,12 +55,23 @@ type Agent struct {
 	// OnConnected runs after the first panel message of each session.
 	OnConnected func()
 
-	mu         sync.Mutex
-	send       chan *proto.AgentMessage
-	interval   time.Duration
-	probes     *proto.ProbeTasks
-	probeReset chan struct{}
-	shells     map[uint64]chan *proto.ShellInput
+	mu          sync.Mutex
+	send        chan *proto.AgentMessage
+	trafficWake chan struct{}
+	interval    time.Duration
+	probes      *proto.ProbeTasks
+	probeReset  chan struct{}
+	shells      map[uint64]chan *proto.ShellInput
+}
+
+const trafficBatchSize = 200
+
+func randomNonce() (string, error) {
+	var b [16]byte
+	if _, err := crand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
 }
 
 func New(creds *config.Credentials, local config.Local, buf *buffer.Buffer) *Agent {
@@ -163,7 +176,10 @@ func (a *Agent) session(ctx context.Context, panelURL string) error {
 	defer cancel()
 
 	ts := time.Now().Unix()
-	nonce := strconv.FormatInt(rand.Int63(), 36)
+	nonce, err := randomNonce()
+	if err != nil {
+		return err
+	}
 	md := metadata.Pairs(proto.MDAgentID, a.Creds.AgentID, proto.MDTime, strconv.FormatInt(ts, 10),
 		proto.MDNonce, nonce, proto.MDSig, proto.Sign(a.Creds.AgentSecret, a.Creds.AgentID, ts, nonce))
 	stream, err := conn.NewStream(metadata.NewOutgoingContext(ctx, md), &proto.ServiceDesc.Streams[0], proto.MethodConnect)
@@ -172,13 +188,16 @@ func (a *Agent) session(ctx context.Context, panelURL string) error {
 	}
 
 	send := make(chan *proto.AgentMessage, 512)
+	wake := make(chan struct{}, 1)
 	a.mu.Lock()
 	a.send = send
+	a.trafficWake = wake
 	a.mu.Unlock()
 	defer func() {
 		a.mu.Lock()
 		if a.send == send {
 			a.send = nil
+			a.trafficWake = nil
 		}
 		a.mu.Unlock()
 	}()
@@ -203,9 +222,7 @@ func (a *Agent) session(ctx context.Context, panelURL string) error {
 	if a.Xray != nil {
 		send <- &proto.AgentMessage{XrayState: a.Xray.State()}
 	}
-	for _, d := range a.Buf.Pending(500) { // replay unacked traffic
-		send <- &proto.AgentMessage{Traffic: d}
-	}
+	go a.drainTraffic(ctx, send, wake)
 	log.Printf("connected to %s as %s", panelURL, a.Creds.ServerName)
 
 	go a.metricsLoop(ctx)
@@ -248,7 +265,10 @@ func (a *Agent) Emit(m *proto.AgentMessage) bool {
 func (a *Agent) handle(ctx context.Context, m *proto.PanelMessage, current string) {
 	switch {
 	case m.Ack != nil:
-		a.Buf.Ack(m.Ack.Seq)
+		if a.Buf != nil {
+			a.Buf.Ack(m.Ack.Seq)
+		}
+		a.notifyTraffic()
 	case m.Settings != nil:
 		if m.Settings.ReportInterval >= 2 {
 			a.mu.Lock()
@@ -340,12 +360,62 @@ func (a *Agent) trafficLoop(ctx context.Context) {
 		if a.Xray != nil {
 			items = append(items, a.Xray.Stats()...)
 		}
-		d, err := a.Buf.Add(time.Now().Unix(), items)
-		if err != nil {
+		if _, err := a.Buf.Add(time.Now().Unix(), items); err != nil {
 			log.Printf("buffer: %v", err)
 			continue
 		}
-		a.Emit(&proto.AgentMessage{Traffic: d})
+		a.notifyTraffic()
+	}
+}
+
+func (a *Agent) notifyTraffic() {
+	a.mu.Lock()
+	ch := a.trafficWake
+	a.mu.Unlock()
+	if ch != nil {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// drainTraffic sends buffered traffic deltas strictly in sequence order in
+// bounded batches, waiting for each batch to be acknowledged before sending
+// newer deltas so a later Ack can never wipe older unacked items.
+func (a *Agent) drainTraffic(ctx context.Context, send chan<- *proto.AgentMessage, wake <-chan struct{}) {
+	if a.Buf == nil {
+		return
+	}
+	for {
+		batch := a.Buf.Pending(trafficBatchSize)
+		if len(batch) == 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-wake:
+				continue
+			}
+		}
+		for _, d := range batch {
+			select {
+			case send <- &proto.AgentMessage{Traffic: d}:
+			case <-ctx.Done():
+				return
+			}
+		}
+		target := batch[len(batch)-1].Seq
+		for {
+			first := a.Buf.Pending(1)
+			if len(first) == 0 || first[0].Seq > target {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-wake:
+			}
+		}
 	}
 }
 

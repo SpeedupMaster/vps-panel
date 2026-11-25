@@ -18,18 +18,38 @@ const table = "vpspanel"
 // Build renders the ruleset. An empty allow list removes the table.
 func Build(port int, allowed []string) string {
 	var v4, v6 []string
+	seen4 := map[string]bool{}
+	seen6 := map[string]bool{}
+	add := func(list *[]string, seen map[string]bool, elem string) {
+		if !seen[elem] {
+			seen[elem] = true
+			*list = append(*list, elem)
+		}
+	}
 	for _, a := range allowed {
-		ip := net.ParseIP(strings.TrimSpace(a))
-		_, cidr, cerr := net.ParseCIDR(strings.TrimSpace(a))
-		switch {
-		case ip != nil && ip.To4() != nil:
-			v4 = append(v4, ip.String())
-		case ip != nil:
-			v6 = append(v6, ip.String())
-		case cerr == nil && cidr.IP.To4() != nil:
-			v4 = append(v4, cidr.String())
-		case cerr == nil:
-			v6 = append(v6, cidr.String())
+		s := strings.TrimSpace(a)
+		if s == "" {
+			continue
+		}
+		if ip := net.ParseIP(s); ip != nil {
+			if ip4 := ip.To4(); ip4 != nil {
+				add(&v4, seen4, ip4.String())
+			} else {
+				add(&v6, seen6, ip.String())
+			}
+			continue
+		}
+		if _, cidr, err := net.ParseCIDR(s); err == nil {
+			ones, bits := cidr.Mask.Size()
+			elem := cidr.String()
+			if ones == bits {
+				elem = cidr.IP.String()
+			}
+			if cidr.IP.To4() != nil {
+				add(&v4, seen4, elem)
+			} else {
+				add(&v6, seen6, elem)
+			}
 		}
 	}
 	var b strings.Builder
@@ -39,8 +59,8 @@ func Build(port int, allowed []string) string {
 		return b.String()
 	}
 	fmt.Fprintf(&b, "table inet %s {\n", table)
-	fmt.Fprintf(&b, "  set allow4 { type ipv4_addr; flags interval;%s }\n", elems(v4))
-	fmt.Fprintf(&b, "  set allow6 { type ipv6_addr; flags interval;%s }\n", elems(v6))
+	fmt.Fprintf(&b, "  set allow4 { type ipv4_addr; flags interval; auto-merge;%s }\n", elems(v4))
+	fmt.Fprintf(&b, "  set allow6 { type ipv6_addr; flags interval; auto-merge;%s }\n", elems(v6))
 	b.WriteString("  chain input {\n    type filter hook input priority -10; policy accept;\n")
 	for _, proto := range []string{"tcp", "udp"} {
 		fmt.Fprintf(&b, "    %s dport %d ip saddr @allow4 accept\n", proto, port)

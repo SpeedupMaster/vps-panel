@@ -12,8 +12,8 @@ import (
 	"net/http"
 	"os/exec"
 	"regexp"
-	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,9 +36,13 @@ var pingRe = regexp.MustCompile(`time[=<]([\d.]+) ?ms`)
 
 // ICMPPing uses the system ping binary (one echo).
 func ICMPPing(host string, timeout time.Duration) (time.Duration, error) {
+	host = strings.TrimSpace(host)
+	if host == "" || strings.HasPrefix(host, "-") {
+		return 0, fmt.Errorf("invalid host %q", host)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout+time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "ping", "-c", "1", "-W", strconv.Itoa(int(math.Ceil(timeout.Seconds()))), host).Output()
+	out, err := exec.CommandContext(ctx, "ping", "-c", "1", "-W", strconv.Itoa(int(math.Ceil(timeout.Seconds()))), "--", host).Output()
 	if err != nil {
 		return 0, err
 	}
@@ -116,16 +120,22 @@ func Summarize(id string, rtts []float64, sent int) proto.ProbeSample {
 	if len(rtts) == 0 {
 		return s
 	}
-	sort.Float64s(rtts)
 	var sum, jit float64
+	minRTT, maxRTT := rtts[0], rtts[0]
 	for i, r := range rtts {
 		sum += r
+		if r < minRTT {
+			minRTT = r
+		}
+		if r > maxRTT {
+			maxRTT = r
+		}
 		if i > 0 {
 			jit += math.Abs(r - rtts[i-1])
 		}
 	}
 	s.Avg = round(sum / float64(len(rtts)))
-	s.Min, s.Max = round(rtts[0]), round(rtts[len(rtts)-1])
+	s.Min, s.Max = round(minRTT), round(maxRTT)
 	if len(rtts) > 1 {
 		s.Jitter = round(jit / float64(len(rtts)-1))
 	}

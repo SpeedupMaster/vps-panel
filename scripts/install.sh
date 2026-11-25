@@ -21,9 +21,9 @@ die()   { red "错误：$*"; exit 1; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --panel) PANEL="${2%/}"; shift 2 ;;
-    --token) TOKEN="$2"; shift 2 ;;
-    --mode)  MODE="$2"; shift 2 ;;
+    --panel) [ $# -ge 2 ] || die "--panel 缺少参数"; PANEL="${2%/}"; shift 2 ;;
+    --token) [ $# -ge 2 ] || die "--token 缺少参数"; TOKEN="$2"; shift 2 ;;
+    --mode)  [ $# -ge 2 ] || die "--mode 缺少参数"; MODE="$2"; shift 2 ;;
     --uninstall) UNINSTALL=1; shift ;;
     --purge) PURGE=1; shift ;;
     *) die "未知参数 $1" ;;
@@ -122,9 +122,10 @@ fi
 install -m 0755 "$TMP/vpsagent" "$PREFIX/vpsagent"
 mkdir -p "$CONF_DIR" "$DATA_DIR"
 chmod 700 "$CONF_DIR" "$DATA_DIR"
-# Pin the release signing key locally: later self-updates must be signed by it.
-if [ "$SIGN_PUBKEY" != "__SIGN_PUBKEY__" ] && [ -n "$SIGN_PUBKEY" ] && [ ! -f "$CONF_DIR/sign.pub" ]; then
+# Pin/refresh the release signing key locally: later self-updates must be signed by it.
+if [ "$SIGN_PUBKEY" != "__SIGN_PUBKEY__" ] && [ -n "$SIGN_PUBKEY" ]; then
   printf '%s\n' "$SIGN_PUBKEY" > "$CONF_DIR/sign.pub"
+  chmod 600 "$CONF_DIR/sign.pub"
 fi
 
 # ---- local switches (only editable on the VPS) ----
@@ -142,7 +143,7 @@ fi
 
 if [ -n "$TOKEN" ]; then
   step "向面板注册"
-  "$PREFIX/vpsagent" register --panel "$PANEL" --token "$TOKEN" --mode "$MODE" || die "注册失败（令牌可能已过期）"
+  VPSAGENT_TOKEN="$TOKEN" "$PREFIX/vpsagent" register --panel "$PANEL" --mode "$MODE" || die "注册失败（令牌可能已过期）"
 elif [ ! -f "$CONF_DIR/credentials.json" ]; then
   die "首次安装需要 --token"
 fi

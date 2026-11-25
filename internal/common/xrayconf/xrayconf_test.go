@@ -69,3 +69,86 @@ func TestSupportsX25519MLKEM768(t *testing.T) {
 		}
 	}
 }
+
+func TestSSRFProtectionAndLandingSniffing(t *testing.T) {
+	b, err := Build(Node{
+		Landing: &Landing{Port: 8388, Method: "2022-blake3-aes-128-gcm", ServerKey: "k"},
+		Users:   []User{{Email: "u1", UUID: "uuid-1", Outbound: "direct"}},
+		BlockBT: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		Inbounds []struct {
+			Tag      string `json:"tag"`
+			Sniffing *struct {
+				Enabled      bool     `json:"enabled"`
+				DestOverride []string `json:"destOverride"`
+				RouteOnly    bool     `json:"routeOnly"`
+			} `json:"sniffing"`
+		} `json:"inbounds"`
+		Routing struct {
+			DomainStrategy string           `json:"domainStrategy"`
+			Rules          []map[string]any `json:"rules"`
+		} `json:"routing"`
+	}
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Routing.DomainStrategy != "IPIfNonMatch" {
+		t.Fatalf("domainStrategy = %q, want IPIfNonMatch", cfg.Routing.DomainStrategy)
+	}
+
+	var foundSS bool
+	for _, in := range cfg.Inbounds {
+		if in.Tag == "ss-in" {
+			foundSS = true
+			if in.Sniffing == nil || !in.Sniffing.Enabled || !in.Sniffing.RouteOnly {
+				t.Fatalf("ss-in sniffing not properly configured: %+v", in.Sniffing)
+			}
+			wantDest := map[string]bool{"http": true, "tls": true, "quic": true}
+			for _, d := range in.Sniffing.DestOverride {
+				delete(wantDest, d)
+			}
+			if len(wantDest) != 0 {
+				t.Fatalf("ss-in destOverride missing %v: %v", wantDest, in.Sniffing.DestOverride)
+			}
+		}
+	}
+	if !foundSS {
+		t.Fatal("ss-in inbound missing")
+	}
+
+	domainBlockIdx, userRuleIdx, btRuleIdx := -1, -1, -1
+	for i, r := range cfg.Routing.Rules {
+		if doms, ok := r["domain"].([]any); ok && r["outboundTag"] == "block" {
+			set := map[string]bool{}
+			for _, d := range doms {
+				set[d.(string)] = true
+			}
+			if set["localhost"] && set["domain:localhost"] && set["full:metadata.google.internal"] {
+				domainBlockIdx = i
+			}
+		}
+		if protos, ok := r["protocol"].([]any); ok && r["outboundTag"] == "block" {
+			for _, p := range protos {
+				if p == "bittorrent" {
+					btRuleIdx = i
+				}
+			}
+		}
+		if r["ruleTag"] == "u1" {
+			userRuleIdx = i
+		}
+	}
+	if domainBlockIdx < 0 {
+		t.Fatalf("missing localhost/IMDS domain block rule in %v", cfg.Routing.Rules)
+	}
+	if userRuleIdx < 0 || domainBlockIdx > userRuleIdx {
+		t.Fatalf("domain block rule (%d) must precede user rules (%d)", domainBlockIdx, userRuleIdx)
+	}
+	if btRuleIdx < 0 {
+		t.Fatal("missing bittorrent block rule")
+	}
+}

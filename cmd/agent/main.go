@@ -47,10 +47,14 @@ func main() {
 	case "register":
 		fs := flag.NewFlagSet("register", flag.ExitOnError)
 		panel := fs.String("panel", "", "panel URL")
-		token := fs.String("token", "", "one-time install token")
+		token := fs.String("token", "", "one-time install token (or VPSAGENT_TOKEN env)")
 		mode := fs.String("mode", "probe", "probe | node")
 		_ = fs.Parse(os.Args[2:])
-		creds, err := agent.Register(*panel, *token, *mode)
+		tok := *token
+		if tok == "" {
+			tok = os.Getenv("VPSAGENT_TOKEN")
+		}
+		creds, err := agent.Register(*panel, tok, *mode)
 		if err != nil {
 			log.Fatalf("注册失败：%v", err)
 		}

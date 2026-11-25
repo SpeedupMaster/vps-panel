@@ -9,7 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -105,13 +107,77 @@ func LatestVersion(ctx context.Context) (string, error) {
 // Source describes where to download a release from. BaseURL defaults to
 // GitHub; the panel may pass its own relay (".../dl/xray/v25.1.1/").
 type Source struct {
-	Version string
-	BaseURL string
+	Version          string
+	BaseURL          string
+	AllowedPanelURLs []string
+}
+
+func hostWithDefaultPort(u *url.URL) string {
+	h := strings.ToLower(u.Hostname())
+	p := u.Port()
+	if p == "" {
+		switch strings.ToLower(u.Scheme) {
+		case "https":
+			p = "443"
+		case "http":
+			p = "80"
+		}
+	}
+	return net.JoinHostPort(h, p)
+}
+
+func hasPathTraversal(p string) bool {
+	for _, seg := range strings.Split(p, "/") {
+		if seg == ".." {
+			return true
+		}
+	}
+	return strings.Contains(p, `\`)
+}
+
+// Validate checks that BaseURL (when set) points only to the official
+// XTLS/Xray-core GitHub repository over HTTPS or one of the agent's configured
+// panel URLs.
+func (s Source) Validate() error {
+	if s.Version != "" && (strings.ContainsAny(s.Version, `/\?# `) || strings.Contains(s.Version, "..")) {
+		return fmt.Errorf("非法的 Xray 版本号：%q", s.Version)
+	}
+	base := strings.TrimSpace(s.BaseURL)
+	if base == "" {
+		return nil
+	}
+	u, err := url.Parse(base)
+	if err != nil || u.Host == "" || u.User != nil || hasPathTraversal(u.Path) {
+		return fmt.Errorf("不允许的 Xray 下载地址：%s", s.BaseURL)
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme == "https" && strings.EqualFold(u.Hostname(), "github.com") && (u.Port() == "" || u.Port() == "443") &&
+		strings.HasPrefix(u.Path, "/XTLS/Xray-core/") {
+		return nil
+	}
+	if scheme != "http" && scheme != "https" {
+		return fmt.Errorf("不允许的 Xray 下载地址：%s", s.BaseURL)
+	}
+	uHost := hostWithDefaultPort(u)
+	for _, p := range s.AllowedPanelURLs {
+		pu, perr := url.Parse(strings.TrimSpace(p))
+		if perr != nil || pu.Host == "" {
+			continue
+		}
+		if !strings.EqualFold(pu.Scheme, scheme) || hostWithDefaultPort(pu) != uHost {
+			continue
+		}
+		prefix := strings.TrimRight(pu.Path, "/")
+		if prefix == "" || u.Path == prefix || strings.HasPrefix(u.Path, prefix+"/") {
+			return nil
+		}
+	}
+	return fmt.Errorf("不允许的 Xray 下载地址：%s", s.BaseURL)
 }
 
 func (s Source) url(file string) string {
 	if s.BaseURL != "" {
-		return strings.TrimSuffix(s.BaseURL, "/") + "/" + file
+		return strings.TrimSuffix(strings.TrimSpace(s.BaseURL), "/") + "/" + file
 	}
 	return fmt.Sprintf("https://github.com/XTLS/Xray-core/releases/download/v%s/%s", s.Version, file)
 }
@@ -119,6 +185,9 @@ func (s Source) url(file string) string {
 // download streams the release zip to a temporary file and verifies it against
 // its .dgst file before opening the archive from disk.
 func download(ctx context.Context, src Source, out func(string)) (*zip.ReadCloser, func(), error) {
+	if err := src.Validate(); err != nil {
+		return nil, nil, err
+	}
 	name := assetName()
 	out("下载 " + src.url(name) + "\n")
 	f, err := os.CreateTemp("", "xray-*.zip")
@@ -197,6 +266,9 @@ func extract(zr *zip.Reader, name, dst string, mode os.FileMode) error {
 func (m *Manager) Install(ctx context.Context, src Source, out func(string)) error {
 	m.busy.Lock()
 	defer m.busy.Unlock()
+	if err := src.Validate(); err != nil {
+		return err
+	}
 	if src.Version == "" || src.Version == "latest" {
 		v, err := LatestVersion(ctx)
 		if err != nil {
@@ -244,6 +316,9 @@ func (m *Manager) Install(ctx context.Context, src Source, out func(string)) err
 func (m *Manager) Update(ctx context.Context, src Source, out func(string)) error {
 	m.busy.Lock()
 	defer m.busy.Unlock()
+	if err := src.Validate(); err != nil {
+		return err
+	}
 	if _, err := os.Stat(Bin); err != nil {
 		return errors.New("Xray 未安装")
 	}
@@ -348,12 +423,16 @@ func (m *Manager) UpdateGeo(ctx context.Context, source string, out func(string)
 			restore()
 			return err
 		}
-		if sumFile, err := fetch(ctx, u+".sha256sum", 4096); err == nil {
-			if f := strings.Fields(string(sumFile)); len(f) == 0 || !strings.EqualFold(f[0], sumHex) {
-				_ = os.Remove(tmp)
-				restore()
-				return fmt.Errorf("%s 校验失败", names[i])
-			}
+		sumFile, err := fetch(ctx, u+".sha256sum", 4096)
+		if err != nil {
+			_ = os.Remove(tmp)
+			restore()
+			return fmt.Errorf("下载 %s 校验文件失败：%w", names[i], err)
+		}
+		if f := strings.Fields(string(sumFile)); len(f) == 0 || !strings.EqualFold(f[0], sumHex) {
+			_ = os.Remove(tmp)
+			restore()
+			return fmt.Errorf("%s 校验失败", names[i])
 		}
 		_ = os.Rename(dst, dst+".bak")
 		backups = append(backups, dst)
@@ -368,13 +447,16 @@ func (m *Manager) UpdateGeo(ctx context.Context, source string, out func(string)
 		restore()
 		return fmt.Errorf("新规则文件校验失败，已还原：%s", lastLines(s, 5))
 	}
-	if ServiceActive() {
+	if serviceActive() {
 		if err := RestartService(ctx); err != nil || !waitActive(ctx, 5*time.Second) {
 			detail := startErrDetail(ctx, err)
 			restore()
 			_ = RestartService(ctx)
 			return fmt.Errorf("重启失败，已还原规则文件：%s", detail)
 		}
+	}
+	for _, b := range backups {
+		_ = os.Remove(b + ".bak")
 	}
 	out("规则文件已更新\n")
 	return nil

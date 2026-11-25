@@ -28,6 +28,19 @@ var (
 	ConfDir  = "/usr/local/etc/xray"
 	AssetDir = "/usr/local/share/xray"
 	APIAddr  = "127.0.0.1:10085"
+
+	// Overridable in unit tests.
+	firewallApply = firewall.Apply
+	serviceActive = ServiceActive
+	runXrayAPI    = func(ctx context.Context, args ...string) ([]byte, error) {
+		return exec.CommandContext(ctx, Bin, args...).CombinedOutput()
+	}
+	testXrayConfig = func(ctx context.Context, bin, path string) (string, error) {
+		cmd := exec.CommandContext(ctx, bin, "run", "-test", "-c", path)
+		cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+AssetDir)
+		b, err := cmd.CombinedOutput()
+		return string(b), err
+	}
 )
 
 func confPath() string { return filepath.Join(ConfDir, "config.json") }
@@ -175,10 +188,41 @@ func parseStats(out []byte) []proto.TrafficItem {
 }
 
 func (m *Manager) test(ctx context.Context, bin, path string) (string, error) {
-	cmd := exec.CommandContext(ctx, bin, "run", "-test", "-c", path)
-	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+AssetDir)
-	b, err := cmd.CombinedOutput()
-	return string(b), err
+	return testXrayConfig(ctx, bin, path)
+}
+
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(dir, ".config-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmp)
+		}
+	}()
+	if err := f.Chmod(mode); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
 }
 
 // Apply validates and installs a full config, restarting Xray and rolling
@@ -186,18 +230,22 @@ func (m *Manager) test(ctx context.Context, bin, path string) (string, error) {
 func (m *Manager) Apply(ctx context.Context, ac *proto.ApplyConfig, out func(string)) error {
 	m.busy.Lock()
 	defer m.busy.Unlock()
+	return m.applyLocked(ctx, ac, out)
+}
+
+func (m *Manager) applyLocked(ctx context.Context, ac *proto.ApplyConfig, out func(string)) error {
 	if _, err := os.Stat(Bin); err != nil {
 		return errors.New("Xray 未安装")
 	}
 	if ac.Firewall != nil {
-		if err := firewall.Apply(ac.Firewall.Port, ac.Firewall.Allowed); err != nil {
+		if err := firewallApply(ac.Firewall.Port, ac.Firewall.Allowed); err != nil {
 			out("防火墙白名单失败：" + err.Error() + "\n")
+			return fmt.Errorf("防火墙白名单应用失败：%w", err)
+		}
+		if ac.Firewall.Port == 0 {
+			out("防火墙：未启用落地白名单\n")
 		} else {
-			if ac.Firewall.Port == 0 {
-				out("防火墙：未启用落地白名单\n")
-			} else {
-				out(fmt.Sprintf("防火墙：端口 %d 仅允许 %d 个入口 IP\n", ac.Firewall.Port, len(ac.Firewall.Allowed)))
-			}
+			out(fmt.Sprintf("防火墙：端口 %d 仅允许 %d 个入口 IP\n", ac.Firewall.Port, len(ac.Firewall.Allowed)))
 		}
 	}
 	if len(ac.Config) == 0 {
@@ -205,7 +253,7 @@ func (m *Manager) Apply(ctx context.Context, ac *proto.ApplyConfig, out func(str
 	}
 	cfg := pretty(ac.Config)
 	cur, _ := os.ReadFile(confPath())
-	if bytes.Equal(cur, cfg) && ServiceActive() && !ac.Restart {
+	if bytes.Equal(cur, cfg) && serviceActive() && !ac.Restart {
 		out("配置未变化\n")
 		m.saveState(hashBytes(cfg), ac.Version)
 		return nil
@@ -237,7 +285,7 @@ func (m *Manager) Apply(ctx context.Context, ac *proto.ApplyConfig, out func(str
 		out("Xray 启动失败，回滚到上一份配置\n")
 		detail := startErrDetail(ctx, err)
 		if len(cur) > 0 {
-			_ = os.WriteFile(confPath(), cur, 0o600)
+			_ = writeFileAtomic(confPath(), cur, 0o600)
 			_ = RestartService(ctx)
 		}
 		return fmt.Errorf("新配置启动失败，已回滚：%s", detail)
@@ -251,19 +299,19 @@ func (m *Manager) Apply(ctx context.Context, ac *proto.ApplyConfig, out func(str
 // so a later restart keeps the change. If the API call fails it falls back to
 // a full apply with restart.
 func (m *Manager) Op(ctx context.Context, op *proto.XrayOp, out func(string)) error {
+	m.busy.Lock()
+	defer m.busy.Unlock()
 	err := m.hot(ctx, op)
 	if err != nil {
 		out("热更新失败（" + err.Error() + "），改为重启应用\n")
 		if len(op.FullConfig) == 0 {
 			return err
 		}
-		return m.Apply(ctx, &proto.ApplyConfig{Version: op.Version, Config: op.FullConfig, Restart: true}, out)
+		return m.applyLocked(ctx, &proto.ApplyConfig{Version: op.Version, Config: op.FullConfig, Restart: true}, out)
 	}
-	m.busy.Lock()
-	defer m.busy.Unlock()
 	if len(op.FullConfig) > 0 {
 		cfg := pretty(op.FullConfig)
-		if err := os.WriteFile(confPath(), cfg, 0o600); err != nil {
+		if err := writeFileAtomic(confPath(), cfg, 0o600); err != nil {
 			return err
 		}
 		m.saveState(hashBytes(cfg), op.Version)
@@ -276,17 +324,19 @@ func (m *Manager) hot(ctx context.Context, op *proto.XrayOp) error {
 	if op.User == nil {
 		return errors.New("缺少用户")
 	}
-	if !ServiceActive() {
+	if !serviceActive() {
 		return errors.New("Xray 未运行")
 	}
 	switch op.Op {
 	case "remove_user":
-		if len(op.Rule) > 0 {
-			_ = exec.CommandContext(ctx, Bin, "api", "rmrules", "--server="+APIAddr, op.User.Email).Run()
-		}
-		b, err := exec.CommandContext(ctx, Bin, "api", "rmu", "--server="+APIAddr, "-tag="+op.Tag, op.User.Email).CombinedOutput()
+		// Remove user BEFORE routing rule so the user cannot transiently fall
+		// through to direct egress while still connected.
+		b, err := runXrayAPI(ctx, "api", "rmu", "--server="+APIAddr, "-tag="+op.Tag, op.User.Email)
 		if err != nil {
 			return cmdErr(err, b)
+		}
+		if len(op.Rule) > 0 {
+			_, _ = runXrayAPI(ctx, "api", "rmrules", "--server="+APIAddr, op.User.Email)
 		}
 		return nil
 	case "add_user":
@@ -301,7 +351,7 @@ func (m *Manager) hot(ctx context.Context, op *proto.XrayOp) error {
 		defer os.Remove(f.Name())
 		_, _ = f.Write(in)
 		f.Close()
-		b, err := exec.CommandContext(ctx, Bin, "api", "adu", "--server="+APIAddr, f.Name()).CombinedOutput()
+		b, err := runXrayAPI(ctx, "api", "adu", "--server="+APIAddr, f.Name())
 		if err != nil || !aduAdded(string(b)) {
 			return cmdErr(err, b)
 		}
@@ -313,10 +363,10 @@ func (m *Manager) hot(ctx context.Context, op *proto.XrayOp) error {
 			defer os.Remove(rf.Name())
 			fmt.Fprintf(rf, `{"routing":{"rules":[%s]}}`, op.Rule)
 			rf.Close()
-			b, err := exec.CommandContext(ctx, Bin, "api", "adrules", "--server="+APIAddr, "-append", rf.Name()).CombinedOutput()
+			b, err := runXrayAPI(ctx, "api", "adrules", "--server="+APIAddr, "-append", rf.Name())
 			if err != nil || strings.Contains(string(b), "failed") {
 				// Undo the user so the fallback restart starts clean.
-				_ = exec.CommandContext(ctx, Bin, "api", "rmu", "--server="+APIAddr, "-tag="+op.Tag, op.User.Email).Run()
+				_, _ = runXrayAPI(ctx, "api", "rmu", "--server="+APIAddr, "-tag="+op.Tag, op.User.Email)
 				return fmt.Errorf("添加路由规则失败：%v %s", err, strings.TrimSpace(string(b)))
 			}
 		}

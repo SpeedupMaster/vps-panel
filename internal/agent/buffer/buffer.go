@@ -81,11 +81,30 @@ func (b *Buffer) Ack(seq uint64) {
 	_ = b.db.Update(func(tx *bolt.Tx) error {
 		bk := tx.Bucket(bTraffic)
 		c := bk.Cursor()
-		for k, _ := c.First(); k != nil && binary.BigEndian.Uint64(k) <= seq; k, _ = c.Next() {
-			_ = c.Delete()
+		for {
+			k, _ := c.First()
+			if k == nil || binary.BigEndian.Uint64(k) > seq {
+				break
+			}
+			if err := c.Delete(); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
+}
+
+// Count returns the number of unacknowledged traffic deltas in the buffer.
+func (b *Buffer) Count() int {
+	n := 0
+	_ = b.db.View(func(tx *bolt.Tx) error {
+		c := tx.Bucket(bTraffic).Cursor()
+		for k, _ := c.First(); k != nil; k, _ = c.Next() {
+			n++
+		}
+		return nil
+	})
+	return n
 }
 
 // Pending returns unacknowledged deltas in order.
