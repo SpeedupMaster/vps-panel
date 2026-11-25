@@ -6,12 +6,13 @@ import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { NButton } from 'naive-ui'
 import { loadMe } from '../store'
+import { isSafeNextPath } from '../helpers'
 
 const route = useRoute()
 const router = useRouter()
 const busy = ref(false)
 const err = ref('')
-const next = () => (typeof route.query.next === 'string' && route.query.next.startsWith('/') && !route.query.next.startsWith('//') && !route.query.next.startsWith('/\\') ? route.query.next : '/')
+const next = () => (isSafeNextPath(route.query.next) ? route.query.next : '/')
 
 async function retry() {
   if (busy.value) return

@@ -58,16 +58,9 @@ export function flag(cc) {
   if (!cc || cc.length !== 2) return '🏳'
   return String.fromCodePoint(...[...cc.toUpperCase()].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65))
 }
-export const roleLabel = { probe: '仅探针', entry: '入口 · Reality', landing: '落地 · SS2022' }
 export const sevLabel = { critical: '严重', warning: '警告', info: '提醒', recovery: '恢复' }
 export const sevClass = { critical: 'bad', warning: 'warn', info: 'info' }
 export const carrierLabel = { telecom: '电信', unicom: '联通', mobile: '移动' }
-export function maskIP(ip) {
-  if (!ip) return '—'
-  if (ip.includes(':')) return ip.split(':').slice(0, 2).join(':') + ':****'
-  const p = ip.split('.')
-  return p.length === 4 ? `${p[0]}.**.**.${p[3]}` : ip
-}
 export async function copy(text) {
   try { await navigator.clipboard.writeText(text); return true } catch { /* insecure context: fall back */ }
   const ta = document.createElement('textarea')

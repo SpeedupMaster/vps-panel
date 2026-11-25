@@ -11,7 +11,7 @@
   --c-bg: #f7f8fa;
   --c-danger: #b4233a;
   --c-danger-soft: #fbe7ea;
-  --c-warning: #a35a08;
+  --c-warning: #9a5306;
   --c-warning-soft: #fdf1e2;
   --c-info: #2f6fd0;
   --font: Inter, 'Noto Sans SC', system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
@@ -92,8 +92,9 @@ table.plain tr:last-child td { border-bottom: none; }
 @media (hover: none) { .n-button { min-height: 32px; } }
 /* Installed app (standalone): no rubber-band on the shell */
 @media (display-mode: standalone) { html, body { overscroll-behavior-y: none; } }
-.offline-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(68px + var(--safe-bottom)); z-index: 30; background: #3d4248; color: #fff; font-size: 13px; padding: 8px 14px; border-radius: 18px; box-shadow: 0 4px 14px rgba(0, 0, 0, .18); white-space: nowrap; }
-@media (min-width: 768px) { .offline-bar { bottom: 20px; } }
+.offline-bar { position: fixed; left: 50%; transform: translateX(-50%); top: calc(58px + var(--safe-top)); z-index: 30; background: #3d4248; color: #fff; font-size: 13px; padding: 8px 14px; border-radius: 18px; box-shadow: 0 4px 14px rgba(0, 0, 0, .18); white-space: nowrap; max-width: calc(100vw - 24px); overflow: hidden; text-overflow: ellipsis; }
+@media (min-width: 768px) { .offline-bar { top: auto; bottom: 20px; } }
+[tabindex="0"]:focus-visible { outline: 2px solid var(--c-primary); outline-offset: 2px; }
 /* ---- Page header with a one-line description ---- */
 .page-head .ph { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .page-desc { margin: 0; color: var(--c-muted); font-size: 13px; line-height: 1.6; }

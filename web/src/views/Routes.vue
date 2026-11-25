@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { NButton, NSelect, NSwitch, NDropdown } from 'naive-ui'
 import { api } from '../api'
 import { state, loadServers, on, ui } from '../store'
-import { run, ask } from '../helpers'
+import { run, ask, idsCsv, rotateAllKeys } from '../helpers'
 import { bytes, flag, copy } from '../format'
 import QrModal from '../components/QrModal.vue'
 
@@ -41,7 +41,7 @@ const stClass = { ok: 'ok', degraded: 'warn', down: 'bad', disabled: '' }
 function input(r, patch = {}) {
   return {
     name: r.name, type: r.type, entry_server_id: r.entry_server_id, landing_server_id: r.landing_server_id,
-    backup_ids: String(r.backup_ids || '').split(',').map(Number).filter(Boolean), enabled: r.enabled, in_sub: r.in_sub, sort: r.sort, tags: r.tags, ...patch,
+    backup_ids: idsCsv(r.backup_ids), enabled: r.enabled, in_sub: r.in_sub, sort: r.sort, tags: r.tags, ...patch,
   }
 }
 async function setSub(r, v) {
@@ -100,8 +100,7 @@ async function rotateAll() {
   if (rotating.value) return
   rotating.value = true
   try {
-    if (!(await ask('一键轮换密钥', '会重新生成所有线路 UUID、Reality 密钥与 SS2022 密钥并下发（订阅链接本身不变）。所有客户端都要刷新订阅后才能继续使用。', { danger: true, okText: '继续' }))) return
-    if (await run(() => api.post('/sub/rotate-all', {}, { confirm: '轮换全部密钥需要确认身份' }), '已轮换，配置正在下发')) load()
+    if (await rotateAllKeys({ title: '一键轮换密钥', confirm: '轮换全部密钥需要确认身份' })) load()
   } finally {
     rotating.value = false
   }

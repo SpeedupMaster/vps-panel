@@ -32,6 +32,7 @@ function diagList(it) {
   })
   return { head, items }
 }
+const diagRows = computed(() => arr.value.map((it) => ({ it, list: diagList(it) })))
 const msClass = (v) => (v == null ? 'bad' : v >= 250 ? 'warn' : 'ok')
 
 // ---------- unlock ----------
@@ -60,6 +61,10 @@ const hopTags = [
   [/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/, '内网', ''],
 ]
 const hopTag = (ip) => hopTags.find(([re]) => re.test(ip))
+const traceRows = computed(() => arr.value.map((t) => ({
+  ...t,
+  taggedHops: (t.hops || []).map((h) => ({ ip: h, tag: hopTag(h) })),
+})))
 
 // ---------- reality ----------
 const realitySorted = computed(() => [...arr.value].sort((a, b) => (b.ok - a.ok) || (a.handshake_ms || 1e9) - (b.handshake_ms || 1e9)))
@@ -92,13 +97,13 @@ function sysctlHint(k, v) {
       <span v-if="diagCount.fail" class="tag bad">{{ diagCount.fail }} 项异常</span>
     </div>
     <div class="diag">
-      <div v-for="(it, i) in d" :key="i" class="d-row">
+      <div v-for="({ it, list }, i) in diagRows" :key="i" class="d-row">
         <span :class="['dot', lvl[it.level] || 'off']" :title="lvlText[it.level]" />
         <b class="d-name">{{ it.name }}</b>
-        <div v-if="diagList(it)" class="d-detail">
-          <div v-if="diagList(it).head" :class="['small', it.level === 'fail' ? 'bad-text' : 'warn-text']">{{ diagList(it).head }}</div>
+        <div v-if="list" class="d-detail">
+          <div v-if="list.head" :class="['small', it.level === 'fail' ? 'bad-text' : 'warn-text']">{{ list.head }}</div>
           <div class="chips">
-            <span v-for="p in diagList(it).items" :key="p.name" :class="['chip', msClass(p.ms)]">{{ p.name }} <b class="mono">{{ p.ms == null ? '超时' : p.ms + ' ms' }}</b></span>
+            <span v-for="p in list.items" :key="p.name" :class="['chip', msClass(p.ms)]">{{ p.name }} <b class="mono">{{ p.ms == null ? '超时' : p.ms + ' ms' }}</b></span>
           </div>
         </div>
         <span v-else :class="['d-detail', it.level === 'fail' ? 'bad-text' : it.level === 'warn' ? 'warn-text' : '']">{{ it.detail }}</span>
@@ -158,7 +163,7 @@ function sysctlHint(k, v) {
 
   <!-- 回程路由 -->
   <div v-else-if="tool === 'trace' && Array.isArray(d)" class="traces">
-    <div v-for="(t, i) in d" :key="i" class="trace">
+    <div v-for="(t, i) in traceRows" :key="i" class="trace">
       <div class="t-head">
         <b>{{ carrier[t.carrier] || t.carrier }}</b>
         <span :class="['tag', (lineGrade[t.line] || [])[0]]">{{ t.line || '未知线路' }}</span>
@@ -166,11 +171,11 @@ function sysctlHint(k, v) {
       </div>
       <div class="small muted mono t-target" :title="t.target">{{ t.target }}</div>
       <ol class="hops">
-        <li v-for="(h, j) in t.hops || []" :key="j">
-          <span class="h-no">{{ j + 1 }}</span><span class="mono">{{ h }}</span>
-          <span v-if="hopTag(h)" :class="['tag', 'h-tag', hopTag(h)[2]]">{{ hopTag(h)[1] }}</span>
+        <li v-for="(h, j) in t.taggedHops" :key="j">
+          <span class="h-no">{{ j + 1 }}</span><span class="mono">{{ h.ip }}</span>
+          <span v-if="h.tag" :class="['tag', 'h-tag', h.tag[2]]">{{ h.tag[1] }}</span>
         </li>
-        <li v-if="!t.hops?.length" class="muted small">没有响应的节点</li>
+        <li v-if="!t.taggedHops.length" class="muted small">没有响应的节点</li>
       </ol>
     </div>
   </div>

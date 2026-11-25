@@ -3,8 +3,8 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { NButton, NInput, NSteps, NStep, NSwitch } from 'naive-ui'
 import { api } from '../api'
-import { state, loadServers, ui } from '../store'
-import { run } from '../helpers'
+import { state, loadServers, serverName, ui } from '../store'
+import { run, idsCsv } from '../helpers'
 import { flag, copy } from '../format'
 import { isMobile } from '../mobile'
 import QrModal from '../components/QrModal.vue'
@@ -34,7 +34,7 @@ onMounted(async () => {
   if (editId.value) {
     const r = allRoutes.value.find((x) => x.id === editId.value)
     if (!r) { ui.message.error('线路不存在'); router.replace({ name: 'routes' }); return }
-    form.value = { entry_server_id: r.entry_server_id, type: r.type, landing_server_id: r.landing_server_id, backup_ids: String(r.backup_ids || '').split(',').map(Number).filter(Boolean), name: r.name, tags: r.tags, in_sub: r.in_sub, enabled: r.enabled, sort: r.sort }
+    form.value = { entry_server_id: r.entry_server_id, type: r.type, landing_server_id: r.landing_server_id, backup_ids: idsCsv(r.backup_ids), name: r.name, tags: r.tags, in_sub: r.in_sub, enabled: r.enabled, sort: r.sort }
     nameTouched.value = true
   } else if (route.query.entry) {
     form.value.entry_server_id = Number(route.query.entry)
@@ -95,7 +95,7 @@ const changes = computed(() => {
   if (form.value.type === 'chain' && landingSv.value) {
     out.push(`${e}：新增 / 复用出站 → ${landingSv.value.name}（SS2022），按用户路由`)
     out.push(`${landingSv.value.name}：新增入口用户（若该入口首次使用），防火墙放行 ${e} 的 IP`)
-    if (form.value.backup_ids.length) out.push(`${e}：备用落地 ${form.value.backup_ids.map((b) => state.servers.find((s) => s.id === b)?.name).join('、')}，由 Observatory 探活自动切换`)
+    if (form.value.backup_ids.length) out.push(`${e}：备用落地 ${form.value.backup_ids.map(serverName).join('、')}，由 Observatory 探活自动切换`)
   } else {
     out.push(`${e}：该用户直接出站（freedom）`)
   }
@@ -280,7 +280,7 @@ async function copyLink() { if (view.value?.share_link && (await copy(view.value
             </div>
             <div v-if="form.type === 'chain' && form.backup_ids.length" class="field f-inline">
               <div class="f-label"><span class="f-name">备用落地</span></div>
-              <div class="f-ctl"><span class="f-val">{{ form.backup_ids.map((id) => state.servers.find((x) => x.id === id)?.name).filter(Boolean).join('、') }}</span></div>
+              <div class="f-ctl"><span class="f-val">{{ form.backup_ids.map(serverName).join('、') }}</span></div>
             </div>
             <div class="field f-inline">
               <div class="f-label"><span class="f-name">估算延迟</span><span class="f-hint">入口回程{{ form.type === 'chain' ? ' + 线路段' : '' }}</span></div>

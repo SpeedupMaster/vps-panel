@@ -2,8 +2,48 @@
 import { reactive } from 'vue'
 import { api } from './api'
 
+/**
+ * @typedef {Object} AdminInfo
+ * @property {string} username
+ * @property {boolean} totp
+ * @property {number} [recovery_left]
+ * @property {string} [password_at]
+ */
+
+/**
+ * @typedef {Object} ServerSummary
+ * @property {number} id
+ * @property {string} name
+ * @property {string} mode
+ * @property {string} status
+ * @property {boolean} online
+ * @property {boolean} blocked
+ * @property {boolean} cap_reality
+ * @property {boolean} cap_landing
+ * @property {string} [group]
+ * @property {string} [region]
+ * @property {string} [country_code]
+ * @property {string} [ipv4]
+ * @property {string} [ipv6]
+ * @property {Record<string, any>} [system]
+ * @property {Record<string, any>} [switches]
+ * @property {Record<string, any>} [latest]
+ * @property {Record<string, any>} [usage]
+ */
+
+/**
+ * @typedef {Object} AppState
+ * @property {AdminInfo | null} me
+ * @property {ServerSummary[]} servers
+ * @property {boolean} serversLoaded
+ * @property {number} alertsFiring
+ * @property {boolean} live
+ */
+
+/** @type {{ message: any, dialog: any, notification: any }} */
 export const ui = { message: null, dialog: null, notification: null }
 
+/** @type {AppState} */
 export const state = reactive({
   me: null,
   servers: [],
@@ -12,21 +52,25 @@ export const state = reactive({
   live: false,
 })
 
+/** @returns {Promise<AdminInfo>} */
 export async function loadMe() {
   state.me = await api.get('/auth/me')
   return state.me
 }
 
+/** @returns {Promise<ServerSummary[]>} */
 export async function loadServers() {
   state.servers = await api.get('/servers')
   state.serversLoaded = true
   return state.servers
 }
 
+/** @param {number | string} id @returns {string} */
 export function serverName(id) {
-  if (!id) return '—'
-  const s = state.servers.find((x) => x.id === id)
-  return s ? s.name : '#' + id
+  const n = Number(id)
+  if (!n) return '—'
+  const s = state.servers.find((x) => x.id === n)
+  return s ? s.name : '#' + n
 }
 
 export async function refreshAlertCount() {
