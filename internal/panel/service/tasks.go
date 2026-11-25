@@ -119,7 +119,7 @@ func (p *Panel) FlushTaskOutputs() {
 		if it.status != "" {
 			upd["status"] = it.status
 		}
-		p.St.DB.Model(&store.Task{}).Where("id = ?", it.id).Updates(upd)
+		p.St.DB.Model(&store.Task{}).Where("id = ? AND finished_at IS NULL", it.id).Updates(upd)
 	}
 }
 
@@ -127,11 +127,19 @@ func (p *Panel) finishTask(t *store.Task, status, out string) {
 	now := time.Now()
 	p.taskOutMu.Lock()
 	base := t.Output
+	hasBuf := false
 	if b := p.taskOut[t.ID]; b != nil {
 		base = b.buf
+		hasBuf = true
 		delete(p.taskOut, t.ID)
 	}
 	p.taskOutMu.Unlock()
+	if !hasBuf && base == "" && t.ID != 0 {
+		var cur struct{ Output string }
+		if p.St.DB.Model(&store.Task{}).Select("output").Where("id = ?", t.ID).First(&cur).Error == nil {
+			base = cur.Output
+		}
+	}
 	p.St.DB.Model(t).Updates(map[string]any{"status": status, "output": trimTaskOutputTail(base + out), "finished_at": &now})
 	p.mu.Lock()
 	ws := p.waiters[t.ID]
@@ -181,14 +189,15 @@ func (p *Panel) onTaskResult(serverID uint, r *proto.TaskResult) {
 			b.buf = trimTaskOutputTail(b.buf + r.Output)
 			b.dirty = true
 		}
-		flushNow := r.Finished || r.Data != nil || (b.dirty && (b.lastFlush.IsZero() || now.Sub(b.lastFlush) >= time.Second))
-		if flushNow && b.dirty {
+		if r.Finished {
 			upd["output"] = b.buf
 			b.dirty = false
 			b.lastFlush = now
-		}
-		if r.Finished {
 			delete(p.taskOut, r.TaskID)
+		} else if b.dirty && (r.Data != nil || b.lastFlush.IsZero() || now.Sub(b.lastFlush) >= time.Second) {
+			upd["output"] = b.buf
+			b.dirty = false
+			b.lastFlush = now
 		}
 		p.taskOutMu.Unlock()
 	}

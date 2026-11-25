@@ -68,7 +68,10 @@ func (p *Panel) FlushTelemetry() {
 				}
 			}
 			for sid, u := range seen {
-				upd := map[string]any{"last_seen_at": u.lastSeen, "status": "online"}
+				upd := map[string]any{"last_seen_at": u.lastSeen}
+				if p.Hub == nil || p.Hub.Online(sid) {
+					upd["status"] = "online"
+				}
 				if u.hasXray {
 					upd["xray_running"] = u.xrayRunning
 					if u.xrayVersion != "" {

@@ -217,3 +217,53 @@ func TestXrayRelayCacheHitIsLockFreeAndRunIperfUniquePorts(t *testing.T) {
 		t.Fatalf("concurrent RunIperf collided on same port: %s", t1.Args)
 	}
 }
+
+func TestStage2EdgeCasesFlushStatusExpireOutputAndFinishedGuard(t *testing.T) {
+	p := newTestPanel(t)
+	sv := addNode(t, p, "HK-Edge", "HK", "1.1.1.1", true, false)
+
+	// 1. FlushTelemetry must NOT overwrite "suspect" back to "online" when agent is offline.
+	p.St.DB.Model(sv).Update("status", "suspect")
+	p.ingestMetrics(sv.ID, &proto.Metrics{TS: time.Now().Unix(), CPU: 15})
+	p.FlushTelemetry()
+	var afterSV store.Server
+	p.St.R().First(&afterSV, sv.ID)
+	if afterSV.Status != "suspect" {
+		t.Fatalf("FlushTelemetry overwrote disconnected server status to %q, want suspect", afterSV.Status)
+	}
+
+	// 2. ExpireTasks preserves existing persisted output when taskOut has no in-memory entry (post-restart).
+	old := time.Now().Add(-10 * time.Minute)
+	persisted := &store.Task{
+		ID: nextTaskID(), ServerID: sv.ID, Type: proto.TaskDiagnose,
+		Status: "running", Output: "previous output line\n", Timeout: 10, CreatedAt: old,
+	}
+	if err := p.St.DB.Create(persisted).Error; err != nil {
+		t.Fatal(err)
+	}
+	p.ExpireTasks()
+	var expired store.Task
+	p.St.R().First(&expired, persisted.ID)
+	if expired.Status != "timeout" || !strings.HasPrefix(expired.Output, "previous output line\n") || !strings.Contains(expired.Output, "任务超时") {
+		t.Fatalf("ExpireTasks lost pre-restart output: status=%q output=%q", expired.Status, expired.Output)
+	}
+
+	// 3. FlushTaskOutputs must NOT overwrite a task that already has finished_at set.
+	now := time.Now()
+	finTask := &store.Task{
+		ID: nextTaskID(), ServerID: sv.ID, Type: proto.TaskDiagnose,
+		Status: "success", Output: "final complete output", FinishedAt: &now, CreatedAt: now,
+	}
+	if err := p.St.DB.Create(finTask).Error; err != nil {
+		t.Fatal(err)
+	}
+	p.taskOutMu.Lock()
+	p.taskOut[finTask.ID] = &taskOutBuf{serverID: sv.ID, status: "running", buf: "stale chunk", dirty: true}
+	p.taskOutMu.Unlock()
+	p.FlushTaskOutputs()
+	var checked store.Task
+	p.St.R().First(&checked, finTask.ID)
+	if checked.Status != "success" || checked.Output != "final complete output" {
+		t.Fatalf("FlushTaskOutputs overwrote finished task: status=%q output=%q", checked.Status, checked.Output)
+	}
+}
