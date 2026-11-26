@@ -41,12 +41,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pnpm-
 
-      - name: Install, test, and build web
+      - name: Install, build, and test web
         working-directory: web
         run: |
           pnpm install --frozen-lockfile
-          pnpm --if-present test
           pnpm build
+          pnpm --if-present test
 
       - uses: actions/setup-go@v5
         with:

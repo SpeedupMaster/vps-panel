@@ -1,20 +1,21 @@
-import { describe, it } from 'node:test'
+import { before, after, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
-const assetsDir = resolve(import.meta.dirname, '../../internal/panel/webui/dist/assets')
+const webRoot = resolve(import.meta.dirname, '..')
+const defaultAssetsDir = resolve(webRoot, '../internal/panel/webui/dist/assets')
 
-function readBuiltChunks() {
+function readChunksFrom(dir) {
   const chunks = new Map()
-  if (!existsSync(assetsDir)) return chunks
-  for (const entry of readdirSync(assetsDir)) {
+  if (!existsSync(dir)) return chunks
+  for (const entry of readdirSync(dir)) {
     if (!entry.endsWith('.js') && !entry.endsWith('.js.gz')) continue
     const name = entry.replace(/\.gz$/, '')
-    const raw = readFileSync(join(assetsDir, entry))
+    const raw = readFileSync(join(dir, entry))
     const code = entry.endsWith('.gz') ? gunzipSync(raw).toString('utf8') : raw.toString('utf8')
     chunks.set(name, code)
   }
@@ -22,9 +23,30 @@ function readBuiltChunks() {
 }
 
 describe('production bundle chunks', () => {
+  let chunks = new Map()
+  let tempOutDir = ''
+
+  before(async () => {
+    chunks = readChunksFrom(defaultAssetsDir)
+    if (chunks.size === 0) {
+      tempOutDir = join(tmpdir(), `vps-vite-build-${process.pid}-${Date.now()}`)
+      const { build } = await import('vite')
+      await build({
+        root: webRoot,
+        configFile: resolve(webRoot, 'vite.config.js'),
+        logLevel: 'silent',
+        build: { outDir: tempOutDir, emptyOutDir: true },
+      })
+      chunks = readChunksFrom(join(tempOutDir, 'assets'))
+    }
+  })
+
+  after(() => {
+    if (tempOutDir) rmSync(tempOutDir, { recursive: true, force: true })
+  })
+
   it('contains no circular static imports across built JS chunks', () => {
-    const chunks = readBuiltChunks()
-    assert.ok(chunks.size > 0, 'expected built JS chunks in internal/panel/webui/dist/assets')
+    assert.ok(chunks.size > 0, 'expected built JS chunks')
 
     const graph = new Map()
     for (const [name, code] of chunks) {
@@ -56,7 +78,6 @@ describe('production bundle chunks', () => {
   })
 
   it('evaluates Chart and charts chunks cleanly without TDZ or helper initialization errors', async () => {
-    const chunks = readBuiltChunks()
     const chartChunk = [...chunks.keys()].find((k) => /^Chart-.*\.js$/.test(k))
     assert.ok(chartChunk, 'expected Chart-*.js chunk in built assets')
 
