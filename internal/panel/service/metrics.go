@@ -146,6 +146,7 @@ func (p *Panel) Downsample() {
 	db.Exec("DELETE FROM metrics_raw WHERE ts < ?", now-int64(rawDays)*86400)
 	db.Exec("DELETE FROM metrics_1m WHERE ts < ?", now-int64(minDays)*86400)
 	db.Exec("DELETE FROM metrics_1h WHERE ts < ?", now-int64(hourDays)*86400)
+	p.St.ShrinkMemory()
 }
 
 // MetricSeries picks a resolution that fits the range.

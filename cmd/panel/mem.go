@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	defaultPanelMemLimit int64 = 128 << 20
+	defaultPanelMemLimit int64 = 64 << 20
 	// cgroup v1 reports ~2^63-4096 when unlimited; anything above 1 TiB is treated as uncapped.
 	maxReasonableCgroupLimit int64 = 1 << 40
 )

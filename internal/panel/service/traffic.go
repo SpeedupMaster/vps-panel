@@ -153,7 +153,8 @@ func (p *Panel) CycleUsage(sv *store.Server) Usage {
 	return buildUsage(sv, up, down, start, end, now)
 }
 
-// CycleUsageMap computes CycleUsage for a batch of servers in a single SQL query.
+// CycleUsageMap computes CycleUsage for a batch of servers using SQL SUM
+// aggregation grouped by billing-cycle start hour instead of loading raw rows.
 func (p *Panel) CycleUsageMap(svs []store.Server) map[uint]Usage {
 	out := make(map[uint]Usage, len(svs))
 	if len(svs) == 0 {
@@ -162,9 +163,7 @@ func (p *Panel) CycleUsageMap(svs []store.Server) map[uint]Usage {
 	now := time.Now()
 	starts := make(map[uint]time.Time, len(svs))
 	ends := make(map[uint]time.Time, len(svs))
-	startHours := make(map[string]int64, len(svs))
-	sids := make([]string, 0, len(svs))
-	var minHour int64
+	byStartHour := map[int64][]string{}
 	for i := range svs {
 		sv := &svs[i]
 		start := CycleStart(sv.ResetDay, now)
@@ -173,23 +172,12 @@ func (p *Panel) CycleUsageMap(svs []store.Server) map[uint]Usage {
 		sid := strconv.FormatUint(uint64(sv.ID), 10)
 		starts[sv.ID] = start
 		ends[sv.ID] = end
-		startHours[sid] = sh
-		sids = append(sids, sid)
-		if i == 0 || sh < minHour {
-			minHour = sh
-		}
+		byStartHour[sh] = append(byStartHour[sh], sid)
 	}
-	var rows []store.TrafficHourly
-	p.St.R().Select("scope_id, hour, up, down").
-		Where("scope = ? AND scope_id IN ? AND hour >= ?", "server", sids, minHour).
-		Find(&rows)
 	totals := make(map[string][2]uint64, len(svs))
-	for _, r := range rows {
-		if r.Hour >= startHours[r.ScopeID] {
-			cur := totals[r.ScopeID]
-			cur[0] += r.Up
-			cur[1] += r.Down
-			totals[r.ScopeID] = cur
+	for sh, sids := range byStartHour {
+		for sid, pair := range p.SumMany("server", sids, time.Unix(sh, 0)) {
+			totals[sid] = pair
 		}
 	}
 	for i := range svs {

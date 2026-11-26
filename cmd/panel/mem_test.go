@@ -13,9 +13,9 @@ func TestParseAndComputeMemoryLimit(t *testing.T) {
 		t.Fatalf("256MiB = (%d, %v), want (%d, true)", n, ok, 256<<20)
 	}
 
-	// Uncapped host defaults to 128 MiB.
-	if got := computeMemoryLimit(0, false); got != 128<<20 {
-		t.Fatalf("uncapped limit = %d, want %d", got, 128<<20)
+	// Uncapped host defaults to 64 MiB so Go heap stays compact on small VPSes.
+	if got := computeMemoryLimit(0, false); got != 64<<20 {
+		t.Fatalf("uncapped limit = %d, want %d", got, 64<<20)
 	}
 	// 256 MiB container -> 80% (~204.8 MiB).
 	if got := computeMemoryLimit(256<<20, true); got != (256<<20)*4/5 {

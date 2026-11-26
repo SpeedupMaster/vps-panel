@@ -56,4 +56,5 @@ func (p *Panel) Cleanup() {
 	db.Exec("DELETE FROM traffic_hourly WHERE hour < ?", now.AddDate(0, 0, -trafficDays).Unix())
 	db.Exec("DELETE FROM tool_results WHERE ts < ?", now.AddDate(0, 0, -toolDays))
 	db.Exec("PRAGMA wal_checkpoint(PASSIVE)")
+	p.St.ShrinkMemory()
 }

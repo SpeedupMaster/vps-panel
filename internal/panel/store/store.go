@@ -34,7 +34,7 @@ func Open(dataDir string) (*Store, error) {
 	}
 	path := filepath.Join(dataDir, "panel.db")
 	gormCfg := &gorm.Config{Logger: logger.New(log.New(os.Stderr, "", log.LstdFlags), logger.Config{SlowThreshold: time.Second, LogLevel: logger.Warn, IgnoreRecordNotFoundError: true})}
-	writeDSN := path + "?_txlock=immediate&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)&_pragma=cache_size(-8000)&_pragma=temp_store(FILE)&_pragma=journal_size_limit(8388608)"
+	writeDSN := path + "?_txlock=immediate&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)&_pragma=cache_size(-2000)&_pragma=temp_store(FILE)&_pragma=journal_size_limit(8388608)"
 	db, err := gorm.Open(sqlite.Open(writeDSN), gormCfg)
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
@@ -45,19 +45,17 @@ func Open(dataDir string) (*Store, error) {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	readDSN := path + "?_pragma=query_only(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=cache_size(-8000)&_pragma=temp_store(MEMORY)"
+	readDSN := path + "?_pragma=query_only(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=cache_size(-1000)&_pragma=temp_store(FILE)"
 	readDB, err := gorm.Open(sqlite.Open(readDSN), gormCfg)
 	if err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("open read db: %w", err)
 	}
-	readConns := runtime.NumCPU()
-	if readConns < 4 {
-		readConns = 4
-	}
+	readConns := min(max(runtime.NumCPU(), 2), 4)
 	readSQLDB, _ := readDB.DB()
 	readSQLDB.SetMaxOpenConns(readConns)
-	readSQLDB.SetMaxIdleConns(readConns)
+	readSQLDB.SetMaxIdleConns(1)
+	readSQLDB.SetConnMaxIdleTime(30 * time.Second)
 
 	st := &Store{DB: db, ReadDB: readDB, Path: path, cache: map[string]string{}}
 	var all []Setting
@@ -74,6 +72,16 @@ func (s *Store) R() *gorm.DB {
 		return s.ReadDB
 	}
 	return s.DB
+}
+
+// ShrinkMemory asks SQLite to release non-essential page-cache memory.
+func (s *Store) ShrinkMemory() {
+	if s.DB != nil {
+		s.DB.Exec("PRAGMA shrink_memory")
+	}
+	if s.ReadDB != nil {
+		s.ReadDB.Exec("PRAGMA shrink_memory")
+	}
 }
 
 func (s *Store) Close() error {

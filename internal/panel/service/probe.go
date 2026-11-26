@@ -231,24 +231,46 @@ func (p *Panel) RollupProbes() {
 		FROM probe_results WHERE ts >= ? AND ts < ? GROUP BY server_id, target, (ts/3600)`, from, to)
 	p.St.DB.Exec("DELETE FROM probe_results WHERE ts < ?", now-int64(p.St.GetInt("retention_probe_raw_days", 3))*86400)
 	p.St.DB.Exec("DELETE FROM probe_results_1h WHERE ts < ?", now-int64(p.St.GetInt("retention_probe_1h_days", 90))*86400)
+	p.St.ShrinkMemory()
 }
 
 // ProbeSeries returns raw rows for ranges up to 2 days, hourly beyond.
 func (p *Panel) ProbeSeries(serverID uint, target string, rangeSec int64) []store.ProbeResult {
+	return p.ProbeSeriesMany(serverID, []string{target}, rangeSec)[target]
+}
+
+// ProbeSeriesMany fetches probe series for multiple targets in a single query.
+func (p *Panel) ProbeSeriesMany(serverID uint, targets []string, rangeSec int64) map[string][]store.ProbeResult {
+	out := make(map[string][]store.ProbeResult, len(targets))
+	uniq := make([]string, 0, len(targets))
+	for _, t := range targets {
+		if t == "" {
+			continue
+		}
+		if _, seen := out[t]; !seen {
+			out[t] = []store.ProbeResult{}
+			uniq = append(uniq, t)
+		}
+	}
+	if len(uniq) == 0 {
+		return out
+	}
 	p.FlushTelemetry()
 	since := time.Now().Unix() - rangeSec
-	var rows []store.ProbeResult
 	if rangeSec <= 2*86400 {
-		p.St.R().Where("server_id = ? AND target = ? AND ts >= ?", serverID, target, since).Order("ts").Find(&rows)
-		return rows
+		var rows []store.ProbeResult
+		p.St.R().Where("server_id = ? AND target IN ? AND ts >= ?", serverID, uniq, since).Order("ts").Find(&rows)
+		for _, r := range rows {
+			out[r.Target] = append(out[r.Target], r)
+		}
+		return out
 	}
 	var hs []store.ProbeResultHour
-	p.St.R().Where("server_id = ? AND target = ? AND ts >= ?", serverID, target, since).Order("ts").Find(&hs)
-	rows = make([]store.ProbeResult, len(hs))
-	for i, h := range hs {
-		rows[i] = h.ProbeResult
+	p.St.R().Where("server_id = ? AND target IN ? AND ts >= ?", serverID, uniq, since).Order("ts").Find(&hs)
+	for _, h := range hs {
+		out[h.Target] = append(out[h.Target], h.ProbeResult)
 	}
-	return rows
+	return out
 }
 
 type ProbeCell struct {

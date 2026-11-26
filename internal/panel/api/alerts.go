@@ -265,17 +265,14 @@ func (a *API) probeSeries(c *gin.Context) {
 	} else if rng > 400*86400 {
 		rng = 400 * 86400
 	}
-	targets := strings.Split(c.Query("targets"), ",")
-	out := map[string]any{}
-	count := 0
-	for _, t := range targets {
+	var list []string
+	for _, t := range strings.Split(c.Query("targets"), ",") {
 		if t = strings.TrimSpace(t); t != "" {
-			if count >= 60 {
+			list = append(list, t)
+			if len(list) >= 60 {
 				break
 			}
-			out[t] = a.P.ProbeSeries(uint(sid), t, rng)
-			count++
 		}
 	}
-	ok(c, out)
+	ok(c, a.P.ProbeSeriesMany(uint(sid), list, rng))
 }

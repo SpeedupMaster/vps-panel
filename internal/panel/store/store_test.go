@@ -21,8 +21,8 @@ func TestOpenConfiguresMemoryPragmas(t *testing.T) {
 	st.DB.Raw("PRAGMA journal_size_limit").Scan(&journalLimit)
 	st.DB.Raw("PRAGMA journal_mode").Scan(&journalMode)
 
-	if cacheSize != -8000 {
-		t.Errorf("DB cache_size = %d, want -8000", cacheSize)
+	if cacheSize != -2000 {
+		t.Errorf("DB cache_size = %d, want -2000", cacheSize)
 	}
 	if tempStore != 1 { // 1 = FILE
 		t.Errorf("DB temp_store = %d, want 1 (FILE)", tempStore)
@@ -43,17 +43,62 @@ func TestOpenConfiguresMemoryPragmas(t *testing.T) {
 	st.R().Raw("PRAGMA temp_store").Scan(&rTemp)
 	st.R().Raw("PRAGMA query_only").Scan(&rQueryOnly)
 	st.R().Raw("PRAGMA journal_mode").Scan(&rJournal)
-	if rCache != -8000 {
-		t.Errorf("ReadDB cache_size = %d, want -8000", rCache)
+	if rCache != -1000 {
+		t.Errorf("ReadDB cache_size = %d, want -1000", rCache)
 	}
-	if rTemp != 2 { // 2 = MEMORY
-		t.Errorf("ReadDB temp_store = %d, want 2 (MEMORY)", rTemp)
+	if rTemp != 1 { // 1 = FILE (avoids off-GC temp B-tree retention per reader)
+		t.Errorf("ReadDB temp_store = %d, want 1 (FILE)", rTemp)
 	}
 	if rQueryOnly != 1 {
 		t.Errorf("ReadDB query_only = %d, want 1", rQueryOnly)
 	}
 	if rJournal != "wal" {
 		t.Errorf("ReadDB journal_mode = %q, want wal", rJournal)
+	}
+
+	readSQLDB, err := st.R().DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if maxOpen := readSQLDB.Stats().MaxOpenConnections; maxOpen < 2 || maxOpen > 4 {
+		t.Errorf("ReadDB MaxOpenConnections = %d, want 2..4", maxOpen)
+	}
+}
+
+func TestReadPoolCapsIdleConnectionsAfterBurst(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	for i := 0; i < 20; i++ {
+		if err := st.DB.Create(&AuditLog{Type: "system", Action: "seed", Target: fmt.Sprintf("s-%d", i), TS: time.Now()}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Hold 4 concurrent queries open simultaneously via barrier so ReadDB opens multiple connections.
+	const workers = 4
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 25; j++ {
+				var logs []AuditLog
+				st.R().Order("id desc").Find(&logs)
+			}
+		}()
+	}
+	wg.Wait()
+
+	readSQLDB, err := st.R().DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if idle := readSQLDB.Stats().Idle; idle > 1 {
+		t.Fatalf("ReadDB retained %d idle connections after burst, want <= 1 so off-GC page caches release", idle)
 	}
 }
 

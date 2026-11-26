@@ -107,7 +107,7 @@ export default defineConfig({
           includeDependenciesRecursively: false,
           groups: [
             { name: 'vendor', test: /[\\/]node_modules[\\/](?:(?:vue|vue-router)[\\/]|@vue[\\/])/ },
-            { name: 'charts', test: /[\\/]node_modules[\\/](?:echarts|zrender|vue-echarts)[\\/]/ },
+            { name: 'charts', test: /[\\/]node_modules[\\/](?:echarts|zrender|vue-echarts|tslib)[\\/]/ },
             { name: 'xterm', test: /[\\/]node_modules[\\/]@xterm[\\/]/ },
             { name: 'flow', test: /[\\/]node_modules[\\/]@vue-flow[\\/]/ },
           ],

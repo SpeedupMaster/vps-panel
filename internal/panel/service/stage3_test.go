@@ -2,8 +2,13 @@ package service
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"gorm.io/gorm"
 
 	"vpspanel/internal/common/proto"
 	"vpspanel/internal/panel/store"
@@ -185,5 +190,54 @@ func TestTransactionalProbeBulkAndSubTemplates(t *testing.T) {
 	}
 	if activeCount != 1 {
 		t.Fatalf("active templates = %d, want 1", activeCount)
+	}
+}
+
+func TestCycleUsageMapAggregatesInSQLAcrossMixedResetDays(t *testing.T) {
+	p := newTestPanel(t)
+	s1 := addNode(t, p, "Reset1-A", "HK", "1.1.1.1", true, false)
+	s2 := addNode(t, p, "Reset1-B", "JP", "2.2.2.2", true, false)
+	s3 := addNode(t, p, "Reset15", "US", "3.3.3.3", true, false)
+	p.St.DB.Model(s1).Updates(map[string]any{"reset_day": 1, "count_mode": "out"})
+	p.St.DB.Model(s2).Updates(map[string]any{"reset_day": 1, "count_mode": "both"})
+	p.St.DB.Model(s3).Updates(map[string]any{"reset_day": 15, "count_mode": "max"})
+
+	now := time.Now()
+	curHour := now.Unix() / 3600 * 3600
+	oldHour := now.AddDate(0, -2, 0).Unix() / 3600 * 3600
+	for _, sv := range []*store.Server{s1, s2, s3} {
+		sid := strconv.FormatUint(uint64(sv.ID), 10)
+		for h := int64(0); h < 12; h++ {
+			p.St.DB.Create(&store.TrafficHourly{Scope: "server", ScopeID: sid, Hour: curHour - h*3600, Up: uint64(sv.ID) * 100, Down: uint64(sv.ID) * 50})
+		}
+		// Out-of-cycle traffic must be excluded.
+		p.St.DB.Create(&store.TrafficHourly{Scope: "server", ScopeID: sid, Hour: oldHour, Up: 999999, Down: 999999})
+	}
+
+	var svs []store.Server
+	p.St.R().Order("id").Find(&svs)
+
+	var nonAggQueries atomic.Int64
+	const cbName = "test:check_cycle_usage_sql_agg"
+	if err := p.St.R().Callback().Query().After("gorm:query").Register(cbName, func(db *gorm.DB) {
+		if db.Statement != nil && strings.Contains(db.Statement.SQL.String(), "traffic_hourly") {
+			if !strings.Contains(strings.ToUpper(db.Statement.SQL.String()), "SUM(") {
+				nonAggQueries.Add(1)
+			}
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := p.CycleUsageMap(svs)
+	if nonAggQueries.Load() != 0 {
+		t.Fatalf("CycleUsageMap scanned raw traffic_hourly rows (%d non-SUM queries) instead of aggregating in SQL", nonAggQueries.Load())
+	}
+	for i := range svs {
+		sv := &svs[i]
+		want := p.CycleUsage(sv)
+		if got[sv.ID].Up != want.Up || got[sv.ID].Down != want.Down || got[sv.ID].Counted != want.Counted {
+			t.Fatalf("server %d CycleUsageMap = %+v, want %+v", sv.ID, got[sv.ID], want)
+		}
 	}
 }
