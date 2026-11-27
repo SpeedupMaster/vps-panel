@@ -1,9 +1,10 @@
 name: image
 
-# Runs web & Go quality gates, then builds the multi-arch panel image
-# (linux/amd64, linux/arm64) and pushes it to GitHub Container Registry:
-#   main       -> ghcr.io/<owner>/vps-panel:latest, :sha-<short>
-#   tag v1.2.3 -> :1.2.3, :1.2
+# Runs web & Go quality gates, then builds the linux/amd64 panel image
+# and pushes it to GitHub Container Registry:
+#   main       -> ghcr.io/<owner>/vps-panel:latest
+#   tag v1.2.3 -> ghcr.io/<owner>/vps-panel:1.2.3, :latest
+# After pushing, prunes untagged and non-release/non-latest package versions.
 on:
   push:
     branches: [main]
@@ -14,13 +15,12 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: image-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   test:
     runs-on: ubuntu-latest
+    concurrency:
+      group: test-${{ github.ref }}
+      cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -61,6 +61,9 @@ jobs:
   build:
     needs: [test]
     runs-on: ubuntu-latest
+    concurrency:
+      group: image-publish-${{ github.event_name == 'pull_request' && github.ref || 'registry' }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     permissions:
       contents: read
       packages: write
@@ -69,12 +72,21 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: docker/setup-qemu-action@v3
-
       - uses: docker/setup-buildx-action@v3
 
+      - id: ver
+        run: |
+          if [[ "${GITHUB_REF}" =~ ^refs/tags/v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$(git describe --tags --always)" >> "$GITHUB_OUTPUT"
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
       - uses: docker/login-action@v3
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || steps.ver.outputs.is_release == 'true')
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -84,23 +96,21 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository_owner }}/vps-panel
+          flavor: |
+            latest=false
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha
-
-      - id: ver
-        run: |
-          echo "version=$(git describe --tags --always)" >> "$GITHUB_OUTPUT"
-          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+            type=semver,pattern={{version}},enable=${{ steps.ver.outputs.is_release == 'true' }}
+            type=raw,value=latest,enable=${{ steps.ver.outputs.is_release == 'true' }}
 
       - uses: docker/build-push-action@v6
         with:
           context: .
           file: deploy/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
+          platforms: linux/amd64
+          provenance: false
+          sbom: false
+          push: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || steps.ver.outputs.is_release == 'true') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
@@ -108,3 +118,56 @@ jobs:
             COMMIT=${{ steps.ver.outputs.commit }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Prune non-release and untagged GHCR versions
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || steps.ver.outputs.is_release == 'true')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          PACKAGE: vps-panel
+        run: |
+          set -euo pipefail
+          OWNER_TYPE=$(gh api "/users/${OWNER}" --jq '.type')
+          if [ "${OWNER_TYPE}" = "Organization" ]; then
+            API_BASE="/orgs/${OWNER}/packages/container/${PACKAGE}/versions"
+          else
+            API_BASE="/users/${OWNER}/packages/container/${PACKAGE}/versions"
+          fi
+
+          for pass in 1 2; do
+            VERSIONS=$(gh api --paginate "${API_BASE}?per_page=100" | jq -s 'add // []')
+            TO_DELETE=$(echo "${VERSIONS}" | jq -r '
+              .[]
+              | select(
+                  ((.metadata.container.tags // [])
+                    | any(. == "latest" or test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))
+                  ) | not
+                )
+              | "\(.id)\t\((.metadata.container.tags // []) | join(","))"
+            ')
+            if [ -z "${TO_DELETE}" ]; then
+              echo "Pass ${pass}: no obsolete package versions found."
+              break
+            fi
+            FAILED=0
+            while IFS=$'\t' read -r vid vtags; do
+              [ -z "${vid}" ] && continue
+              echo "Pass ${pass}: deleting package version ${vid} (tags: ${vtags:-<untagged>})"
+              if ! gh api -X DELETE "${API_BASE}/${vid}"; then
+                if [ "${pass}" -eq 2 ]; then
+                  echo "::error::Pass ${pass}: failed to delete version ${vid}"
+                  exit 1
+                fi
+                echo "::warning::Pass ${pass}: failed to delete version ${vid}, will retry on pass 2"
+                FAILED=1
+              fi
+            done <<< "${TO_DELETE}"
+            if [ "${FAILED}" -eq 0 ]; then
+              break
+            fi
+          done
+
+          echo "Remaining package versions:"
+          gh api --paginate "${API_BASE}?per_page=100" | jq -s -r '
+            (add // [])[] | "  id=\(.id) digest=\(.name) tags=\((.metadata.container.tags // []) | join(","))"
+          '

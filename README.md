@@ -87,7 +87,7 @@
 
 ## 🚀 快速开始（部署面板）
 
-GitHub Actions 会在每次推送到 `main` 分支或打版本标签时先执行前后端测试与构建门禁（`pnpm test` / `pnpm build`、`go vet` 与 `go test -race`），通过后自动构建 `linux/amd64` 与 `linux/arm64` 多架构镜像并发布至 GitHub Container Registry（`ghcr.io/speedupmaster/vps-panel:latest`）。镜像内已预置 `amd64` 与 `arm64` 双架构 Agent 二进制包，启动后即可直接供受控机器下载安装。
+GitHub Actions 会在每次推送到 `main` 分支或打正式版本标签（如 `v1.0.0`）时先执行前后端测试与构建门禁（`pnpm test` / `pnpm build`、`go vet` 与 `go test -race`），通过后自动构建 `linux/amd64` 镜像并发布至 GitHub Container Registry（仅保留正式版标签与 `latest`，如 `ghcr.io/speedupmaster/vps-panel:1.0.0`、`ghcr.io/speedupmaster/vps-panel:latest`，并自动清理历史未标记及非正式版镜像）。镜像内已预置 `amd64` 与 `arm64` 双架构 Agent 二进制包，启动后即可直接供受控机器下载安装。
 
 ### 方式一：Docker Compose + Caddy 自动 HTTPS（推荐）
 
